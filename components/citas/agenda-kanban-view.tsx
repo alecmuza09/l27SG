@@ -10,8 +10,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree } from "lucide-react"
 import { MOCK_CITAS, type Cita } from "@/lib/data/citas"
-import { MOCK_EMPLEADOS } from "@/lib/data/empleados"
-import { MOCK_SUCURSALES } from "@/lib/data/sucursales"
+import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
@@ -39,21 +39,39 @@ const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
 })
 
 export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanViewProps) {
-  const [selectedSucursal, setSelectedSucursal] = useState("1")
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
+  const [selectedSucursal, setSelectedSucursal] = useState<string>("")
   const [viewMode, setViewMode] = useState<"timeline" | "kanban">("timeline")
   const [draggedCita, setDraggedCita] = useState<Cita | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ time: string; empleadoId: string } | null>(null)
   const [vacaciones, setVacaciones] = useState<Vacacion[]>([])
+  const [empleadosSucursal, setEmpleadosSucursal] = useState<Empleado[]>([])
 
   useEffect(() => {
     setVacaciones(getVacaciones())
   }, [])
 
-  const empleadosSucursal = useMemo(
-    () => MOCK_EMPLEADOS.filter((e) => e.sucursalId === selectedSucursal && e.activo),
-    [selectedSucursal],
-  )
+  useEffect(() => {
+    async function loadSucursales() {
+      const sucursalesData = await getSucursalesActivasFromDB()
+      setSucursales(sucursalesData)
+      if (sucursalesData.length > 0 && !selectedSucursal) {
+        setSelectedSucursal(sucursalesData[0].id)
+      }
+    }
+    loadSucursales()
+  }, [])
+
+  useEffect(() => {
+    async function loadEmpleados() {
+      if (selectedSucursal) {
+        const empleados = await getEmpleadosBySucursalFromDB(selectedSucursal)
+        setEmpleadosSucursal(empleados)
+      }
+    }
+    loadEmpleados()
+  }, [selectedSucursal])
 
   const isEmpleadoDeVacaciones = (empleadoId: string, fecha: string): Vacacion | null => {
     const fechaDate = new Date(fecha)
@@ -153,7 +171,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {MOCK_SUCURSALES.map((sucursal) => (
+              {sucursales.map((sucursal) => (
                 <SelectItem key={sucursal.id} value={sucursal.id}>
                   {sucursal.nombre}
                 </SelectItem>

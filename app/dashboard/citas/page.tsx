@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Plus, CalendarIcon, List, LayoutGrid } from "lucide-react"
 import { CalendarView } from "@/components/citas/calendar-view"
@@ -8,15 +8,25 @@ import { DaySchedule } from "@/components/citas/day-schedule"
 import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { MOCK_SUCURSALES } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 
 export default function CitasPage() {
   const today = new Date().toISOString().split("T")[0]
   const [selectedDate, setSelectedDate] = useState(today)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  
-  // Usar la primera sucursal activa por defecto
-  const sucursalId = MOCK_SUCURSALES.find((s) => s.activa)?.id || MOCK_SUCURSALES[0]?.id || "1"
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
+  const [sucursalId, setSucursalId] = useState<string>("")
+
+  useEffect(() => {
+    async function loadSucursales() {
+      const sucursalesData = await getSucursalesActivasFromDB()
+      setSucursales(sucursalesData)
+      if (sucursalesData.length > 0) {
+        setSucursalId(sucursalesData[0].id)
+      }
+    }
+    loadSucursales()
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -25,12 +35,14 @@ export default function CitasPage() {
           <h1 className="text-3xl font-bold text-foreground">Citas</h1>
           <p className="text-muted-foreground">Gestiona las citas y el calendario</p>
         </div>
-        <NuevaCitaDialog
-          open={isDialogOpen}
-          onOpenChange={setIsDialogOpen}
-          selectedDate={selectedDate}
-          sucursalId={sucursalId}
-        />
+        {sucursalId && (
+          <NuevaCitaDialog
+            open={isDialogOpen}
+            onOpenChange={setIsDialogOpen}
+            selectedDate={selectedDate}
+            sucursalId={sucursalId}
+          />
+        )}
         <Button onClick={() => setIsDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Nueva Cita

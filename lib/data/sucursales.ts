@@ -143,3 +143,69 @@ export function getSucursalById(id: string): Sucursal | undefined {
 export function getSucursalesActivas(): Sucursal[] {
   return MOCK_SUCURSALES.filter((s) => s.activa)
 }
+
+// ============================================
+// Funciones para Supabase
+// ============================================
+
+import { supabase } from '@/lib/supabase/client'
+import type { Database } from '@/lib/supabase/types'
+
+type SucursalRow = Database['public']['Tables']['sucursales']['Row']
+
+// Función helper para transformar datos de la BD al formato de la interfaz
+function transformSucursal(sucursal: SucursalRow): Sucursal {
+  return {
+    id: sucursal.id,
+    nombre: sucursal.nombre,
+    direccion: sucursal.direccion,
+    telefono: sucursal.telefono,
+    email: sucursal.email,
+    horario: sucursal.horario || '',
+    activa: sucursal.activa,
+    ciudad: sucursal.ciudad || '',
+    pais: sucursal.pais || 'México',
+  }
+}
+
+// Obtener todas las sucursales activas desde Supabase
+export async function getSucursalesActivasFromDB(): Promise<Sucursal[]> {
+  try {
+    const { data, error } = await supabase
+      .from('sucursales')
+      .select('*')
+      .eq('activa', true)
+      .order('nombre')
+
+    if (error) {
+      console.error('Error obteniendo sucursales:', error)
+      return []
+    }
+
+    return data.map(transformSucursal)
+  } catch (error) {
+    console.error('Error inesperado obteniendo sucursales:', error)
+    return []
+  }
+}
+
+// Obtener una sucursal por ID desde Supabase
+export async function getSucursalByIdFromDB(id: string): Promise<Sucursal | null> {
+  try {
+    const { data, error } = await supabase
+      .from('sucursales')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error) {
+      console.error('Error obteniendo sucursal:', error)
+      return null
+    }
+
+    return transformSucursal(data)
+  } catch (error) {
+    console.error('Error inesperado obteniendo sucursal:', error)
+    return null
+  }
+}

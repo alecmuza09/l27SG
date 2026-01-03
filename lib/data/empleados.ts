@@ -132,6 +132,26 @@ function transformEmpleado(empleado: EmpleadoRow): Empleado {
   }
 }
 
+// Obtener todos los empleados desde Supabase
+export async function getEmpleadosFromDB(): Promise<Empleado[]> {
+  try {
+    const { data, error } = await supabase
+      .from('empleados')
+      .select('*')
+      .order('nombre')
+
+    if (error) {
+      console.error('Error obteniendo empleados:', error)
+      return []
+    }
+
+    return data.map(transformEmpleado)
+  } catch (error) {
+    console.error('Error inesperado obteniendo empleados:', error)
+    return []
+  }
+}
+
 // Obtener empleados activos por sucursal desde Supabase
 export async function getEmpleadosBySucursalFromDB(sucursalId: string): Promise<Empleado[]> {
   try {

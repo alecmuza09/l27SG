@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, Mail, Phone, Calendar, Edit, Trash2, Award } from "lucide-react"
-import { MOCK_EMPLEADOS } from "@/lib/data/empleados"
+import { Plus, Search, Mail, Phone, Calendar, Edit, Trash2, Award, Loader2, Filter } from "lucide-react"
+import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
@@ -19,22 +19,68 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { getSucursalesActivas } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 
 export default function EmpleadosPage() {
-  const [empleados] = useState(MOCK_EMPLEADOS)
+  const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  const [sucursalFilter, setSucursalFilter] = useState<string>("todas")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const sucursales = getSucursalesActivas()
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredEmpleados = searchQuery
-    ? empleados.filter(
-        (e) =>
-          e.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          e.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          e.email.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : empleados
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setIsLoading(true)
+        setError(null)
+        const [empleadosData, sucursalesData] = await Promise.all([
+          getEmpleadosFromDB(),
+          getSucursalesActivasFromDB(),
+        ])
+        setEmpleados(empleadosData)
+        setSucursales(sucursalesData)
+      } catch (err) {
+        console.error('Error cargando datos:', err)
+        setError('Error al cargar los datos. Por favor, intenta de nuevo.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [])
+
+  useEffect(() => {
+    async function loadEmpleados() {
+      try {
+        setIsLoading(true)
+        setError(null)
+        const empleadosData = await getEmpleadosFromDB()
+        setEmpleados(empleadosData)
+      } catch (err) {
+        console.error('Error cargando empleados:', err)
+        setError('Error al cargar los empleados. Por favor, intenta de nuevo.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadEmpleados()
+  }, [])
+
+  const filteredEmpleados = empleados.filter((e) => {
+    const matchesSearch = searchQuery
+      ? e.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.email.toLowerCase().includes(searchQuery.toLowerCase())
+      : true
+
+    const matchesSucursal = sucursalFilter === "todas" || e.sucursalId === sucursalFilter
+
+    return matchesSearch && matchesSucursal
+  })
 
   const stats = {
     total: empleados.length,
@@ -201,8 +247,8 @@ export default function EmpleadosPage() {
           <CardDescription>Gestiona tu equipo de trabajo</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
-            <div className="relative">
+          <div className="mb-4 flex gap-4">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar por nombre o email..."
@@ -211,6 +257,20 @@ export default function EmpleadosPage() {
                 className="pl-10"
               />
             </div>
+            <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
+              <SelectTrigger className="w-[200px]">
+                <Filter className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="Filtrar por sucursal" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas las sucursales</SelectItem>
+                {sucursales.map((sucursal) => (
+                  <SelectItem key={sucursal.id} value={sucursal.id}>
+                    {sucursal.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="rounded-md border">
@@ -219,6 +279,7 @@ export default function EmpleadosPage() {
                 <TableRow>
                   <TableHead>Empleado</TableHead>
                   <TableHead>Contacto</TableHead>
+                  <TableHead>Sucursal</TableHead>
                   <TableHead>Rol</TableHead>
                   <TableHead>Horario</TableHead>
                   <TableHead>Comisión</TableHead>
@@ -227,7 +288,16 @@ export default function EmpleadosPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredEmpleados.map((empleado) => (
+                {filteredEmpleados.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      {searchQuery || sucursalFilter !== "todas" 
+                        ? 'No se encontraron empleados con ese criterio de búsqueda' 
+                        : 'No hay empleados registrados'}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredEmpleados.map((empleado) => (
                   <TableRow key={empleado.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -256,6 +326,11 @@ export default function EmpleadosPage() {
                           <span className="text-xs">{empleado.telefono}</span>
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {sucursales.find((s) => s.id === empleado.sucursalId)?.nombre || 'Sin sucursal'}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="capitalize">
@@ -292,7 +367,8 @@ export default function EmpleadosPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
@@ -315,11 +391,15 @@ export default function EmpleadosPage() {
                   <p className="text-sm text-muted-foreground capitalize">{empleado.rol}</p>
                 </div>
                 <div className="flex flex-wrap gap-2 max-w-md">
-                  {empleado.especialidades.map((esp, i) => (
-                    <Badge key={i} variant="outline">
-                      {esp}
-                    </Badge>
-                  ))}
+                  {empleado.especialidades && empleado.especialidades.length > 0 ? (
+                    empleado.especialidades.map((esp, i) => (
+                      <Badge key={i} variant="outline">
+                        {esp}
+                      </Badge>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Sin especialidades</span>
+                  )}
                 </div>
               </div>
             ))}
