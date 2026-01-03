@@ -7,14 +7,22 @@
 Crea un archivo `.env.local` en la raíz del proyecto con el siguiente contenido:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://wrmabtdjtlefnxvdtxww.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_ir3wugq_Hsr0aT5J2IfvAQ_0p40ypQ-
-SUPABASE_SERVICE_ROLE_KEY=sb_secret_a_0wSqFUGNFasapbTYjkMw_lhyYWwhs
+NEXT_PUBLIC_SUPABASE_URL=tu_url_de_supabase
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
+SUPABASE_SERVICE_ROLE_KEY=tu_service_role_key
 ```
+
+**⚠️ Importante:** Obtén estas claves en tu dashboard de Supabase:
+- Ve a: **Settings** → **API** en tu proyecto de Supabase
+- Copia la **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
+- Copia la **anon/public key** → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- Copia la **service_role key** (haz click en "Reveal") → `SUPABASE_SERVICE_ROLE_KEY`
+
+**🔒 Seguridad:** NUNCA compartas tu `SUPABASE_SERVICE_ROLE_KEY` públicamente. Esta clave tiene permisos completos sobre tu base de datos.
 
 ### 2. Ejecutar el script SQL
 
-1. Ve a tu proyecto en Supabase Dashboard: https://supabase.com/dashboard/project/wrmabtdjtlefnxvdtxww
+1. Ve a tu proyecto en Supabase Dashboard: https://supabase.com/dashboard/project/TU_PROJECT_ID
 2. Navega a **SQL Editor**
 3. Crea un nuevo query
 4. Copia y pega el contenido completo del archivo `supabase/schema.sql`
