@@ -247,8 +247,8 @@ export function NuevaCitaDialog({
           <DialogTitle>Nueva Cita</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
-          <ScrollArea className="flex-1 px-6">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 overflow-y-auto px-6">
             <div className="space-y-6 pb-6">
               {/* Sección de Cliente */}
               <div className="space-y-4">
