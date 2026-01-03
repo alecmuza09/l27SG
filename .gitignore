@@ -36,8 +36,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# scripts temporales
-/scripts/*.ts
+# scripts temporales (mantener scripts de importación)
+# /scripts/*.ts
 
 # terminals
 /terminals/
