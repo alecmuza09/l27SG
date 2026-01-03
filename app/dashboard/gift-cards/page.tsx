@@ -30,7 +30,8 @@ import {
   RefreshCw,
   CheckCircle,
 } from "lucide-react"
-import { sucursalesData, clientesData } from "@/lib/data"
+import { sucursalesData } from "@/lib/data"
+import { getClientes, type Cliente } from "@/lib/data/clientes"
 import {
   getGiftCards,
   saveGiftCards,
@@ -58,6 +59,7 @@ const estadoLabels: Record<GiftCard["estado"], string> = {
 
 export default function GiftCardsPage() {
   const [giftCards, setGiftCards] = useState<GiftCard[]>([])
+  const [clientes, setClientes] = useState<Cliente[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -80,6 +82,13 @@ export default function GiftCardsPage() {
 
   useEffect(() => {
     setGiftCards(getGiftCards())
+    
+    // Cargar clientes desde Supabase
+    async function loadClientes() {
+      const clientesData = await getClientes()
+      setClientes(clientesData)
+    }
+    loadClientes()
   }, [])
 
   const filteredCards = giftCards.filter((card) => {
@@ -100,7 +109,7 @@ export default function GiftCardsPage() {
     if (!newCardAmount || !newCardSucursal) return
 
     const sucursal = sucursalesData.find((s) => s.id === newCardSucursal)
-    const cliente = clientesData.find((c) => c.id === newCardClient)
+    const cliente = clientes.find((c) => c.id === newCardClient)
 
     const newCard: GiftCard = {
       id: `gc-${Date.now()}`,
@@ -513,7 +522,7 @@ export default function GiftCardsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Sin asignar</SelectItem>
-                  {clientesData.map((cliente) => (
+                  {clientes.map((cliente) => (
                     <SelectItem key={cliente.id} value={cliente.id}>
                       {cliente.nombre} {cliente.apellido}
                     </SelectItem>
