@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2 } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -237,11 +237,19 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[600px]">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                  {[...empleadosDisponibles, ...empleadosDeVacacionesHoy].map((empleado) => {
-                    const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
-                    const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
+              {isLoadingCitas ? (
+                <div className="flex items-center justify-center h-[600px]">
+                  <div className="text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">Cargando citas...</p>
+                  </div>
+                </div>
+              ) : (
+                <ScrollArea className="h-[600px]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+                    {[...empleadosDisponibles, ...empleadosDeVacacionesHoy].map((empleado) => {
+                      const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
+                      const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
 
                     return (
                       <div key={empleado.id} className={cn("space-y-2", vacacionEmpleado && "opacity-60")}>
@@ -296,17 +304,38 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                         ) : (
                           /* Timeline de 30 minutos */
                           <div className="space-y-1">
-                            {TIME_SLOTS.map((slot) => {
+                            {TIME_SLOTS.map((slot, slotIndex) => {
                               const [hour, minutes] = slot.split(":")
                               const slotTime = `${hour}:${minutes}`
+                              
+                              // Normalizar formato de hora para comparación
+                              const normalizarHora = (hora: string): string => {
+                                if (!hora) return ''
+                                return hora.substring(0, 5) // Toma solo HH:MM
+                              }
+                              
                               // Buscar citas que empiecen exactamente en este slot
-                              const cita = citasEmpleado.find((c) => c.horaInicio === slotTime)
+                              const cita = citasEmpleado.find((c) => {
+                                const horaInicioNormalizada = normalizarHora(c.horaInicio)
+                                return horaInicioNormalizada === slotTime
+                              })
+                              
+                              // Verificar si este slot está ocupado por una cita que empezó antes
+                              const citaQueOcupaEsteSlot = citasEmpleado.find((c) => {
+                                const horaInicio = normalizarHora(c.horaInicio)
+                                const horaFin = normalizarHora(c.horaFin)
+                                return slotTime >= horaInicio && slotTime < horaFin
+                              })
+                              
                               const isInRange = slotTime >= empleado.horarioInicio && slotTime < empleado.horarioFin
                               
                               // Calcular cuántos slots ocupa la cita (cada slot es 30 minutos)
                               const calcularSlotsOcupados = (cita: Cita): number => {
                                 return Math.ceil(cita.duracion / 30)
                               }
+                              
+                              // Solo mostrar la cita en el slot donde empieza
+                              const mostrarCita = cita && normalizarHora(cita.horaInicio) === slotTime
 
                               return (
                                 <div key={slot} className="flex gap-2">
@@ -315,13 +344,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                     className={cn(
                                       "flex-1 min-h-[40px] border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
                                       !isInRange && "bg-muted/30 cursor-not-allowed",
-                                      cita && "cursor-default",
+                                      (cita || citaQueOcupaEsteSlot) && "cursor-default bg-primary/5",
                                     )}
-                                    onClick={() => !cita && handleSlotClick(slotTime, empleado.id, isInRange)}
+                                    onClick={() => !cita && !citaQueOcupaEsteSlot && handleSlotClick(slotTime, empleado.id, isInRange)}
                                   >
-                                    {cita ? (
+                                    {mostrarCita && cita ? (
                                       <Card
-                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10"
+                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10 border-primary/20 bg-primary/5"
                                         draggable
                                         onDragStart={() => handleDragStart(cita)}
                                         onClick={(e) => e.stopPropagation()}
@@ -329,7 +358,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                           height: `${calcularSlotsOcupados(cita) * 40 + (calcularSlotsOcupados(cita) - 1) * 4}px`,
                                         }}
                                       >
-                                        <CardContent className="p-2 h-full">
+                                        <CardContent className="p-2 h-full flex flex-col justify-between">
                                           <div className="space-y-1">
                                             <Badge
                                               className={cn(
@@ -339,22 +368,27 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                             >
                                               {ESTADOS.find((e) => e.value === cita.estado)?.label}
                                             </Badge>
-                                            <p className="font-medium text-xs truncate">{cita.clienteNombre}</p>
-                                            <p className="text-xs text-muted-foreground truncate">
+                                            <p className="font-semibold text-sm truncate text-foreground">
+                                              {cita.clienteNombre}
+                                            </p>
+                                            <p className="text-xs font-medium text-muted-foreground truncate">
                                               {cita.servicioNombre}
                                             </p>
-                                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                              <span className="flex items-center gap-1">
-                                                <Clock className="h-3 w-3" />
-                                                {cita.duracion}m
-                                              </span>
-                                              <span className="flex items-center gap-1">
-                                                <DollarSign className="h-3 w-3" />${cita.precio}
-                                              </span>
-                                            </div>
+                                          </div>
+                                          <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+                                            <span className="flex items-center gap-1">
+                                              <Clock className="h-3 w-3" />
+                                              {cita.horaInicio} - {cita.horaFin}
+                                            </span>
+                                            <span className="flex items-center gap-1 font-semibold text-foreground">
+                                              <DollarSign className="h-3 w-3" />${cita.precio}
+                                            </span>
                                           </div>
                                         </CardContent>
                                       </Card>
+                                    ) : citaQueOcupaEsteSlot ? (
+                                      // Slot ocupado pero la cita empezó antes - mostrar fondo pero no contenido
+                                      <div className="absolute inset-0 bg-primary/5 z-0" />
                                     ) : (
                                       isInRange && (
                                         <div className="flex items-center justify-center h-full min-h-[40px] opacity-0 hover:opacity-100 transition-opacity">
@@ -371,8 +405,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                       </div>
                     )
                   })}
-                </div>
-              </ScrollArea>
+                  </div>
+                </ScrollArea>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

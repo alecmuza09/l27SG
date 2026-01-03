@@ -205,6 +205,16 @@ export async function createCita(citaData: {
   }
 }
 
+// Función helper para normalizar formato de hora (HH:MM:SS -> HH:MM)
+function normalizarHora(hora: string): string {
+  if (!hora) return ''
+  // Si tiene segundos, removerlos
+  if (hora.includes(':') && hora.split(':').length === 3) {
+    return hora.substring(0, 5) // Toma solo HH:MM
+  }
+  return hora
+}
+
 // Función helper para transformar datos de la BD al formato de la interfaz
 function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }): Cita {
   return {
@@ -217,8 +227,8 @@ function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: stri
     servicioNombre: servicio?.nombre || 'Servicio desconocido',
     sucursalId: cita.sucursal_id,
     fecha: cita.fecha,
-    horaInicio: cita.hora_inicio,
-    horaFin: cita.hora_fin,
+    horaInicio: normalizarHora(cita.hora_inicio),
+    horaFin: normalizarHora(cita.hora_fin),
     duracion: cita.duracion,
     precio: Number(cita.precio),
     estado: cita.estado,
