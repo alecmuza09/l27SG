@@ -1,12 +1,13 @@
 "use client"
 
+import type React from "react"
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, Mail, Phone, Calendar, Edit, Trash2, Award, Loader2, Filter } from "lucide-react"
-import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
+import { Plus, Search, Mail, Phone, Calendar, Edit, Trash2, Award, Loader2, Filter, RotateCcw } from "lucide-react"
+import { getEmpleadosFromDB, getEmpleadosEliminadosFromDB, eliminarEmpleado, restaurarEmpleado, type Empleado } from "@/lib/data/empleados"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
@@ -20,37 +21,35 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { toast } from "sonner"
+import { updateEmpleado } from "@/lib/data/empleados"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 export default function EmpleadosPage() {
   const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [empleadosEliminados, setEmpleadosEliminados] = useState<Empleado[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [sucursalFilter, setSucursalFilter] = useState<string>("todas")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingEmpleado, setEditingEmpleado] = useState<Empleado | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
+  const [activeTab, setActiveTab] = useState<"activos" | "eliminados">("activos")
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setIsLoading(true)
-        setError(null)
-        const [empleadosData, sucursalesData] = await Promise.all([
-          getEmpleadosFromDB(),
-          getSucursalesActivasFromDB(),
-        ])
-        setEmpleados(empleadosData)
-        setSucursales(sucursalesData)
-      } catch (err) {
-        console.error('Error cargando datos:', err)
-        setError('Error al cargar los datos. Por favor, intenta de nuevo.')
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadData()
-  }, [])
 
   useEffect(() => {
     async function loadEmpleados() {
@@ -70,7 +69,7 @@ export default function EmpleadosPage() {
     loadEmpleados()
   }, [])
 
-  const filteredEmpleados = empleados.filter((e) => {
+  const filteredEmpleados = (activeTab === "activos" ? empleados : empleadosEliminados).filter((e) => {
     const matchesSearch = searchQuery
       ? e.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
         e.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -81,6 +80,35 @@ export default function EmpleadosPage() {
 
     return matchesSearch && matchesSucursal
   })
+
+  const handleEliminar = async () => {
+    if (!empleadoToDelete) return
+    
+    const result = await eliminarEmpleado(empleadoToDelete.id)
+    if (result.success) {
+      toast.success(`Empleado ${empleadoToDelete.nombre} ${empleadoToDelete.apellido} eliminado`)
+      setDeleteDialogOpen(false)
+      setEmpleadoToDelete(null)
+      await loadEmpleados()
+    } else {
+      toast.error(`Error al eliminar empleado: ${result.error}`)
+    }
+  }
+
+  const handleRestaurar = async (empleado: Empleado) => {
+    const result = await restaurarEmpleado(empleado.id)
+    if (result.success) {
+      toast.success(`Empleado ${empleado.nombre} ${empleado.apellido} restaurado`)
+      await loadEmpleados()
+    } else {
+      toast.error(`Error al restaurar empleado: ${result.error}`)
+    }
+  }
+
+  const handleEdit = (empleado: Empleado) => {
+    setEditingEmpleado(empleado)
+    setIsEditDialogOpen(true)
+  }
 
   const stats = {
     total: empleados.length,
@@ -358,12 +386,36 @@ export default function EmpleadosPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {activeTab === "activos" ? (
+                          <>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => handleEdit(empleado)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => {
+                                setEmpleadoToDelete(empleado)
+                                setDeleteDialogOpen(true)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => handleRestaurar(empleado)}
+                            title="Restaurar empleado"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -375,37 +427,297 @@ export default function EmpleadosPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Especialidades por Empleado</CardTitle>
-          <CardDescription>Servicios que puede realizar cada empleado</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {empleados.map((empleado) => (
-              <div key={empleado.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-                <div>
-                  <p className="font-medium">
-                    {empleado.nombre} {empleado.apellido}
-                  </p>
-                  <p className="text-sm text-muted-foreground capitalize">{empleado.rol}</p>
+      {activeTab === "activos" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Especialidades por Empleado</CardTitle>
+            <CardDescription>Servicios que puede realizar cada empleado</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {empleados.map((empleado) => (
+                <div key={empleado.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+                  <div>
+                    <p className="font-medium">
+                      {empleado.nombre} {empleado.apellido}
+                    </p>
+                    <p className="text-sm text-muted-foreground capitalize">{empleado.rol}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 max-w-md">
+                    {empleado.especialidades && empleado.especialidades.length > 0 ? (
+                      empleado.especialidades.map((esp, i) => (
+                        <Badge key={i} variant="outline">
+                          {esp}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Sin especialidades</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2 max-w-md">
-                  {empleado.especialidades && empleado.especialidades.length > 0 ? (
-                    empleado.especialidades.map((esp, i) => (
-                      <Badge key={i} variant="outline">
-                        {esp}
-                      </Badge>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">Sin especialidades</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Diálogo de confirmación de eliminación */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar empleado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Estás seguro de que deseas eliminar a {empleadoToDelete?.nombre} {empleadoToDelete?.apellido}?
+              El empleado se moverá a la sección de empleados eliminados y podrá ser restaurado más tarde.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleEliminar} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Diálogo de edición de empleado */}
+      {editingEmpleado && (
+        <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+          setIsEditDialogOpen(open)
+          if (!open) setEditingEmpleado(null)
+        }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Editar Empleado</DialogTitle>
+              <DialogDescription>Modifica la información del empleado</DialogDescription>
+            </DialogHeader>
+            <EditarEmpleadoDialog
+              empleado={editingEmpleado}
+              sucursales={sucursales}
+              onClose={() => {
+                setIsEditDialogOpen(false)
+                setEditingEmpleado(null)
+              }}
+              onSuccess={loadEmpleados}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
+  )
+}
+
+// Componente de diálogo de edición
+function EditarEmpleadoDialog({
+  empleado,
+  sucursales,
+  onClose,
+  onSuccess,
+}: {
+  empleado: Empleado
+  sucursales: Sucursal[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [formData, setFormData] = useState({
+    nombre: empleado.nombre,
+    apellido: empleado.apellido,
+    email: empleado.email,
+    telefono: empleado.telefono,
+    rol: empleado.rol,
+    sucursalId: empleado.sucursalId,
+    horarioInicio: empleado.horarioInicio,
+    horarioFin: empleado.horarioFin,
+    comision: empleado.comision,
+  })
+  const [diasTrabajo, setDiasTrabajo] = useState<number[]>(empleado.diasTrabajo || [])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const diasSemana = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSubmitting(true)
+
+    try {
+      const result = await updateEmpleado(empleado.id, {
+        nombre: formData.nombre,
+        apellido: formData.apellido,
+        email: formData.email,
+        telefono: formData.telefono,
+        rol: formData.rol,
+        sucursal_id: formData.sucursalId,
+        horario_inicio: formData.horarioInicio,
+        horario_fin: formData.horarioFin,
+        comision: formData.comision,
+        dias_trabajo: diasTrabajo,
+      })
+
+      if (result.success) {
+        toast.success("Empleado actualizado exitosamente")
+        onSuccess()
+        onClose()
+      } else {
+        toast.error(`Error al actualizar empleado: ${result.error}`)
+      }
+    } catch (error: any) {
+      console.error("Error inesperado:", error)
+      toast.error("Error inesperado al actualizar el empleado")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const toggleDia = (index: number) => {
+    if (diasTrabajo.includes(index)) {
+      setDiasTrabajo(diasTrabajo.filter(d => d !== index))
+    } else {
+      setDiasTrabajo([...diasTrabajo, index])
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-nombre">Nombre *</Label>
+          <Input
+            id="edit-nombre"
+            value={formData.nombre}
+            onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-apellido">Apellido *</Label>
+          <Input
+            id="edit-apellido"
+            value={formData.apellido}
+            onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
+            required
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-email">Email *</Label>
+          <Input
+            id="edit-email"
+            type="email"
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-telefono">Teléfono *</Label>
+          <Input
+            id="edit-telefono"
+            value={formData.telefono}
+            onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+            required
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-rol">Rol *</Label>
+          <Select value={formData.rol} onValueChange={(value: any) => setFormData({ ...formData, rol: value })}>
+            <SelectTrigger id="edit-rol">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="terapeuta">Terapeuta</SelectItem>
+              <SelectItem value="esteticista">Esteticista</SelectItem>
+              <SelectItem value="recepcionista">Recepcionista</SelectItem>
+              <SelectItem value="manager">Manager</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-sucursal">Sucursal *</Label>
+          <Select value={formData.sucursalId} onValueChange={(value) => setFormData({ ...formData, sucursalId: value })}>
+            <SelectTrigger id="edit-sucursal">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sucursales.map((sucursal) => (
+                <SelectItem key={sucursal.id} value={sucursal.id}>
+                  {sucursal.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-horarioInicio">Horario Inicio</Label>
+          <Input
+            id="edit-horarioInicio"
+            type="time"
+            value={formData.horarioInicio}
+            onChange={(e) => setFormData({ ...formData, horarioInicio: e.target.value })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-horarioFin">Horario Fin</Label>
+          <Input
+            id="edit-horarioFin"
+            type="time"
+            value={formData.horarioFin}
+            onChange={(e) => setFormData({ ...formData, horarioFin: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Días de Trabajo</Label>
+        <div className="grid grid-cols-4 gap-3">
+          {diasSemana.map((dia, index) => (
+            <div key={dia} className="flex items-center space-x-2">
+              <Checkbox
+                id={`edit-dia-${index}`}
+                checked={diasTrabajo.includes(index)}
+                onCheckedChange={() => toggleDia(index)}
+              />
+              <label htmlFor={`edit-dia-${index}`} className="text-sm cursor-pointer">
+                {dia}
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="edit-comision">Comisión (%)</Label>
+        <Input
+          id="edit-comision"
+          type="number"
+          min="0"
+          max="100"
+          value={formData.comision}
+          onChange={(e) => setFormData({ ...formData, comision: Number(e.target.value) })}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-4">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Guardando...
+            </>
+          ) : (
+            "Guardar Cambios"
+          )}
+        </Button>
+      </div>
+    </form>
   )
 }

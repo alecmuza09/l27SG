@@ -111,6 +111,7 @@ import { supabase } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 
 type EmpleadoRow = Database['public']['Tables']['empleados']['Row']
+type EmpleadoUpdate = Database['public']['Tables']['empleados']['Update']
 
 // Función helper para transformar datos de la BD al formato de la interfaz
 function transformEmpleado(empleado: EmpleadoRow): Empleado {
@@ -132,13 +133,19 @@ function transformEmpleado(empleado: EmpleadoRow): Empleado {
   }
 }
 
-// Obtener todos los empleados desde Supabase
-export async function getEmpleadosFromDB(): Promise<Empleado[]> {
+// Obtener todos los empleados desde Supabase (solo activos por defecto)
+export async function getEmpleadosFromDB(includeEliminados: boolean = false): Promise<Empleado[]> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('empleados')
       .select('*')
       .order('nombre')
+
+    if (!includeEliminados) {
+      query = query.eq('activo', true)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error obteniendo empleados:', error)
@@ -148,6 +155,27 @@ export async function getEmpleadosFromDB(): Promise<Empleado[]> {
     return data.map(transformEmpleado)
   } catch (error) {
     console.error('Error inesperado obteniendo empleados:', error)
+    return []
+  }
+}
+
+// Obtener solo empleados eliminados (activo = false)
+export async function getEmpleadosEliminadosFromDB(): Promise<Empleado[]> {
+  try {
+    const { data, error } = await supabase
+      .from('empleados')
+      .select('*')
+      .eq('activo', false)
+      .order('nombre')
+
+    if (error) {
+      console.error('Error obteniendo empleados eliminados:', error)
+      return []
+    }
+
+    return data.map(transformEmpleado)
+  } catch (error) {
+    console.error('Error inesperado obteniendo empleados eliminados:', error)
     return []
   }
 }
@@ -192,5 +220,106 @@ export async function getEmpleadoByIdFromDB(id: string): Promise<Empleado | null
   } catch (error) {
     console.error('Error inesperado obteniendo empleado:', error)
     return null
+  }
+}
+
+// Eliminar empleado (soft delete - marcar como inactivo)
+export async function eliminarEmpleado(empleadoId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('empleados')
+      .update({ 
+        activo: false,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', empleadoId)
+
+    if (error) {
+      console.error('Error eliminando empleado:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado eliminando empleado:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Restaurar empleado (marcar como activo)
+export async function restaurarEmpleado(empleadoId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('empleados')
+      .update({ 
+        activo: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', empleadoId)
+
+    if (error) {
+      console.error('Error restaurando empleado:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado restaurando empleado:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Actualizar empleado
+export async function updateEmpleado(
+  empleadoId: string,
+  datos: {
+    nombre?: string
+    apellido?: string
+    email?: string
+    telefono?: string
+    rol?: 'terapeuta' | 'esteticista' | 'recepcionista' | 'manager'
+    sucursal_id?: string
+    especialidades?: string[]
+    horario_inicio?: string
+    horario_fin?: string
+    dias_trabajo?: number[]
+    comision?: number
+    activo?: boolean
+  }
+): Promise<{ success: boolean; empleado?: EmpleadoRow; error?: string }> {
+  try {
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    }
+
+    if (datos.nombre) updateData.nombre = datos.nombre
+    if (datos.apellido) updateData.apellido = datos.apellido
+    if (datos.email) updateData.email = datos.email
+    if (datos.telefono) updateData.telefono = datos.telefono
+    if (datos.rol) updateData.rol = datos.rol
+    if (datos.sucursal_id) updateData.sucursal_id = datos.sucursal_id
+    if (datos.especialidades !== undefined) updateData.especialidades = datos.especialidades
+    if (datos.horario_inicio) updateData.horario_inicio = datos.horario_inicio
+    if (datos.horario_fin) updateData.horario_fin = datos.horario_fin
+    if (datos.dias_trabajo !== undefined) updateData.dias_trabajo = datos.dias_trabajo
+    if (datos.comision !== undefined) updateData.comision = datos.comision
+    if (datos.activo !== undefined) updateData.activo = datos.activo
+
+    const { data, error } = await supabase
+      .from('empleados')
+      .update(updateData)
+      .eq('id', empleadoId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error actualizando empleado:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, empleado: data }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando empleado:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
   }
 }
