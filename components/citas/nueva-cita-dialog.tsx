@@ -211,6 +211,9 @@ export function NuevaCitaDialog({
         { duration: 4000 }
       )
       
+      // Cerrar diálogo (esto disparará el callback en el componente padre para recargar citas)
+      onOpenChange(false)
+      
       // Resetear formulario
       setNuevoCliente({
         nombre: "",

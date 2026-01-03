@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree } from "lucide-react"
-import { MOCK_CITAS, type Cita } from "@/lib/data/citas"
+import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -47,6 +47,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
   const [selectedSlot, setSelectedSlot] = useState<{ time: string; empleadoId: string } | null>(null)
   const [vacaciones, setVacaciones] = useState<Vacacion[]>([])
   const [empleadosSucursal, setEmpleadosSucursal] = useState<Empleado[]>([])
+  const [citas, setCitas] = useState<Cita[]>([])
+  const [isLoadingCitas, setIsLoadingCitas] = useState(false)
 
   useEffect(() => {
     setVacaciones(getVacaciones())
@@ -95,8 +97,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
   }, [empleadosSucursal, selectedDate, vacaciones])
 
   const citasFiltradas = useMemo(
-    () => MOCK_CITAS.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
-    [selectedDate, selectedSucursal],
+    () => citas.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
+    [citas, selectedDate, selectedSucursal],
   )
 
   const citasPorEstado = useMemo(() => {
@@ -145,6 +147,24 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
     if (isEmpleadoDeVacaciones(empleadoId, selectedDate)) return
     setSelectedSlot({ time, empleadoId })
     setDialogOpen(true)
+  }
+
+  const handleCitaCreated = () => {
+    // Recargar citas después de crear una nueva
+    async function reloadCitas() {
+      if (selectedSucursal && selectedDate) {
+        setIsLoadingCitas(true)
+        try {
+          const citasData = await getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal)
+          setCitas(citasData)
+        } catch (error) {
+          console.error('Error recargando citas:', error)
+        } finally {
+          setIsLoadingCitas(false)
+        }
+      }
+    }
+    reloadCitas()
   }
 
   return (
@@ -219,7 +239,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[600px]">
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
                   {[...empleadosDisponibles, ...empleadosDeVacacionesHoy].map((empleado) => {
                     const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                     const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
@@ -280,7 +300,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                             {TIME_SLOTS.map((slot) => {
                               const [hour, minutes] = slot.split(":")
                               const slotTime = `${hour}:${minutes}`
-                              const cita = citasEmpleado.find((c) => c.horaInicio === slotTime)
+                              // Buscar citas que ocupen este slot (pueden empezar antes pero incluir este tiempo)
+                              const cita = citasEmpleado.find((c) => {
+                                const citaInicio = c.horaInicio
+                                const citaFin = c.horaFin
+                                return slotTime >= citaInicio && slotTime < citaFin
+                              })
                               const isInRange = slotTime >= empleado.horarioInicio && slotTime < empleado.horarioFin
 
                               return (
@@ -449,7 +474,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
 
       <NuevaCitaDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open)
+          if (!open) {
+            setSelectedSlot(null)
+            handleCitaCreated()
+          }
+        }}
         selectedDate={selectedDate}
         selectedTime={selectedSlot?.time}
         selectedEmpleadoId={selectedSlot?.empleadoId}

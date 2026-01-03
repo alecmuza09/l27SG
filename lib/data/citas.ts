@@ -204,3 +204,98 @@ export async function createCita(citaData: {
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }
+
+// Función helper para transformar datos de la BD al formato de la interfaz
+function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }): Cita {
+  return {
+    id: cita.id,
+    clienteId: cita.cliente_id,
+    clienteNombre: cliente ? `${cliente.nombre} ${cliente.apellido}` : 'Cliente desconocido',
+    empleadoId: cita.empleado_id,
+    empleadoNombre: empleado ? `${empleado.nombre} ${empleado.apellido}` : 'Empleado desconocido',
+    servicioId: cita.servicio_id,
+    servicioNombre: servicio?.nombre || 'Servicio desconocido',
+    sucursalId: cita.sucursal_id,
+    fecha: cita.fecha,
+    horaInicio: cita.hora_inicio,
+    horaFin: cita.hora_fin,
+    duracion: cita.duracion,
+    precio: Number(cita.precio),
+    estado: cita.estado,
+    notas: cita.notas || undefined,
+    metodoPago: cita.metodo_pago || undefined,
+    pagado: cita.pagado,
+  }
+}
+
+// Obtener citas por fecha y sucursal desde Supabase
+export async function getCitasByDateAndSucursalFromDB(fecha: string, sucursalId: string): Promise<Cita[]> {
+  try {
+    const { data, error } = await supabase
+      .from('citas')
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        servicio:servicios(nombre),
+        empleado:empleados(nombre, apellido)
+      `)
+      .eq('fecha', fecha)
+      .eq('sucursal_id', sucursalId)
+      .order('hora_inicio')
+
+    if (error) {
+      console.error('Error obteniendo citas:', error)
+      return []
+    }
+
+    if (!data) return []
+
+    return data.map((cita: any) => 
+      transformCita(
+        cita,
+        cita.cliente,
+        cita.servicio,
+        cita.empleado
+      )
+    )
+  } catch (error) {
+    console.error('Error inesperado obteniendo citas:', error)
+    return []
+  }
+}
+
+// Obtener citas por empleado y fecha desde Supabase
+export async function getCitasByEmpleadoAndDateFromDB(empleadoId: string, fecha: string): Promise<Cita[]> {
+  try {
+    const { data, error } = await supabase
+      .from('citas')
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        servicio:servicios(nombre),
+        empleado:empleados(nombre, apellido)
+      `)
+      .eq('empleado_id', empleadoId)
+      .eq('fecha', fecha)
+      .order('hora_inicio')
+
+    if (error) {
+      console.error('Error obteniendo citas:', error)
+      return []
+    }
+
+    if (!data) return []
+
+    return data.map((cita: any) => 
+      transformCita(
+        cita,
+        cita.cliente,
+        cita.servicio,
+        cita.empleado
+      )
+    )
+  } catch (error) {
+    console.error('Error inesperado obteniendo citas:', error)
+    return []
+  }
+}
