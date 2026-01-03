@@ -149,22 +149,21 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
     setDialogOpen(true)
   }
 
-  const handleCitaCreated = () => {
+  const handleCitaCreated = async () => {
     // Recargar citas después de crear una nueva
-    async function reloadCitas() {
-      if (selectedSucursal && selectedDate) {
-        setIsLoadingCitas(true)
-        try {
-          const citasData = await getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal)
-          setCitas(citasData)
-        } catch (error) {
-          console.error('Error recargando citas:', error)
-        } finally {
-          setIsLoadingCitas(false)
-        }
+    if (selectedSucursal && selectedDate) {
+      setIsLoadingCitas(true)
+      try {
+        const citasData = await getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal)
+        setCitas(citasData)
+        // Pequeño delay para asegurar que el estado se actualice
+        await new Promise(resolve => setTimeout(resolve, 100))
+      } catch (error) {
+        console.error('Error recargando citas:', error)
+      } finally {
+        setIsLoadingCitas(false)
       }
     }
-    reloadCitas()
   }
 
   return (
@@ -300,32 +299,37 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                             {TIME_SLOTS.map((slot) => {
                               const [hour, minutes] = slot.split(":")
                               const slotTime = `${hour}:${minutes}`
-                              // Buscar citas que ocupen este slot (pueden empezar antes pero incluir este tiempo)
-                              const cita = citasEmpleado.find((c) => {
-                                const citaInicio = c.horaInicio
-                                const citaFin = c.horaFin
-                                return slotTime >= citaInicio && slotTime < citaFin
-                              })
+                              // Buscar citas que empiecen exactamente en este slot
+                              const cita = citasEmpleado.find((c) => c.horaInicio === slotTime)
                               const isInRange = slotTime >= empleado.horarioInicio && slotTime < empleado.horarioFin
+                              
+                              // Calcular cuántos slots ocupa la cita (cada slot es 30 minutos)
+                              const calcularSlotsOcupados = (cita: Cita): number => {
+                                return Math.ceil(cita.duracion / 30)
+                              }
 
                               return (
                                 <div key={slot} className="flex gap-2">
                                   <div className="text-xs text-muted-foreground py-2 w-12 flex-shrink-0">{slot}</div>
                                   <div
                                     className={cn(
-                                      "flex-1 min-h-[40px] border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors",
+                                      "flex-1 min-h-[40px] border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
                                       !isInRange && "bg-muted/30 cursor-not-allowed",
+                                      cita && "cursor-default",
                                     )}
-                                    onClick={() => handleSlotClick(slotTime, empleado.id, isInRange)}
+                                    onClick={() => !cita && handleSlotClick(slotTime, empleado.id, isInRange)}
                                   >
                                     {cita ? (
                                       <Card
-                                        className="cursor-move hover:shadow-md transition-shadow"
+                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10"
                                         draggable
                                         onDragStart={() => handleDragStart(cita)}
                                         onClick={(e) => e.stopPropagation()}
+                                        style={{
+                                          height: `${calcularSlotsOcupados(cita) * 40 + (calcularSlotsOcupados(cita) - 1) * 4}px`,
+                                        }}
                                       >
-                                        <CardContent className="p-2">
+                                        <CardContent className="p-2 h-full">
                                           <div className="space-y-1">
                                             <Badge
                                               className={cn(
@@ -353,7 +357,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                       </Card>
                                     ) : (
                                       isInRange && (
-                                        <div className="flex items-center justify-center h-full opacity-0 hover:opacity-100 transition-opacity">
+                                        <div className="flex items-center justify-center h-full min-h-[40px] opacity-0 hover:opacity-100 transition-opacity">
                                           <Plus className="h-4 w-4 text-muted-foreground" />
                                         </div>
                                       )
@@ -474,11 +478,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
 
       <NuevaCitaDialog
         open={dialogOpen}
-        onOpenChange={(open) => {
+        onOpenChange={async (open) => {
           setDialogOpen(open)
           if (!open) {
             setSelectedSlot(null)
-            handleCitaCreated()
+            // Esperar un momento antes de recargar para asegurar que la cita se guardó
+            await new Promise(resolve => setTimeout(resolve, 300))
+            await handleCitaCreated()
           }
         }}
         selectedDate={selectedDate}

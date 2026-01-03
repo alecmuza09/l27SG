@@ -64,6 +64,25 @@ export function NuevaCitaDialog({
     notas: "",
   })
 
+  // Actualizar formulario cuando cambien los props (especialmente cuando se abre desde un slot)
+  useEffect(() => {
+    if (open) {
+      setCitaForm({
+        servicioId: "",
+        empleadoId: selectedEmpleadoId || "",
+        fecha: selectedDate,
+        horaInicio: selectedTime || "",
+        notas: "",
+      })
+      // Resetear selección de cliente cuando se abre desde un slot
+      if (selectedTime && selectedEmpleadoId) {
+        setSelectedClienteId("")
+        setClienteMode("existing")
+        setSearchQuery("")
+      }
+    }
+  }, [open, selectedDate, selectedTime, selectedEmpleadoId])
+
   useEffect(() => {
     async function loadData() {
       if (!open) return
