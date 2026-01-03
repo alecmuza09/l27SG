@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
+import { supabaseAdmin } from "@/lib/supabase/server"
 
-// Mock users for development
+// Mock users for development (fallback)
 const MOCK_USERS = [
   {
     id: "1",
@@ -29,26 +30,93 @@ export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json()
 
-    // Simulate API delay
+    // Primero intentar autenticación con Supabase Auth
+    try {
+      const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (!authError && authData.user) {
+        // Usuario autenticado en Supabase Auth
+        // Obtener información del usuario de la tabla usuarios
+        const { data: usuarioData, error: usuarioError } = await supabaseAdmin
+          .from('usuarios')
+          .select('*')
+          .eq('email', email)
+          .eq('activo', true)
+          .maybeSingle()
+
+        if (usuarioError && usuarioError.code !== 'PGRST116') {
+          console.error('Error obteniendo usuario:', usuarioError)
+        }
+
+        const user = usuarioData ? {
+          id: usuarioData.id,
+          email: usuarioData.email,
+          name: usuarioData.nombre,
+          role: usuarioData.rol as "admin" | "manager" | "staff",
+          sucursalId: usuarioData.sucursal_id || undefined,
+        } : {
+          id: authData.user.id,
+          email: authData.user.email!,
+          name: authData.user.user_metadata?.nombre || authData.user.email!.split('@')[0],
+          role: (authData.user.user_metadata?.rol || 'admin') as "admin" | "manager" | "staff",
+        }
+
+        // Crear session token
+        const sessionData = JSON.stringify(user)
+        const cookieStore = await cookies()
+
+        cookieStore.set("luna27_session", sessionData, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 60 * 60 * 24 * 7, // 7 days
+          path: "/",
+        })
+
+        // También guardar token de Supabase Auth
+        if (authData.session) {
+          cookieStore.set("sb-access-token", authData.session.access_token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 60 * 60 * 24 * 7,
+            path: "/",
+          })
+          cookieStore.set("sb-refresh-token", authData.session.refresh_token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 60 * 60 * 24 * 7,
+            path: "/",
+          })
+        }
+
+        return NextResponse.json({ user, success: true })
+      }
+    } catch (supabaseError) {
+      console.log('Supabase Auth no disponible, usando mock users:', supabaseError)
+    }
+
+    // Fallback a mock users para desarrollo
     await new Promise((resolve) => setTimeout(resolve, 800))
 
-    // Validate credentials
     const user = MOCK_USERS.find((u) => u.email === email)
 
     if (!user || password !== "demo123") {
       return NextResponse.json({ error: "Credenciales inválidas" }, { status: 401 })
     }
 
-    // Create session token (in production, use JWT or secure session ID)
     const sessionData = JSON.stringify(user)
     const cookieStore = await cookies()
 
-    // Set HTTP-only cookie for security
     cookieStore.set("luna27_session", sessionData, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       path: "/",
     })
 
