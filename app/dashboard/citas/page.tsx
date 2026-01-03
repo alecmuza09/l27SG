@@ -11,8 +11,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 
 export default function CitasPage() {
-  const today = new Date().toISOString().split("T")[0]
-  const [selectedDate, setSelectedDate] = useState(today)
+  // Obtener fecha actual en zona horaria local
+  const getTodayLocal = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  
+  const [selectedDate, setSelectedDate] = useState(getTodayLocal())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId] = useState<string>("")
