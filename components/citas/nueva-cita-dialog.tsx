@@ -42,6 +42,9 @@ export function NuevaCitaDialog({
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoadingServicios, setIsLoadingServicios] = useState(false)
+  const [isLoadingEmpleados, setIsLoadingEmpleados] = useState(false)
+  const [errorServicios, setErrorServicios] = useState<string | null>(null)
 
   // Nuevo cliente form
   const [nuevoCliente, setNuevoCliente] = useState({
@@ -63,18 +66,37 @@ export function NuevaCitaDialog({
 
   useEffect(() => {
     async function loadData() {
-      const [clientesData, serviciosData, empleadosData] = await Promise.all([
-        getClientes(),
-        getServiciosActivosFromDB(),
-        getEmpleadosBySucursalFromDB(sucursalId),
-      ])
-      setClientes(clientesData)
-      setServicios(serviciosData)
-      setEmpleados(empleadosData)
+      if (!open) return
+      
+      try {
+        setIsLoadingServicios(true)
+        setIsLoadingEmpleados(true)
+        setErrorServicios(null)
+        
+        const [clientesData, serviciosData, empleadosData] = await Promise.all([
+          getClientes(),
+          getServiciosActivosFromDB(),
+          getEmpleadosBySucursalFromDB(sucursalId),
+        ])
+        
+        setClientes(clientesData)
+        setServicios(serviciosData)
+        setEmpleados(empleadosData)
+        
+        if (serviciosData.length === 0) {
+          setErrorServicios("No hay servicios disponibles en la base de datos")
+        }
+      } catch (error) {
+        console.error("Error cargando datos:", error)
+        setErrorServicios("Error al cargar los servicios")
+        toast.error("Error al cargar los datos")
+      } finally {
+        setIsLoadingServicios(false)
+        setIsLoadingEmpleados(false)
+      }
     }
-    if (open) {
-      loadData()
-    }
+    
+    loadData()
   }, [open, sucursalId])
 
   const clientesFiltrados = clientes.filter(
@@ -140,6 +162,29 @@ export function NuevaCitaDialog({
         return
       }
 
+      // Obtener información del cliente y empleado para mostrar en el resumen
+      const clienteSeleccionado = clienteMode === "new" 
+        ? { nombre: nuevoCliente.nombre, apellido: nuevoCliente.apellido }
+        : clientes.find(c => c.id === clienteIdFinal)
+      const empleadoSeleccionado = empleados.find(e => e.id === citaForm.empleadoId)
+
+      // Mostrar resumen antes de guardar
+      const resumenCita = {
+        cliente: clienteSeleccionado ? `${clienteSeleccionado.nombre} ${clienteSeleccionado.apellido}` : "N/A",
+        servicio: servicioSeleccionado.nombre,
+        empleado: empleadoSeleccionado ? `${empleadoSeleccionado.nombre} ${empleadoSeleccionado.apellido}` : "N/A",
+        fecha: new Date(citaForm.fecha).toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
+        hora: citaForm.horaInicio,
+        duracion: servicioSeleccionado.duracion,
+        precio: servicioSeleccionado.precio,
+      }
+
+      // Mostrar toast con información de lo que se está guardando
+      toast.info(
+        `Guardando cita: ${resumenCita.cliente} - ${resumenCita.servicio} - ${resumenCita.fecha} ${resumenCita.hora}`,
+        { duration: 2000 }
+      )
+
       // Crear la cita
       const citaResult = await createCita({
         cliente_id: clienteIdFinal,
@@ -160,7 +205,11 @@ export function NuevaCitaDialog({
         return
       }
 
-      toast.success("Cita creada exitosamente")
+      // Mostrar resumen de la cita creada
+      toast.success(
+        `Cita creada exitosamente: ${resumenCita.cliente} - ${resumenCita.servicio} - ${resumenCita.fecha} ${resumenCita.hora}`,
+        { duration: 4000 }
+      )
       
       // Resetear formulario
       setNuevoCliente({
@@ -333,42 +382,91 @@ export function NuevaCitaDialog({
 
                 <div className="space-y-2">
                   <Label htmlFor="servicio">Servicio *</Label>
-                  <Select
-                    value={citaForm.servicioId}
-                    onValueChange={(value) => setCitaForm({ ...citaForm, servicioId: value })}
-                    required
-                  >
-                    <SelectTrigger id="servicio">
-                      <SelectValue placeholder="Seleccionar servicio" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {servicios.map((servicio) => (
-                        <SelectItem key={servicio.id} value={servicio.id}>
-                          {servicio.nombre} - ${servicio.precio} ({servicio.duracion} min)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isLoadingServicios ? (
+                    <div className="flex items-center gap-2 p-3 border rounded-md">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Cargando servicios...</span>
+                    </div>
+                  ) : errorServicios ? (
+                    <div className="p-3 border border-destructive/50 rounded-md bg-destructive/10">
+                      <p className="text-sm text-destructive">{errorServicios}</p>
+                    </div>
+                  ) : servicios.length === 0 ? (
+                    <div className="p-3 border border-yellow-500/50 rounded-md bg-yellow-500/10">
+                      <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                        No hay servicios disponibles. Por favor, agrega servicios en la sección de Servicios.
+                      </p>
+                    </div>
+                  ) : (
+                    <Select
+                      value={citaForm.servicioId}
+                      onValueChange={(value) => setCitaForm({ ...citaForm, servicioId: value })}
+                      required
+                    >
+                      <SelectTrigger id="servicio">
+                        <SelectValue placeholder="Seleccionar servicio" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {servicios.map((servicio) => (
+                          <SelectItem key={servicio.id} value={servicio.id}>
+                            {servicio.nombre} - ${servicio.precio} ({servicio.duracion} min)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {servicioSeleccionado && (
+                    <div className="p-3 bg-muted/50 rounded-md border">
+                      <p className="text-sm font-medium">Servicio seleccionado:</p>
+                      <p className="text-sm text-muted-foreground">
+                        {servicioSeleccionado.nombre} - ${servicioSeleccionado.precio} ({servicioSeleccionado.duracion} minutos)
+                      </p>
+                      {servicioSeleccionado.descripcion && (
+                        <p className="text-xs text-muted-foreground mt-1">{servicioSeleccionado.descripcion}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="empleado">Empleada *</Label>
-                  <Select
-                    value={citaForm.empleadoId}
-                    onValueChange={(value) => setCitaForm({ ...citaForm, empleadoId: value })}
-                    required
-                  >
-                    <SelectTrigger id="empleado">
-                      <SelectValue placeholder="Seleccionar empleada" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {empleados.map((empleado) => (
-                        <SelectItem key={empleado.id} value={empleado.id}>
-                          {empleado.nombre} {empleado.apellido} - {empleado.especialidades.length > 0 ? empleado.especialidades.join(", ") : empleado.rol}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isLoadingEmpleados ? (
+                    <div className="flex items-center gap-2 p-3 border rounded-md">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Cargando empleadas...</span>
+                    </div>
+                  ) : empleados.length === 0 ? (
+                    <div className="p-3 border border-yellow-500/50 rounded-md bg-yellow-500/10">
+                      <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                        No hay empleadas disponibles para esta sucursal.
+                      </p>
+                    </div>
+                  ) : (
+                    <Select
+                      value={citaForm.empleadoId}
+                      onValueChange={(value) => setCitaForm({ ...citaForm, empleadoId: value })}
+                      required
+                    >
+                      <SelectTrigger id="empleado">
+                        <SelectValue placeholder="Seleccionar empleada" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {empleados.map((empleado) => (
+                          <SelectItem key={empleado.id} value={empleado.id}>
+                            {empleado.nombre} {empleado.apellido} - {empleado.especialidades && empleado.especialidades.length > 0 ? empleado.especialidades.join(", ") : empleado.rol}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {citaForm.empleadoId && (
+                    <div className="p-3 bg-muted/50 rounded-md border">
+                      <p className="text-sm font-medium">Empleada seleccionada:</p>
+                      <p className="text-sm text-muted-foreground">
+                        {empleados.find(e => e.id === citaForm.empleadoId)?.nombre} {empleados.find(e => e.id === citaForm.empleadoId)?.apellido}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -381,6 +479,65 @@ export function NuevaCitaDialog({
                   />
                 </div>
               </div>
+
+              {/* Resumen de la cita antes de guardar */}
+              {citaForm.servicioId && citaForm.empleadoId && (selectedClienteId || clienteMode === "new") && (
+                <div className="pt-4 border-t space-y-2">
+                  <Label className="text-base font-semibold">Resumen de la Cita</Label>
+                  <div className="p-4 bg-primary/5 rounded-md border border-primary/20">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Cliente:</span>
+                        <span className="font-medium">
+                          {clienteMode === "new" 
+                            ? `${nuevoCliente.nombre} ${nuevoCliente.apellido} (nuevo)`
+                            : clientes.find(c => c.id === selectedClienteId) 
+                              ? `${clientes.find(c => c.id === selectedClienteId)!.nombre} ${clientes.find(c => c.id === selectedClienteId)!.apellido}`
+                              : "No seleccionado"}
+                        </span>
+                      </div>
+                      {servicioSeleccionado && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Servicio:</span>
+                            <span className="font-medium">{servicioSeleccionado.nombre}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Duración:</span>
+                            <span className="font-medium">{servicioSeleccionado.duracion} minutos</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Precio:</span>
+                            <span className="font-medium">${servicioSeleccionado.precio}</span>
+                          </div>
+                        </>
+                      )}
+                      {empleados.find(e => e.id === citaForm.empleadoId) && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Empleada:</span>
+                          <span className="font-medium">
+                            {empleados.find(e => e.id === citaForm.empleadoId)!.nombre} {empleados.find(e => e.id === citaForm.empleadoId)!.apellido}
+                          </span>
+                        </div>
+                      )}
+                      {citaForm.fecha && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Fecha:</span>
+                          <span className="font-medium">
+                            {new Date(citaForm.fecha).toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                          </span>
+                        </div>
+                      )}
+                      {citaForm.horaInicio && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Hora:</span>
+                          <span className="font-medium">{citaForm.horaInicio}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </ScrollArea>
 
