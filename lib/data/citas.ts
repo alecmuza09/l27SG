@@ -310,10 +310,10 @@ export async function getCitasByEmpleadoAndDateFromDB(empleadoId: string, fecha:
   }
 }
 
-// Actualizar estado de una cita
+// Actualizar estado de una cita (usa estados de la BD: pendiente, confirmada, en-progreso, completada, cancelada, no-asistio)
 export async function updateCitaEstado(
   citaId: string,
-  nuevoEstado: 'pendiente' | 'confirmada' | 'en-espera' | 'en-atencion' | 'pendiente-por-pagar' | 'pagado' | 'cancelada'
+  nuevoEstado: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const { error } = await supabase

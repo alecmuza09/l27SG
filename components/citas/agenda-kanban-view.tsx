@@ -26,15 +26,38 @@ interface AgendaKanbanViewProps {
   onDateChange: (date: string) => void
 }
 
+// Estados permitidos en la base de datos
+const ESTADOS_DB = {
+  "pendiente": "pendiente",
+  "confirmado": "confirmada",
+  "en-espera": "en-progreso", // Mapeado a en-progreso
+  "en-atencion": "en-progreso",
+  "pendiente-por-pagar": "completada", // Mapeado a completada
+  "pagado": "completada",
+  "cancelado": "cancelada",
+} as const
+
+// Estados para mostrar en la UI
 const ESTADOS = [
-  { value: "pendiente", label: "Pendiente", color: "bg-yellow-500" },
-  { value: "confirmada", label: "Confirmado", color: "bg-blue-500" },
-  { value: "en-espera", label: "En Espera", color: "bg-orange-500" },
-  { value: "en-atencion", label: "En Atención", color: "bg-purple-500" },
-  { value: "pendiente-por-pagar", label: "Pendiente por Pagar", color: "bg-amber-500" },
-  { value: "pagado", label: "Pagado", color: "bg-green-500" },
-  { value: "cancelada", label: "Cancelado", color: "bg-red-500" },
+  { value: "pendiente", label: "Pendiente", color: "bg-yellow-500", dbValue: "pendiente" },
+  { value: "confirmado", label: "Confirmado", color: "bg-blue-500", dbValue: "confirmada" },
+  { value: "en-espera", label: "En Espera", color: "bg-orange-500", dbValue: "en-progreso" },
+  { value: "en-atencion", label: "En Atención", color: "bg-purple-500", dbValue: "en-progreso" },
+  { value: "pendiente-por-pagar", label: "Pendiente por Pagar", color: "bg-amber-500", dbValue: "completada" },
+  { value: "pagado", label: "Pagado", color: "bg-green-500", dbValue: "completada" },
+  { value: "cancelado", label: "Cancelado", color: "bg-red-500", dbValue: "cancelada" },
 ]
+
+// Función para mapear estado de UI a estado de BD
+function mapearEstadoAUI(estadoDB: string): string {
+  const estado = ESTADOS.find(e => e.dbValue === estadoDB)
+  return estado?.value || estadoDB
+}
+
+// Función para mapear estado de UI a estado de BD
+function mapearEstadoABD(estadoUI: string): string {
+  return ESTADOS_DB[estadoUI as keyof typeof ESTADOS_DB] || estadoUI
+}
 
 const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
   const hour = Math.floor(i / 2) + 9
@@ -53,6 +76,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
   const [empleadosSucursal, setEmpleadosSucursal] = useState<Empleado[]>([])
   const [citas, setCitas] = useState<Cita[]>([])
   const [isLoadingCitas, setIsLoadingCitas] = useState(false)
+  const [editingCita, setEditingCita] = useState<Cita | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
   useEffect(() => {
     setVacaciones(getVacaciones())
@@ -375,27 +400,32 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                         onClick={(e) => e.stopPropagation()}
                                         style={{
                                           height: `${calcularSlotsOcupados(cita) * 40 + (calcularSlotsOcupados(cita) - 1) * 4}px`,
+                                          minHeight: '80px',
                                         }}
                                       >
-                                        <CardContent className="p-2 h-full flex flex-col justify-between">
-                                          <div className="space-y-1">
+                                        <CardContent className="p-3 h-full flex flex-col justify-between gap-2">
+                                          <div className="space-y-1.5">
                                             <div className="flex items-center justify-between gap-2">
                                               <Badge
                                                 className={cn(
-                                                  "text-xs",
-                                                  ESTADOS.find((e) => e.value === cita.estado)?.color,
+                                                  "text-xs px-2 py-0.5",
+                                                  ESTADOS.find((e) => e.dbValue === cita.estado)?.color || "bg-gray-500",
                                                 )}
                                               >
-                                                {ESTADOS.find((e) => e.value === cita.estado)?.label}
+                                                {ESTADOS.find((e) => e.dbValue === cita.estado)?.label || cita.estado}
                                               </Badge>
                                               <DropdownMenu>
                                                 <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                  <Button variant="ghost" size="icon" className="h-6 w-6">
-                                                    <MoreVertical className="h-3 w-3" />
+                                                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                                                    <MoreVertical className="h-3.5 w-3.5" />
                                                   </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); /* TODO: Abrir diálogo de edición */ }}>
+                                                  <DropdownMenuItem onClick={(e) => { 
+                                                    e.stopPropagation()
+                                                    setEditingCita(cita)
+                                                    setIsEditDialogOpen(true)
+                                                  }}>
                                                     <Edit className="h-4 w-4 mr-2" />
                                                     Editar Cita
                                                   </DropdownMenuItem>
@@ -403,31 +433,35 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                                   <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
                                                     Cambiar Estado:
                                                   </div>
-                                                  {ESTADOS.map((estado) => (
-                                                    <DropdownMenuItem
-                                                      key={estado.value}
-                                                      onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleCambiarEstado(cita.id, estado.value)
-                                                      }}
-                                                      disabled={cita.estado === estado.value}
-                                                      className={cita.estado === estado.value ? "bg-accent" : ""}
-                                                    >
-                                                      <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
-                                                      {estado.label}
-                                                    </DropdownMenuItem>
-                                                  ))}
+                                                  {ESTADOS.map((estado) => {
+                                                    const estadoActual = ESTADOS.find((e) => e.dbValue === cita.estado)
+                                                    const isCurrentState = estadoActual?.value === estado.value
+                                                    return (
+                                                      <DropdownMenuItem
+                                                        key={estado.value}
+                                                        onClick={(e) => {
+                                                          e.stopPropagation()
+                                                          handleCambiarEstado(cita.id, estado.value)
+                                                        }}
+                                                        disabled={isCurrentState}
+                                                        className={isCurrentState ? "bg-accent" : ""}
+                                                      >
+                                                        <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
+                                                        {estado.label}
+                                                      </DropdownMenuItem>
+                                                    )
+                                                  })}
                                                 </DropdownMenuContent>
                                               </DropdownMenu>
                                             </div>
-                                            <p className="font-semibold text-sm truncate text-foreground">
+                                            <p className="font-semibold text-sm leading-tight text-foreground">
                                               {cita.clienteNombre}
                                             </p>
-                                            <p className="text-xs font-medium text-muted-foreground truncate">
+                                            <p className="text-xs font-medium text-muted-foreground leading-tight">
                                               {cita.servicioNombre}
                                             </p>
                                           </div>
-                                          <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+                                          <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t">
                                             <span className="flex items-center gap-1">
                                               <Clock className="h-3 w-3" />
                                               {cita.horaInicio} - {cita.horaFin}
