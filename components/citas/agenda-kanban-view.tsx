@@ -68,7 +68,6 @@ const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
 export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanViewProps) {
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [selectedSucursal, setSelectedSucursal] = useState<string>("")
-  const [viewMode, setViewMode] = useState<"timeline" | "kanban">("timeline")
   const [draggedCita, setDraggedCita] = useState<Cita | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ time: string; empleadoId: string } | null>(null)
@@ -148,9 +147,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
       const day = String(now.getDate()).padStart(2, '0')
       onDateChange(`${year}-${month}-${day}`)
     } else {
-      const date = new Date(selectedDate)
+      // Usar fecha local en lugar de UTC para evitar problemas de zona horaria
+      const date = new Date(selectedDate + 'T12:00:00') // Usar mediodía para evitar problemas de zona horaria
       date.setDate(date.getDate() + (direction === "next" ? 1 : -1))
-      onDateChange(date.toISOString().split("T")[0])
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      onDateChange(`${year}-${month}-${day}`)
     }
   }
 
@@ -304,15 +307,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
         </Card>
       )}
 
-      {/* Tabs para cambiar entre vistas */}
-      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "timeline" | "kanban")}>
-        <TabsList>
-          <TabsTrigger value="timeline">Vista Timeline</TabsTrigger>
-          <TabsTrigger value="kanban">Vista Kanban</TabsTrigger>
-        </TabsList>
-
-        {/* Vista Timeline por empleada */}
-        <TabsContent value="timeline" className="space-y-4">
+      {/* Vista Timeline por empleada */}
+      <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">
@@ -586,70 +582,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        {/* Vista Kanban por estado */}
-        <TabsContent value="kanban">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            {ESTADOS.map((estado) => (
-              <Card
-                key={estado.value}
-                className="flex flex-col"
-                onDragOver={handleDragOver}
-                onDrop={() => handleDrop(estado.value)}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium">{estado.label}</CardTitle>
-                    <Badge variant="secondary">{citasPorEstado[estado.value]?.length || 0}</Badge>
-                  </div>
-                  <div className={cn("h-1 rounded-full", estado.color)} />
-                </CardHeader>
-                <CardContent className="flex-1">
-                  <ScrollArea className="h-[500px] pr-4">
-                    <div className="space-y-3">
-                      {citasPorEstado[estado.value]?.map((cita) => (
-                        <Card
-                          key={cita.id}
-                          className="cursor-move hover:shadow-md transition-shadow"
-                          draggable
-                          onDragStart={() => handleDragStart(cita)}
-                        >
-                          <CardContent className="p-4 space-y-2">
-                            <div className="flex items-start justify-between">
-                              <p className="font-medium text-sm">{cita.clienteNombre}</p>
-                              {cita.pagado && (
-                                <Badge variant="outline" className="text-xs bg-green-500/10 text-green-700">
-                                  Pagado
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground">{cita.servicioNombre}</p>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <Clock className="h-3 w-3" />
-                              <span>
-                                {cita.horaInicio} - {cita.horaFin}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <User className="h-3 w-3" />
-                              <span>{cita.empleadoNombre}</span>
-                            </div>
-                            <div className="flex items-center justify-between pt-2 border-t">
-                              <span className="text-xs text-muted-foreground">{cita.duracion} min</span>
-                              <span className="font-medium text-sm">${cita.precio}</span>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-      </Tabs>
+      </div>
 
       {/* Resumen de estadísticas */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

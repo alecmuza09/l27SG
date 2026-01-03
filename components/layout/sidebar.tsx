@@ -17,6 +17,8 @@ import {
   Gift,
   Tag,
   Palmtree,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { logout } from "@/lib/auth"
@@ -42,7 +44,12 @@ const newModules = [
 
 const settingsNav = [{ name: "Configuración", href: "/dashboard/configuracion", icon: Settings }]
 
-export function Sidebar() {
+interface SidebarProps {
+  isCollapsed?: boolean
+  onToggle?: () => void
+}
+
+export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -53,9 +60,21 @@ export function Sidebar() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-card border-r border-border">
-      <div className="flex h-16 items-center border-b border-border px-6">
-        <h1 className="text-xl font-bold text-primary">Luna27</h1>
+    <div className={cn(
+      "flex h-full flex-col bg-card border-r border-border transition-all duration-300",
+      isCollapsed ? "w-16" : "w-64"
+    )}>
+      <div className="flex h-16 items-center justify-between border-b border-border px-4">
+        {!isCollapsed && <h1 className="text-xl font-bold text-primary">Luna27</h1>}
+        {isCollapsed && <h1 className="text-xl font-bold text-primary">L27</h1>}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 hidden lg:flex"
+          onClick={onToggle}
+        >
+          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </Button>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
@@ -79,9 +98,11 @@ export function Sidebar() {
         })}
 
         <div className="my-4 border-t border-border" />
-        <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          Gestión Adicional
-        </p>
+        {!isCollapsed && (
+          <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Gestión Adicional
+          </p>
+        )}
         {newModules.map((item) => {
           const isActive = pathname === item.href
           return (
@@ -93,39 +114,55 @@ export function Sidebar() {
                 isActive
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                isCollapsed && "justify-center"
               )}
+              title={isCollapsed ? item.name : undefined}
             >
-              <item.icon className="h-5 w-5" />
-              {item.name}
+              <item.icon className="h-5 w-5 flex-shrink-0" />
+              {!isCollapsed && <span>{item.name}</span>}
             </Link>
           )
         })}
 
-        <div className="my-4 border-t border-border" />
-        {settingsNav.map((item) => {
-          const isActive = pathname === item.href
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.name}
-            </Link>
-          )
-        })}
+        {settingsNav.length > 0 && (
+          <>
+            <div className="my-4 border-t border-border" />
+            {settingsNav.map((item) => {
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    isCollapsed && "justify-center"
+                  )}
+                  title={isCollapsed ? item.name : undefined}
+                >
+                  <item.icon className="h-5 w-5 flex-shrink-0" />
+                  {!isCollapsed && <span>{item.name}</span>}
+                </Link>
+              )
+            })}
+          </>
+        )}
       </nav>
 
       <div className="border-t border-border p-4">
-        <Button variant="ghost" className="w-full justify-start" onClick={handleLogout}>
-          <LogOut className="mr-3 h-5 w-5" />
-          Cerrar Sesión
+        <Button 
+          variant="ghost" 
+          className={cn(
+            "w-full transition-colors",
+            isCollapsed ? "justify-center px-2" : "justify-start"
+          )} 
+          onClick={handleLogout}
+          title={isCollapsed ? "Cerrar Sesión" : undefined}
+        >
+          <LogOut className={cn("h-5 w-5 flex-shrink-0", !isCollapsed && "mr-3")} />
+          {!isCollapsed && <span>Cerrar Sesión</span>}
         </Button>
       </div>
     </div>
