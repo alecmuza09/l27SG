@@ -111,3 +111,68 @@ export function getServicioById(id: string): Servicio | undefined {
 export function getServiciosActivos(): Servicio[] {
   return MOCK_SERVICIOS.filter((s) => s.activo)
 }
+
+// ============================================
+// Funciones para Supabase
+// ============================================
+
+import { supabase } from '@/lib/supabase/client'
+import type { Database } from '@/lib/supabase/types'
+
+type ServicioRow = Database['public']['Tables']['servicios']['Row']
+
+// Función helper para transformar datos de la BD al formato de la interfaz
+function transformServicio(servicio: ServicioRow): Servicio {
+  return {
+    id: servicio.id,
+    nombre: servicio.nombre,
+    descripcion: servicio.descripcion || '',
+    duracion: servicio.duracion,
+    precio: Number(servicio.precio),
+    categoria: servicio.categoria,
+    activo: servicio.activo,
+    color: servicio.color || undefined,
+  }
+}
+
+// Obtener todos los servicios activos desde Supabase
+export async function getServiciosActivosFromDB(): Promise<Servicio[]> {
+  try {
+    const { data, error } = await supabase
+      .from('servicios')
+      .select('*')
+      .eq('activo', true)
+      .order('nombre')
+
+    if (error) {
+      console.error('Error obteniendo servicios:', error)
+      return []
+    }
+
+    return data.map(transformServicio)
+  } catch (error) {
+    console.error('Error inesperado obteniendo servicios:', error)
+    return []
+  }
+}
+
+// Obtener un servicio por ID desde Supabase
+export async function getServicioByIdFromDB(id: string): Promise<Servicio | null> {
+  try {
+    const { data, error } = await supabase
+      .from('servicios')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error) {
+      console.error('Error obteniendo servicio:', error)
+      return null
+    }
+
+    return transformServicio(data)
+  } catch (error) {
+    console.error('Error inesperado obteniendo servicio:', error)
+    return null
+  }
+}

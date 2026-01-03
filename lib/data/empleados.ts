@@ -102,3 +102,75 @@ export function getEmpleadoById(id: string): Empleado | undefined {
 export function getEmpleadosBySucursal(sucursalId: string): Empleado[] {
   return MOCK_EMPLEADOS.filter((e) => e.sucursalId === sucursalId && e.activo)
 }
+
+// ============================================
+// Funciones para Supabase
+// ============================================
+
+import { supabase } from '@/lib/supabase/client'
+import type { Database } from '@/lib/supabase/types'
+
+type EmpleadoRow = Database['public']['Tables']['empleados']['Row']
+
+// Función helper para transformar datos de la BD al formato de la interfaz
+function transformEmpleado(empleado: EmpleadoRow): Empleado {
+  return {
+    id: empleado.id,
+    nombre: empleado.nombre,
+    apellido: empleado.apellido,
+    email: empleado.email,
+    telefono: empleado.telefono,
+    rol: empleado.rol as "terapeuta" | "esteticista" | "recepcionista" | "manager",
+    sucursalId: empleado.sucursal_id,
+    especialidades: empleado.especialidades || [],
+    horarioInicio: empleado.horario_inicio,
+    horarioFin: empleado.horario_fin,
+    diasTrabajo: empleado.dias_trabajo || [],
+    activo: empleado.activo,
+    comision: Number(empleado.comision),
+    foto: empleado.foto || undefined,
+  }
+}
+
+// Obtener empleados activos por sucursal desde Supabase
+export async function getEmpleadosBySucursalFromDB(sucursalId: string): Promise<Empleado[]> {
+  try {
+    const { data, error } = await supabase
+      .from('empleados')
+      .select('*')
+      .eq('sucursal_id', sucursalId)
+      .eq('activo', true)
+      .order('nombre')
+
+    if (error) {
+      console.error('Error obteniendo empleados:', error)
+      return []
+    }
+
+    return data.map(transformEmpleado)
+  } catch (error) {
+    console.error('Error inesperado obteniendo empleados:', error)
+    return []
+  }
+}
+
+// Obtener un empleado por ID desde Supabase
+export async function getEmpleadoByIdFromDB(id: string): Promise<Empleado | null> {
+  try {
+    const { data, error } = await supabase
+      .from('empleados')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error) {
+      console.error('Error obteniendo empleado:', error)
+      return null
+    }
+
+    return transformEmpleado(data)
+  } catch (error) {
+    console.error('Error inesperado obteniendo empleado:', error)
+    return null
+  }
+}

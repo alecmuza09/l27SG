@@ -10,11 +10,13 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getClientes, type Cliente } from "@/lib/data/clientes"
-import { MOCK_SERVICIOS } from "@/lib/data/servicios"
-import { MOCK_EMPLEADOS } from "@/lib/data/empleados"
-import { Plus, Search, User } from "lucide-react"
+import { getClientes, createCliente, type Cliente } from "@/lib/data/clientes"
+import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
+import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
+import { createCita } from "@/lib/data/citas"
+import { Plus, Search, User, Loader2 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { toast } from "sonner"
 
 interface NuevaCitaDialogProps {
   open: boolean
@@ -37,6 +39,9 @@ export function NuevaCitaDialog({
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedClienteId, setSelectedClienteId] = useState("")
   const [clientes, setClientes] = useState<Cliente[]>([])
+  const [servicios, setServicios] = useState<Servicio[]>([])
+  const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Nuevo cliente form
   const [nuevoCliente, setNuevoCliente] = useState({
@@ -57,14 +62,20 @@ export function NuevaCitaDialog({
   })
 
   useEffect(() => {
-    async function loadClientes() {
-      const clientesData = await getClientes()
+    async function loadData() {
+      const [clientesData, serviciosData, empleadosData] = await Promise.all([
+        getClientes(),
+        getServiciosActivosFromDB(),
+        getEmpleadosBySucursalFromDB(sucursalId),
+      ])
       setClientes(clientesData)
+      setServicios(serviciosData)
+      setEmpleados(empleadosData)
     }
     if (open) {
-      loadClientes()
+      loadData()
     }
-  }, [open])
+  }, [open, sucursalId])
 
   const clientesFiltrados = clientes.filter(
     (c) =>
@@ -74,23 +85,110 @@ export function NuevaCitaDialog({
       c.telefono.includes(searchQuery),
   )
 
-  const empleadosSucursal = MOCK_EMPLEADOS.filter((e) => e.sucursalId === sucursalId && e.activo)
+  const servicioSeleccionado = servicios.find((s) => s.id === citaForm.servicioId)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setIsSubmitting(true)
 
-    if (clienteMode === "new") {
-      console.log("[v0] Creando nuevo cliente:", nuevoCliente)
-      // Aquí iría la lógica para crear el cliente en la base de datos
+    try {
+      let clienteIdFinal = selectedClienteId
+
+      // Si es nuevo cliente, crearlo primero
+      if (clienteMode === "new") {
+        if (!nuevoCliente.nombre || !nuevoCliente.apellido || !nuevoCliente.telefono) {
+          toast.error("Por favor completa todos los campos obligatorios del cliente")
+          setIsSubmitting(false)
+          return
+        }
+
+        const clienteResult = await createCliente({
+          nombre: nuevoCliente.nombre,
+          apellido: nuevoCliente.apellido,
+          telefono: nuevoCliente.telefono,
+          email: nuevoCliente.email || undefined,
+          notas: nuevoCliente.notas || undefined,
+        })
+
+        if (!clienteResult.success || !clienteResult.cliente) {
+          toast.error(`Error al crear cliente: ${clienteResult.error || "Error desconocido"}`)
+          setIsSubmitting(false)
+          return
+        }
+
+        clienteIdFinal = clienteResult.cliente.id
+        toast.success("Cliente creado exitosamente")
+      }
+
+      // Validar que se haya seleccionado un cliente
+      if (!clienteIdFinal) {
+        toast.error("Por favor selecciona o crea un cliente")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Validar campos de la cita
+      if (!citaForm.servicioId || !citaForm.empleadoId || !citaForm.fecha || !citaForm.horaInicio) {
+        toast.error("Por favor completa todos los campos obligatorios de la cita")
+        setIsSubmitting(false)
+        return
+      }
+
+      if (!servicioSeleccionado) {
+        toast.error("Servicio no encontrado")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Crear la cita
+      const citaResult = await createCita({
+        cliente_id: clienteIdFinal,
+        empleado_id: citaForm.empleadoId,
+        servicio_id: citaForm.servicioId,
+        sucursal_id: sucursalId,
+        fecha: citaForm.fecha,
+        hora_inicio: citaForm.horaInicio,
+        duracion: servicioSeleccionado.duracion,
+        precio: servicioSeleccionado.precio,
+        estado: "pendiente",
+        notas: citaForm.notas || undefined,
+      })
+
+      if (!citaResult.success) {
+        toast.error(`Error al crear cita: ${citaResult.error || "Error desconocido"}`)
+        setIsSubmitting(false)
+        return
+      }
+
+      toast.success("Cita creada exitosamente")
+      
+      // Resetear formulario
+      setNuevoCliente({
+        nombre: "",
+        apellido: "",
+        email: "",
+        telefono: "",
+        notas: "",
+      })
+      setCitaForm({
+        servicioId: "",
+        empleadoId: selectedEmpleadoId || "",
+        fecha: selectedDate,
+        horaInicio: selectedTime || "",
+        notas: "",
+      })
+      setSelectedClienteId("")
+      setClienteMode("existing")
+      setSearchQuery("")
+
+      // Cerrar diálogo
+      onOpenChange(false)
+    } catch (error: any) {
+      console.error("Error inesperado:", error)
+      toast.error("Error inesperado al crear la cita")
+    } finally {
+      setIsSubmitting(false)
     }
-
-    console.log("[v0] Creando nueva cita:", {
-      clienteId: clienteMode === "existing" ? selectedClienteId : "nuevo",
-      ...citaForm,
-    })
-
-    // Aquí iría la lógica para crear la cita en la base de datos
-    onOpenChange(false)
   }
 
   return (
@@ -175,11 +273,10 @@ export function NuevaCitaDialog({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="email">Email *</Label>
+                      <Label htmlFor="email">Email</Label>
                       <Input
                         id="email"
                         type="email"
-                        required
                         value={nuevoCliente.email}
                         onChange={(e) => setNuevoCliente({ ...nuevoCliente, email: e.target.value })}
                       />
@@ -245,7 +342,7 @@ export function NuevaCitaDialog({
                       <SelectValue placeholder="Seleccionar servicio" />
                     </SelectTrigger>
                     <SelectContent>
-                      {MOCK_SERVICIOS.map((servicio) => (
+                      {servicios.map((servicio) => (
                         <SelectItem key={servicio.id} value={servicio.id}>
                           {servicio.nombre} - ${servicio.precio} ({servicio.duracion} min)
                         </SelectItem>
@@ -265,9 +362,9 @@ export function NuevaCitaDialog({
                       <SelectValue placeholder="Seleccionar empleada" />
                     </SelectTrigger>
                     <SelectContent>
-                      {empleadosSucursal.map((empleado) => (
+                      {empleados.map((empleado) => (
                         <SelectItem key={empleado.id} value={empleado.id}>
-                          {empleado.nombre} {empleado.apellido} - {empleado.especialidades.join(", ")}
+                          {empleado.nombre} {empleado.apellido} - {empleado.especialidades.length > 0 ? empleado.especialidades.join(", ") : empleado.rol}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -291,9 +388,18 @@ export function NuevaCitaDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit">
-              <Plus className="h-4 w-4 mr-2" />
-              Crear Cita
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creando...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Crear Cita
+                </>
+              )}
             </Button>
           </DialogFooter>
         </form>

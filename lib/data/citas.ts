@@ -137,3 +137,70 @@ export function getCitasByEmpleado(empleadoId: string, fecha?: string): Cita[] {
 export function getCitaById(id: string): Cita | undefined {
   return MOCK_CITAS.find((c) => c.id === id)
 }
+
+// ============================================
+// Funciones para Supabase
+// ============================================
+
+import { supabase } from '@/lib/supabase/client'
+import type { Database } from '@/lib/supabase/types'
+
+type CitaRow = Database['public']['Tables']['citas']['Row']
+
+// Función helper para calcular hora_fin basado en hora_inicio y duracion
+function calcularHoraFin(horaInicio: string, duracionMinutos: number): string {
+  const [horas, minutos] = horaInicio.split(':').map(Number)
+  const fechaInicio = new Date()
+  fechaInicio.setHours(horas, minutos, 0, 0)
+  fechaInicio.setMinutes(fechaInicio.getMinutes() + duracionMinutos)
+  
+  const horasFin = fechaInicio.getHours().toString().padStart(2, '0')
+  const minutosFin = fechaInicio.getMinutes().toString().padStart(2, '0')
+  return `${horasFin}:${minutosFin}`
+}
+
+// Crear una nueva cita
+export async function createCita(citaData: {
+  cliente_id: string
+  empleado_id: string
+  servicio_id: string
+  sucursal_id: string
+  fecha: string
+  hora_inicio: string
+  duracion: number
+  precio: number
+  estado?: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
+  notas?: string
+}): Promise<{ success: boolean; cita?: CitaRow; error?: string }> {
+  try {
+    const hora_fin = calcularHoraFin(citaData.hora_inicio, citaData.duracion)
+
+    const { data, error } = await supabase
+      .from('citas')
+      .insert({
+        cliente_id: citaData.cliente_id,
+        empleado_id: citaData.empleado_id,
+        servicio_id: citaData.servicio_id,
+        sucursal_id: citaData.sucursal_id,
+        fecha: citaData.fecha,
+        hora_inicio: citaData.hora_inicio,
+        hora_fin: hora_fin,
+        duracion: citaData.duracion,
+        precio: citaData.precio,
+        estado: citaData.estado || 'pendiente',
+        notas: citaData.notas || null,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creando cita:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, cita: data }
+  } catch (error: any) {
+    console.error('Error inesperado creando cita:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
