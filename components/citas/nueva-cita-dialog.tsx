@@ -242,14 +242,14 @@ export function NuevaCitaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4">
           <DialogTitle>Nueva Cita</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-hidden flex flex-col">
-          <ScrollArea className="flex-1 pr-4">
-            <div className="space-y-6 pb-4">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+          <ScrollArea className="flex-1 px-6">
+            <div className="space-y-6 pb-6">
               {/* Sección de Cliente */}
               <div className="space-y-4">
                 <Label className="text-base font-semibold">Cliente</Label>
@@ -539,9 +539,9 @@ export function NuevaCitaDialog({
                 </div>
               )}
             </div>
-          </ScrollArea>
+          </div>
 
-          <DialogFooter className="pt-4 border-t">
+          <DialogFooter className="px-6 py-4 border-t bg-background flex-shrink-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
