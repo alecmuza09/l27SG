@@ -8,11 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2 } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { updateCitaEstado } from "@/lib/data/citas"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
 import { getVacaciones } from "@/lib/data/vacaciones"
@@ -25,11 +28,12 @@ interface AgendaKanbanViewProps {
 
 const ESTADOS = [
   { value: "pendiente", label: "Pendiente", color: "bg-yellow-500" },
-  { value: "confirmada", label: "Confirmada", color: "bg-blue-500" },
-  { value: "en-progreso", label: "En Progreso", color: "bg-purple-500" },
-  { value: "completada", label: "Completada", color: "bg-green-500" },
-  { value: "cancelada", label: "Cancelada", color: "bg-red-500" },
-  { value: "no-asistio", label: "No Asistió", color: "bg-gray-500" },
+  { value: "confirmada", label: "Confirmado", color: "bg-blue-500" },
+  { value: "en-espera", label: "En Espera", color: "bg-orange-500" },
+  { value: "en-atencion", label: "En Atención", color: "bg-purple-500" },
+  { value: "pendiente-por-pagar", label: "Pendiente por Pagar", color: "bg-amber-500" },
+  { value: "pagado", label: "Pagado", color: "bg-green-500" },
+  { value: "cancelada", label: "Cancelado", color: "bg-red-500" },
 ]
 
 const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
@@ -163,6 +167,21 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
       } finally {
         setIsLoadingCitas(false)
       }
+    }
+  }
+
+  const handleCambiarEstado = async (citaId: string, nuevoEstado: string) => {
+    try {
+      const result = await updateCitaEstado(citaId, nuevoEstado as any)
+      if (result.success) {
+        toast.success(`Estado cambiado a: ${ESTADOS.find(e => e.value === nuevoEstado)?.label}`)
+        await handleCitaCreated() // Recargar citas
+      } else {
+        toast.error(`Error al cambiar estado: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Error cambiando estado:', error)
+      toast.error('Error al cambiar el estado de la cita')
     }
   }
 
@@ -360,14 +379,47 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                       >
                                         <CardContent className="p-2 h-full flex flex-col justify-between">
                                           <div className="space-y-1">
-                                            <Badge
-                                              className={cn(
-                                                "text-xs",
-                                                ESTADOS.find((e) => e.value === cita.estado)?.color,
-                                              )}
-                                            >
-                                              {ESTADOS.find((e) => e.value === cita.estado)?.label}
-                                            </Badge>
+                                            <div className="flex items-center justify-between gap-2">
+                                              <Badge
+                                                className={cn(
+                                                  "text-xs",
+                                                  ESTADOS.find((e) => e.value === cita.estado)?.color,
+                                                )}
+                                              >
+                                                {ESTADOS.find((e) => e.value === cita.estado)?.label}
+                                              </Badge>
+                                              <DropdownMenu>
+                                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                  <Button variant="ghost" size="icon" className="h-6 w-6">
+                                                    <MoreVertical className="h-3 w-3" />
+                                                  </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); /* TODO: Abrir diálogo de edición */ }}>
+                                                    <Edit className="h-4 w-4 mr-2" />
+                                                    Editar Cita
+                                                  </DropdownMenuItem>
+                                                  <DropdownMenuSeparator />
+                                                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                                    Cambiar Estado:
+                                                  </div>
+                                                  {ESTADOS.map((estado) => (
+                                                    <DropdownMenuItem
+                                                      key={estado.value}
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleCambiarEstado(cita.id, estado.value)
+                                                      }}
+                                                      disabled={cita.estado === estado.value}
+                                                      className={cita.estado === estado.value ? "bg-accent" : ""}
+                                                    >
+                                                      <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
+                                                      {estado.label}
+                                                    </DropdownMenuItem>
+                                                  ))}
+                                                </DropdownMenuContent>
+                                              </DropdownMenu>
+                                            </div>
                                             <p className="font-semibold text-sm truncate text-foreground">
                                               {cita.clienteNombre}
                                             </p>

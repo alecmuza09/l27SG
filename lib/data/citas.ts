@@ -309,3 +309,81 @@ export async function getCitasByEmpleadoAndDateFromDB(empleadoId: string, fecha:
     return []
   }
 }
+
+// Actualizar estado de una cita
+export async function updateCitaEstado(
+  citaId: string,
+  nuevoEstado: 'pendiente' | 'confirmada' | 'en-espera' | 'en-atencion' | 'pendiente-por-pagar' | 'pagado' | 'cancelada'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('citas')
+      .update({ 
+        estado: nuevoEstado,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', citaId)
+
+    if (error) {
+      console.error('Error actualizando estado de cita:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando estado:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Actualizar una cita completa
+export async function updateCita(
+  citaId: string,
+  datos: {
+    fecha?: string
+    hora_inicio?: string
+    duracion?: number
+    servicio_id?: string
+    empleado_id?: string
+    precio?: number
+    notas?: string
+    estado?: 'pendiente' | 'confirmada' | 'en-espera' | 'en-atencion' | 'pendiente-por-pagar' | 'pagado' | 'cancelada'
+  }
+): Promise<{ success: boolean; cita?: CitaRow; error?: string }> {
+  try {
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    }
+
+    if (datos.fecha) updateData.fecha = datos.fecha
+    if (datos.hora_inicio) {
+      updateData.hora_inicio = datos.hora_inicio
+      if (datos.duracion) {
+        updateData.hora_fin = calcularHoraFin(datos.hora_inicio, datos.duracion)
+      }
+    }
+    if (datos.duracion) updateData.duracion = datos.duracion
+    if (datos.servicio_id) updateData.servicio_id = datos.servicio_id
+    if (datos.empleado_id) updateData.empleado_id = datos.empleado_id
+    if (datos.precio !== undefined) updateData.precio = datos.precio
+    if (datos.notas !== undefined) updateData.notas = datos.notas || null
+    if (datos.estado) updateData.estado = datos.estado
+
+    const { data, error } = await supabase
+      .from('citas')
+      .update(updateData)
+      .eq('id', citaId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error actualizando cita:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, cita: data }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando cita:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
