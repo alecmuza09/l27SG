@@ -177,16 +177,7 @@ export default function ClientesPage() {
           notas: "",
         })
         // Recargar clientes y estadísticas
-        const [clientesResult, statsData] = await Promise.all([
-          searchQuery.trim() 
-            ? searchClientesPaginated(searchQuery.trim(), currentPage, pageSize)
-            : getClientesPaginated(currentPage, pageSize),
-          getClientesStats()
-        ])
-        setClientes(clientesResult.clientes)
-        setTotalClientes(clientesResult.total)
-        setTotalPages(clientesResult.totalPages)
-        setStats(statsData)
+        await Promise.all([loadClientes(), loadStats()])
       } else {
         toast.error(`Error al crear cliente: ${result.error}`)
       }
