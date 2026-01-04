@@ -20,7 +20,7 @@ import {
   Download,
   Loader2,
 } from "lucide-react"
-import { getClientes, getClientesStats, createCliente, type Cliente } from "@/lib/data/clientes"
+import { getClientesPaginated, searchClientesPaginated, getClientesStats, createCliente, type Cliente } from "@/lib/data/clientes"
 import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -35,6 +35,15 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import Link from "next/link"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -56,21 +65,34 @@ export default function ClientesPage() {
     notas: "",
   })
 
-  // Cargar clientes al montar el componente
-  useEffect(() => {
-    loadClientes()
-  }, [])
+  // Función para cargar estadísticas
+  const loadStats = async () => {
+    try {
+      const statsData = await getClientesStats()
+      setStats(statsData)
+    } catch (err) {
+      console.error('Error cargando estadísticas:', err)
+    }
+  }
 
-  async function loadClientes() {
+  // Función para cargar clientes
+  const loadClientes = async () => {
     try {
       setIsLoading(true)
       setError(null)
-      const [clientesData, statsData] = await Promise.all([
-        getClientes(),
-        getClientesStats(),
-      ])
-      setClientes(clientesData)
-      setStats(statsData)
+      
+      let result
+      if (searchQuery.trim()) {
+        // Si hay búsqueda, usar búsqueda paginada
+        result = await searchClientesPaginated(searchQuery.trim(), currentPage, pageSize)
+      } else {
+        // Si no hay búsqueda, usar paginación normal
+        result = await getClientesPaginated(currentPage, pageSize)
+      }
+      
+      setClientes(result.clientes)
+      setTotalClientes(result.total)
+      setTotalPages(result.totalPages)
     } catch (err) {
       console.error('Error cargando clientes:', err)
       setError('Error al cargar los clientes. Por favor, intenta de nuevo.')
@@ -78,6 +100,20 @@ export default function ClientesPage() {
       setIsLoading(false)
     }
   }
+
+  // Cargar estadísticas solo una vez al montar
+  useEffect(() => {
+    loadStats()
+  }, [])
+
+  // Cargar clientes cuando cambia la página o el searchQuery
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadClientes()
+    }, searchQuery ? 500 : 0) // Debounce solo si hay búsqueda
+
+    return () => clearTimeout(timer)
+  }, [currentPage, searchQuery])
 
   // Manejar cambios en el formulario
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -135,15 +171,8 @@ export default function ClientesPage() {
     }
   }
 
-  const filteredClientes = searchQuery
-    ? clientes.filter(
-        (c) =>
-          c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-          c.telefono.includes(searchQuery),
-      )
-    : clientes
+  // Los clientes ya vienen filtrados de la base de datos, no necesitamos filtrar aquí
+  const displayedClientes = clientes
 
   if (isLoading) {
     return (
@@ -344,15 +373,22 @@ export default function ClientesPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
-            <div className="relative">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nombre, email o teléfono..."
+                placeholder="Buscar por nombre, email o teléfono en toda la base de datos..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {searchQuery ? (
+                <span>Mostrando {totalClientes} resultado{totalClientes !== 1 ? 's' : ''} de búsqueda</span>
+              ) : (
+                <span>Total: {totalClientes.toLocaleString()} clientes</span>
+              )}
             </div>
           </div>
 
@@ -449,6 +485,100 @@ export default function ClientesPage() {
               </TableBody>
             </Table>
           </div>
+
+          {/* Paginación */}
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between">
+              <div className="text-sm text-muted-foreground">
+                Mostrando página {currentPage} de {totalPages} ({totalClientes.toLocaleString()} clientes en total)
+              </div>
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        if (currentPage > 1) {
+                          setCurrentPage(currentPage - 1)
+                          window.scrollTo({ top: 0, behavior: 'smooth' })
+                        }
+                      }}
+                      className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                    />
+                  </PaginationItem>
+                  
+                  {/* Mostrar páginas cercanas */}
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum
+                    if (totalPages <= 5) {
+                      pageNum = i + 1
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i
+                    } else {
+                      pageNum = currentPage - 2 + i
+                    }
+                    
+                    return (
+                      <PaginationItem key={pageNum}>
+                        <PaginationLink
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            setCurrentPage(pageNum)
+                            window.scrollTo({ top: 0, behavior: 'smooth' })
+                          }}
+                          isActive={currentPage === pageNum}
+                          className="cursor-pointer"
+                        >
+                          {pageNum}
+                        </PaginationLink>
+                      </PaginationItem>
+                    )
+                  })}
+                  
+                  {totalPages > 5 && currentPage < totalPages - 2 && (
+                    <PaginationItem>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  )}
+                  
+                  {totalPages > 5 && (
+                    <PaginationItem>
+                      <PaginationLink
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setCurrentPage(totalPages)
+                          window.scrollTo({ top: 0, behavior: 'smooth' })
+                        }}
+                        isActive={currentPage === totalPages}
+                        className="cursor-pointer"
+                      >
+                        {totalPages}
+                      </PaginationLink>
+                    </PaginationItem>
+                  )}
+                  
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        if (currentPage < totalPages) {
+                          setCurrentPage(currentPage + 1)
+                          window.scrollTo({ top: 0, behavior: 'smooth' })
+                        }
+                      }}
+                      className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

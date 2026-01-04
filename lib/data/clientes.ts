@@ -51,13 +51,60 @@ function transformCliente(cliente: ClienteRow): Cliente {
   }
 }
 
-// Obtener todos los clientes
+// Obtener clientes con paginación
+export async function getClientesPaginated(
+  page: number = 1,
+  pageSize: number = 50
+): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
+  try {
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
+
+    // Obtener el total de clientes
+    const { count, error: countError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+
+    if (countError) {
+      console.error('Error obteniendo conteo de clientes:', countError)
+      return { clientes: [], total: 0, totalPages: 0 }
+    }
+
+    const total = count || 0
+    const totalPages = Math.ceil(total / pageSize)
+
+    // Obtener los clientes de la página actual
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(from, to)
+
+    if (error) {
+      console.error('Error obteniendo clientes:', error)
+      return { clientes: [], total, totalPages }
+    }
+
+    return {
+      clientes: data.map(transformCliente),
+      total,
+      totalPages,
+    }
+  } catch (error) {
+    console.error('Error inesperado obteniendo clientes:', error)
+    return { clientes: [], total: 0, totalPages: 0 }
+  }
+}
+
+// Obtener todos los clientes (mantener para compatibilidad, pero con advertencia)
 export async function getClientes(): Promise<Cliente[]> {
+  console.warn('getClientes() está limitado a 1,000 registros. Usa getClientesPaginated() para obtener todos los clientes.')
   try {
     const { data, error } = await supabase
       .from('clientes')
       .select('*')
       .order('created_at', { ascending: false })
+      .limit(1000) // Límite explícito de Supabase
 
     if (error) {
       console.error('Error obteniendo clientes:', error)
@@ -92,15 +139,22 @@ export async function getClienteById(id: string): Promise<Cliente | null> {
   }
 }
 
-// Buscar clientes por query
-export async function searchClientes(query: string): Promise<Cliente[]> {
+// Buscar clientes por query (sin límite de resultados, busca en toda la base de datos)
+export async function searchClientes(query: string, limit: number = 1000): Promise<Cliente[]> {
   try {
+    if (!query || query.trim() === '') {
+      return []
+    }
+
+    const searchTerm = `%${query.trim()}%`
+    
+    // Buscar en toda la base de datos usando ilike para búsqueda case-insensitive
     const { data, error } = await supabase
       .from('clientes')
       .select('*')
-      .or(`nombre.ilike.%${query}%,apellido.ilike.%${query}%,email.ilike.%${query}%,telefono.ilike.%${query}%`)
+      .or(`nombre.ilike.${searchTerm},apellido.ilike.${searchTerm},email.ilike.${searchTerm},telefono.ilike.${searchTerm}`)
       .order('created_at', { ascending: false })
-      .limit(100)
+      .limit(limit)
 
     if (error) {
       console.error('Error buscando clientes:', error)
@@ -111,6 +165,59 @@ export async function searchClientes(query: string): Promise<Cliente[]> {
   } catch (error) {
     console.error('Error inesperado buscando clientes:', error)
     return []
+  }
+}
+
+// Buscar clientes con paginación
+export async function searchClientesPaginated(
+  query: string,
+  page: number = 1,
+  pageSize: number = 50
+): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
+  try {
+    if (!query || query.trim() === '') {
+      return { clientes: [], total: 0, totalPages: 0 }
+    }
+
+    const searchTerm = query.trim()
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
+
+    // Obtener el total de resultados de búsqueda
+    const { count, error: countError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .or(`nombre.ilike.%${searchTerm}%,apellido.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,telefono.ilike.%${searchTerm}%`)
+
+    if (countError) {
+      console.error('Error obteniendo conteo de búsqueda:', countError)
+      return { clientes: [], total: 0, totalPages: 0 }
+    }
+
+    const total = count || 0
+    const totalPages = Math.ceil(total / pageSize)
+
+    // Obtener los resultados de la página actual
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('*')
+      .or(`nombre.ilike.%${searchTerm}%,apellido.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,telefono.ilike.%${searchTerm}%`)
+      .order('created_at', { ascending: false })
+      .range(from, to)
+
+    if (error) {
+      console.error('Error buscando clientes:', error)
+      return { clientes: [], total, totalPages }
+    }
+
+    return {
+      clientes: data.map(transformCliente),
+      total,
+      totalPages,
+    }
+  } catch (error) {
+    console.error('Error inesperado buscando clientes:', error)
+    return { clientes: [], total: 0, totalPages: 0 }
   }
 }
 
