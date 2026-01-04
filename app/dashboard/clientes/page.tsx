@@ -53,6 +53,10 @@ export default function ClientesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalClientes, setTotalClientes] = useState(0)
+  const [pageSize] = useState(50) // 50 clientes por página
 
   // Estado del formulario
   const [formData, setFormData] = useState({
@@ -106,14 +110,28 @@ export default function ClientesPage() {
     loadStats()
   }, [])
 
-  // Cargar clientes cuando cambia la página o el searchQuery
+  // Cargar clientes cuando cambia la página
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadClientes()
-    }, searchQuery ? 500 : 0) // Debounce solo si hay búsqueda
+    loadClientes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage])
 
-    return () => clearTimeout(timer)
-  }, [currentPage, searchQuery])
+  // Manejar cambios en el buscador con debounce y resetear página
+  useEffect(() => {
+    if (searchQuery.trim() !== '') {
+      const timer = setTimeout(() => {
+        setCurrentPage(1) // Resetear a página 1 cuando se busca
+        loadClientes()
+      }, 500) // Esperar 500ms después de que el usuario deje de escribir
+
+      return () => clearTimeout(timer)
+    } else {
+      // Si el buscador está vacío, resetear página y cargar
+      setCurrentPage(1)
+      loadClientes()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery])
 
   // Manejar cambios en el formulario
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -158,8 +176,17 @@ export default function ClientesPage() {
           genero: "",
           notas: "",
         })
-        // Recargar clientes
-        await loadClientes()
+        // Recargar clientes y estadísticas
+        const [clientesResult, statsData] = await Promise.all([
+          searchQuery.trim() 
+            ? searchClientesPaginated(searchQuery.trim(), currentPage, pageSize)
+            : getClientesPaginated(currentPage, pageSize),
+          getClientesStats()
+        ])
+        setClientes(clientesResult.clientes)
+        setTotalClientes(clientesResult.total)
+        setTotalPages(clientesResult.totalPages)
+        setStats(statsData)
       } else {
         toast.error(`Error al crear cliente: ${result.error}`)
       }
@@ -171,8 +198,6 @@ export default function ClientesPage() {
     }
   }
 
-  // Los clientes ya vienen filtrados de la base de datos, no necesitamos filtrar aquí
-  const displayedClientes = clientes
 
   if (isLoading) {
     return (
@@ -406,14 +431,14 @@ export default function ClientesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredClientes.length === 0 ? (
+                {clientes.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       {searchQuery ? 'No se encontraron clientes con ese criterio de búsqueda' : 'No hay clientes registrados'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredClientes.map((cliente) => (
+                  clientes.map((cliente) => (
                   <TableRow key={cliente.id}>
                     <TableCell>
                       <div>
