@@ -1,4 +1,6 @@
-// Mock data for payments
+// Payments data from Supabase and mock data
+
+import { supabase } from '@/lib/supabase/client'
 
 export interface Pago {
   id: string
@@ -105,4 +107,103 @@ export function getPagosByFecha(fecha: string): Pago[] {
 
 export function getPagosPendientes(): Pago[] {
   return MOCK_PAGOS.filter((p) => p.estado === "pendiente")
+}
+
+// Obtener pagos desde Supabase
+export async function getPagosFromDB(sucursalId?: string): Promise<Pago[]> {
+  try {
+    let query = supabase
+      .from('pagos')
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        empleado:empleados(nombre, apellido)
+      `)
+      .order('fecha', { ascending: false })
+      .order('hora', { ascending: false })
+    
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error obteniendo pagos:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data.map((pago: any) => ({
+      id: pago.id,
+      citaId: pago.cita_id || '',
+      clienteId: pago.cliente_id,
+      clienteNombre: pago.cliente ? `${pago.cliente.nombre} ${pago.cliente.apellido}` : 'Cliente desconocido',
+      monto: Number(pago.monto) || 0,
+      metodoPago: pago.metodo_pago,
+      estado: pago.estado,
+      fecha: pago.fecha,
+      hora: pago.hora || '',
+      sucursalId: pago.sucursal_id,
+      empleadoId: pago.empleado_id,
+      empleadoNombre: pago.empleado ? `${pago.empleado.nombre} ${pago.empleado.apellido}` : 'Empleado desconocido',
+      servicios: pago.servicios || [],
+      notas: pago.notas || undefined,
+      referencia: pago.referencia || undefined,
+    }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo pagos:', error)
+    return []
+  }
+}
+
+// Obtener pagos pendientes desde BD
+export async function getPagosPendientesFromDB(sucursalId?: string): Promise<Pago[]> {
+  try {
+    let query = supabase
+      .from('pagos')
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        empleado:empleados(nombre, apellido)
+      `)
+      .eq('estado', 'pendiente')
+      .order('fecha', { ascending: false })
+      .order('hora', { ascending: false })
+    
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error obteniendo pagos pendientes:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data.map((pago: any) => ({
+      id: pago.id,
+      citaId: pago.cita_id || '',
+      clienteId: pago.cliente_id,
+      clienteNombre: pago.cliente ? `${pago.cliente.nombre} ${pago.cliente.apellido}` : 'Cliente desconocido',
+      monto: Number(pago.monto) || 0,
+      metodoPago: pago.metodo_pago,
+      estado: pago.estado,
+      fecha: pago.fecha,
+      hora: pago.hora || '',
+      sucursalId: pago.sucursal_id,
+      empleadoId: pago.empleado_id,
+      empleadoNombre: pago.empleado ? `${pago.empleado.nombre} ${pago.empleado.apellido}` : 'Empleado desconocido',
+      servicios: pago.servicios || [],
+      notas: pago.notas || undefined,
+      referencia: pago.referencia || undefined,
+    }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo pagos pendientes:', error)
+    return []
+  }
 }

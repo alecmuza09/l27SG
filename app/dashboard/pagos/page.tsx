@@ -1,20 +1,43 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { CreditCard, DollarSign, TrendingUp, Clock, Search, Filter, Download, ShoppingCart } from "lucide-react"
-import { MOCK_PAGOS, getPagosPendientes } from "@/lib/data/pagos"
+import { CreditCard, DollarSign, TrendingUp, Clock, Search, Filter, Download, ShoppingCart, Loader2 } from "lucide-react"
+import { getPagosFromDB, getPagosPendientesFromDB, type Pago } from "@/lib/data/pagos"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 
 export default function PagosPage() {
-  const [pagos] = useState(MOCK_PAGOS)
+  const [pagos, setPagos] = useState<Pago[]>([])
+  const [pagosPendientes, setPagosPendientes] = useState<Pago[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [cajaDialogOpen, setCajaDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadPagos() {
+      try {
+        setIsLoading(true)
+        const hoy = new Date().toISOString().split('T')[0]
+        const [pagosData, pendientesData] = await Promise.all([
+          getPagosFromDB(),
+          getPagosPendientesFromDB()
+        ])
+        setPagos(pagosData)
+        setPagosPendientes(pendientesData)
+      } catch (err) {
+        console.error('Error cargando pagos:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadPagos()
+  }, [])
 
   const filteredPagos = searchQuery
     ? pagos.filter(
@@ -24,26 +47,46 @@ export default function PagosPage() {
       )
     : pagos
 
-  const pagosPendientes = getPagosPendientes()
+  const hoy = new Date().toISOString().split('T')[0]
+  const pagosHoyCompletados = pagos.filter((p) => p.fecha === hoy && p.estado === "completado")
 
   const stats = {
-    totalHoy: pagos.filter((p) => p.fecha === "2024-01-18" && p.estado === "completado").length,
-    montoHoy: pagos
-      .filter((p) => p.fecha === "2024-01-18" && p.estado === "completado")
-      .reduce((acc, p) => acc + p.monto, 0),
+    totalHoy: pagosHoyCompletados.length,
+    montoHoy: pagosHoyCompletados.reduce((acc, p) => acc + p.monto, 0),
     pendientes: pagosPendientes.length,
     montoPendiente: pagosPendientes.reduce((acc, p) => acc + p.monto, 0),
   }
 
+  const pagosCompletados = pagos.filter((p) => p.estado === "completado")
   const pagosPorMetodo = {
-    efectivo: pagos.filter((p) => p.metodoPago === "efectivo" && p.estado === "completado").length,
-    tarjeta: pagos.filter((p) => p.metodoPago === "tarjeta" && p.estado === "completado").length,
-    transferencia: pagos.filter((p) => p.metodoPago === "transferencia" && p.estado === "completado").length,
+    efectivo: pagosCompletados.filter((p) => p.metodoPago === "efectivo").length,
+    tarjeta: pagosCompletados.filter((p) => p.metodoPago === "tarjeta").length,
+    transferencia: pagosCompletados.filter((p) => p.metodoPago === "transferencia").length,
   }
 
   const handlePagoCompletado = (total: number, ajustes: any[]) => {
     console.log("Pago completado:", { total, ajustes })
-    // Aquí se registraría el pago en el sistema
+    // Recargar pagos después de completar uno
+    async function reloadPagos() {
+      const [pagosData, pendientesData] = await Promise.all([
+        getPagosFromDB(),
+        getPagosPendientesFromDB()
+      ])
+      setPagos(pagosData)
+      setPagosPendientes(pendientesData)
+    }
+    reloadPagos()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando pagos...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -328,8 +371,8 @@ export default function PagosPage() {
       <CajaDialog
         open={cajaDialogOpen}
         onOpenChange={setCajaDialogOpen}
-        clienteNombre="María García López"
-        clienteId="c-1"
+        clienteNombre=""
+        clienteId=""
         onPagoCompletado={handlePagoCompletado}
       />
     </div>

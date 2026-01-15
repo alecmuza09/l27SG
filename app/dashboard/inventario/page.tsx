@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,8 +16,14 @@ import {
   Trash2,
   ArrowUpDown,
   Calendar,
+  Loader2,
 } from "lucide-react"
-import { MOCK_INVENTARIO, getProductosBajoStock, getProductosProximosVencer } from "@/lib/data/inventario"
+import { 
+  getProductosInventarioFromDB, 
+  getProductosBajoStockFromDB, 
+  getProductosProximosVencerFromDB,
+  type ProductoInventario 
+} from "@/lib/data/inventario"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
@@ -33,10 +39,35 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function InventarioPage() {
-  const [inventario] = useState(MOCK_INVENTARIO)
+  const [inventario, setInventario] = useState<ProductoInventario[]>([])
+  const [productosBajoStock, setProductosBajoStock] = useState<ProductoInventario[]>([])
+  const [productosProximosVencer, setProductosProximosVencer] = useState<ProductoInventario[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isMovimientoDialogOpen, setIsMovimientoDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadInventario() {
+      try {
+        setIsLoading(true)
+        const [productosData, bajoStockData, proximosVencerData] = await Promise.all([
+          getProductosInventarioFromDB(),
+          getProductosBajoStockFromDB(),
+          getProductosProximosVencerFromDB()
+        ])
+        setInventario(productosData)
+        setProductosBajoStock(bajoStockData)
+        setProductosProximosVencer(proximosVencerData)
+      } catch (err) {
+        console.error('Error cargando inventario:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadInventario()
+  }, [])
 
   const filteredInventario = searchQuery
     ? inventario.filter(
@@ -46,9 +77,6 @@ export default function InventarioPage() {
           p.categoria.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : inventario
-
-  const productosBajoStock = getProductosBajoStock()
-  const productosProximosVencer = getProductosProximosVencer()
 
   const stats = {
     totalProductos: inventario.length,
@@ -61,6 +89,17 @@ export default function InventarioPage() {
     if (producto.stockActual <= producto.stockMinimo) return "bajo"
     if (producto.stockActual >= producto.stockMaximo) return "alto"
     return "normal"
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando inventario...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

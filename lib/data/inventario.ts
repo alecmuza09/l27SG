@@ -1,4 +1,6 @@
-// Mock data for inventory
+// Inventory data from Supabase and mock data
+
+import { supabase } from '@/lib/supabase/client'
 
 export interface ProductoInventario {
   id: string
@@ -194,4 +196,153 @@ export function getProductosProximosVencer(): ProductoInventario[] {
     const vencimiento = new Date(p.fechaVencimiento)
     return vencimiento <= treintaDias && vencimiento >= hoy
   })
+}
+
+// Obtener productos desde Supabase
+export async function getProductosInventarioFromDB(sucursalId?: string): Promise<ProductoInventario[]> {
+  try {
+    let query = supabase
+      .from('inventario_productos')
+      .select('*')
+      .eq('activo', true)
+      .order('nombre')
+    
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error obteniendo productos del inventario:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data.map((producto: any) => ({
+      id: producto.id,
+      nombre: producto.nombre,
+      descripcion: producto.descripcion || '',
+      categoria: producto.categoria,
+      sku: producto.sku,
+      stockActual: producto.stock_actual || 0,
+      stockMinimo: producto.stock_minimo || 0,
+      stockMaximo: producto.stock_maximo || null,
+      unidadMedida: producto.unidad_medida || 'unidad',
+      precioCompra: Number(producto.precio_compra) || 0,
+      precioVenta: producto.precio_venta ? Number(producto.precio_venta) : undefined,
+      proveedor: producto.proveedor || '',
+      sucursalId: producto.sucursal_id,
+      ubicacion: producto.ubicacion || undefined,
+      fechaVencimiento: producto.fecha_vencimiento || undefined,
+      ultimaCompra: producto.ultima_compra || undefined,
+      activo: producto.activo ?? true,
+    }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo productos:', error)
+    return []
+  }
+}
+
+// Obtener productos bajo stock desde BD
+export async function getProductosBajoStockFromDB(sucursalId?: string): Promise<ProductoInventario[]> {
+  try {
+    let query = supabase
+      .from('inventario_productos')
+      .select('*')
+      .eq('activo', true)
+    
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error obteniendo productos bajo stock:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data
+      .filter((p: any) => (p.stock_actual || 0) < (p.stock_minimo || 0))
+      .map((producto: any) => ({
+        id: producto.id,
+        nombre: producto.nombre,
+        descripcion: producto.descripcion || '',
+        categoria: producto.categoria,
+        sku: producto.sku,
+        stockActual: producto.stock_actual || 0,
+        stockMinimo: producto.stock_minimo || 0,
+        stockMaximo: producto.stock_maximo || null,
+        unidadMedida: producto.unidad_medida || 'unidad',
+        precioCompra: Number(producto.precio_compra) || 0,
+        precioVenta: producto.precio_venta ? Number(producto.precio_venta) : undefined,
+        proveedor: producto.proveedor || '',
+        sucursalId: producto.sucursal_id,
+        ubicacion: producto.ubicacion || undefined,
+        fechaVencimiento: producto.fecha_vencimiento || undefined,
+        ultimaCompra: producto.ultima_compra || undefined,
+        activo: producto.activo ?? true,
+      }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo productos bajo stock:', error)
+    return []
+  }
+}
+
+// Obtener productos próximos a vencer desde BD
+export async function getProductosProximosVencerFromDB(sucursalId?: string): Promise<ProductoInventario[]> {
+  try {
+    const hoy = new Date().toISOString().split('T')[0]
+    const treintaDias = new Date()
+    treintaDias.setDate(treintaDias.getDate() + 30)
+    const fechaLimite = treintaDias.toISOString().split('T')[0]
+    
+    let query = supabase
+      .from('inventario_productos')
+      .select('*')
+      .eq('activo', true)
+      .not('fecha_vencimiento', 'is', null)
+      .gte('fecha_vencimiento', hoy)
+      .lte('fecha_vencimiento', fechaLimite)
+    
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error obteniendo productos próximos a vencer:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data.map((producto: any) => ({
+      id: producto.id,
+      nombre: producto.nombre,
+      descripcion: producto.descripcion || '',
+      categoria: producto.categoria,
+      sku: producto.sku,
+      stockActual: producto.stock_actual || 0,
+      stockMinimo: producto.stock_minimo || 0,
+      stockMaximo: producto.stock_maximo || null,
+      unidadMedida: producto.unidad_medida || 'unidad',
+      precioCompra: Number(producto.precio_compra) || 0,
+      precioVenta: producto.precio_venta ? Number(producto.precio_venta) : undefined,
+      proveedor: producto.proveedor || '',
+      sucursalId: producto.sucursal_id,
+      ubicacion: producto.ubicacion || undefined,
+      fechaVencimiento: producto.fecha_vencimiento || undefined,
+      ultimaCompra: producto.ultima_compra || undefined,
+      activo: producto.activo ?? true,
+    }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo productos próximos a vencer:', error)
+    return []
+  }
 }
