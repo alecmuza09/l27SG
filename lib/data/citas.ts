@@ -310,6 +310,42 @@ export async function getCitasByEmpleadoAndDateFromDB(empleadoId: string, fecha:
   }
 }
 
+// Obtener citas por cliente desde Supabase
+export async function getCitasByClienteIdFromDB(clienteId: string): Promise<Cita[]> {
+  try {
+    const { data, error } = await supabase
+      .from('citas')
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        servicio:servicios(nombre),
+        empleado:empleados(nombre, apellido)
+      `)
+      .eq('cliente_id', clienteId)
+      .order('fecha', { ascending: false })
+      .order('hora_inicio', { ascending: false })
+
+    if (error) {
+      console.error('Error obteniendo citas del cliente:', error)
+      return []
+    }
+
+    if (!data) return []
+
+    return data.map((cita: any) => 
+      transformCita(
+        cita,
+        cita.cliente,
+        cita.servicio,
+        cita.empleado
+      )
+    )
+  } catch (error) {
+    console.error('Error inesperado obteniendo citas del cliente:', error)
+    return []
+  }
+}
+
 // Actualizar estado de una cita (usa estados de la BD: pendiente, confirmada, en-progreso, completada, cancelada, no-asistio)
 export async function updateCitaEstado(
   citaId: string,

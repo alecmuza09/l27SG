@@ -20,12 +20,14 @@ import {
   Loader2,
 } from "lucide-react"
 import { getClienteById, type Cliente } from "@/lib/data/clientes"
+import { getCitasByClienteIdFromDB, type Cita } from "@/lib/data/citas"
 import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
 
 export default function ClienteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [cliente, setCliente] = useState<Cliente | null>(null)
+  const [historialCitas, setHistorialCitas] = useState<Cita[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,11 +36,15 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
       try {
         setIsLoading(true)
         setError(null)
-        const clienteData = await getClienteById(id)
+        const [clienteData, citasData] = await Promise.all([
+          getClienteById(id),
+          getCitasByClienteIdFromDB(id)
+        ])
         if (!clienteData) {
           setError('Cliente no encontrado')
         } else {
           setCliente(clienteData)
+          setHistorialCitas(citasData)
         }
       } catch (err) {
         console.error('Error cargando cliente:', err)
@@ -82,45 +88,6 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
       </div>
     )
   }
-
-  const historialCitas = [
-    {
-      id: "1",
-      fecha: "2024-01-10",
-      servicio: "Masaje Relajante",
-      empleado: "María González",
-      duracion: "60 min",
-      costo: 850,
-      estado: "completada",
-    },
-    {
-      id: "2",
-      fecha: "2023-12-20",
-      servicio: "Facial Hidratante",
-      empleado: "Laura Martínez",
-      duracion: "45 min",
-      costo: 650,
-      estado: "completada",
-    },
-    {
-      id: "3",
-      fecha: "2023-12-05",
-      servicio: "Aromaterapia",
-      empleado: "María González",
-      duracion: "90 min",
-      costo: 1200,
-      estado: "completada",
-    },
-    {
-      id: "4",
-      fecha: "2023-11-18",
-      servicio: "Masaje Relajante",
-      empleado: "Carmen López",
-      duracion: "60 min",
-      costo: 850,
-      estado: "completada",
-    },
-  ]
 
   return (
     <div className="space-y-6">
@@ -341,29 +308,51 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
               <CardDescription>Últimas visitas del cliente</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {historialCitas.map((cita) => (
-                  <div key={cita.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="font-medium">{cita.servicio}</p>
-                        <Badge variant="outline">{cita.estado}</Badge>
+              {historialCitas.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No hay citas registradas para este cliente</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {historialCitas.map((cita) => (
+                    <div key={cita.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="font-medium">{cita.servicioNombre}</p>
+                          <Badge 
+                            variant={
+                              cita.estado === 'completada' ? 'default' :
+                              cita.estado === 'cancelada' || cita.estado === 'no-asistio' ? 'destructive' :
+                              'secondary'
+                            }
+                          >
+                            {cita.estado.replace('-', ' ').toUpperCase()}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(cita.fecha).toLocaleDateString("es-MX", {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })}
+                          </span>
+                          <span>{cita.horaInicio}</span>
+                          <span>{cita.empleadoNombre}</span>
+                          <span>{cita.duracion} min</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {new Date(cita.fecha).toLocaleDateString("es-MX")}
-                        </span>
-                        <span>{cita.empleado}</span>
-                        <span>{cita.duracion}</span>
+                      <div className="text-right">
+                        <p className="font-semibold">${cita.precio.toLocaleString()}</p>
+                        {cita.pagado && (
+                          <p className="text-xs text-muted-foreground mt-1">Pagado</p>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold">${cita.costo}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
