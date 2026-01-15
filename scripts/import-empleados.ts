@@ -214,3 +214,5 @@ insertarEmpleados()
     console.error('\n❌ Error en la importación:', error)
     process.exit(1)
   })
+
+

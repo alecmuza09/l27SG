@@ -229,26 +229,42 @@ export async function getClientesStats(): Promise<{
   nuevos: number
 }> {
   try {
-    const { data, error } = await supabase
+    // Obtener el total de clientes usando count
+    const { count: totalCount, error: totalError } = await supabase
       .from('clientes')
-      .select('estado, fecha_registro')
+      .select('*', { count: 'exact', head: true })
 
-    if (error) {
-      console.error('Error obteniendo estadísticas:', error)
+    if (totalError) {
+      console.error('Error obteniendo total de clientes:', totalError)
       return { total: 0, activos: 0, vip: 0, nuevos: 0 }
     }
 
-    const total = data.length
-    const activos = data.filter((c: any) => c.estado === 'activo').length
-    const vip = data.filter((c: any) => c.estado === 'vip').length
-    
+    const total = totalCount || 0
+
+    // Obtener conteos por estado usando count
+    const { count: activosCount, error: activosError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .eq('estado', 'activo')
+
+    const { count: vipCount, error: vipError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .eq('estado', 'vip')
+
     // Clientes nuevos en los últimos 30 días
     const hoy = new Date()
     const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
-    const nuevos = data.filter((c: any) => {
-      const fechaRegistro = new Date(c.fecha_registro)
-      return fechaRegistro >= hace30Dias
-    }).length
+    const fechaLimite = hace30Dias.toISOString().split('T')[0]
+
+    const { count: nuevosCount, error: nuevosError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .gte('fecha_registro', fechaLimite)
+
+    const activos = activosError ? 0 : (activosCount || 0)
+    const vip = vipError ? 0 : (vipCount || 0)
+    const nuevos = nuevosError ? 0 : (nuevosCount || 0)
 
     return { total, activos, vip, nuevos }
   } catch (error) {

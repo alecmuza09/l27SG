@@ -176,3 +176,48 @@ export async function getServicioByIdFromDB(id: string): Promise<Servicio | null
     return null
   }
 }
+
+// Actualizar un servicio
+export async function updateServicio(
+  servicioId: string,
+  datos: {
+    nombre?: string
+    descripcion?: string
+    duracion?: number
+    precio?: number
+    categoria?: string
+    color?: string
+    activo?: boolean
+  }
+): Promise<{ success: boolean; servicio?: ServicioRow; error?: string }> {
+  try {
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    }
+
+    if (datos.nombre) updateData.nombre = datos.nombre
+    if (datos.descripcion !== undefined) updateData.descripcion = datos.descripcion || null
+    if (datos.duracion !== undefined) updateData.duracion = datos.duracion
+    if (datos.precio !== undefined) updateData.precio = datos.precio
+    if (datos.categoria) updateData.categoria = datos.categoria
+    if (datos.color !== undefined) updateData.color = datos.color || null
+    if (datos.activo !== undefined) updateData.activo = datos.activo
+
+    const { data, error } = await supabase
+      .from('servicios')
+      .update(updateData)
+      .eq('id', servicioId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error actualizando servicio:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, servicio: data }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando servicio:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}

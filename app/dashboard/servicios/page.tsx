@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag, Loader2 } from "lucide-react"
-import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
+import { getServiciosActivosFromDB, updateServicio, type Servicio } from "@/lib/data/servicios"
+import { toast } from "sonner"
 import {
   Dialog,
   DialogContent,
@@ -23,23 +24,65 @@ export default function ServiciosPage() {
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingServicio, setEditingServicio] = useState<Servicio | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const loadServicios = async () => {
+    try {
+      setIsLoading(true)
+      const serviciosData = await getServiciosActivosFromDB()
+      setServicios(serviciosData)
+    } catch (err) {
+      console.error('Error cargando servicios:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function loadServicios() {
-      try {
-        setIsLoading(true)
-        const serviciosData = await getServiciosActivosFromDB()
-        setServicios(serviciosData)
-      } catch (err) {
-        console.error('Error cargando servicios:', err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
     loadServicios()
   }, [])
+
+  const handleEdit = (servicio: Servicio) => {
+    setEditingServicio(servicio)
+    setIsEditDialogOpen(true)
+  }
+
+  const handleUpdateServicio = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingServicio) return
+
+    setIsSubmitting(true)
+    try {
+      const form = e.target as HTMLFormElement
+      const formData = new FormData(form)
+      
+      const result = await updateServicio(editingServicio.id, {
+        nombre: formData.get('edit-nombre') as string,
+        descripcion: formData.get('edit-descripcion') as string || undefined,
+        duracion: Number(formData.get('edit-duracion')),
+        precio: Number(formData.get('edit-precio')),
+        categoria: formData.get('edit-categoria') as string,
+        color: formData.get('edit-color') as string || undefined,
+      })
+
+      if (result.success) {
+        toast.success('Servicio actualizado exitosamente')
+        setIsEditDialogOpen(false)
+        setEditingServicio(null)
+        await loadServicios()
+      } else {
+        toast.error(`Error al actualizar servicio: ${result.error}`)
+      }
+    } catch (err: any) {
+      console.error('Error actualizando servicio:', err)
+      toast.error('Error inesperado al actualizar el servicio')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const filteredServicios = searchQuery
     ? servicios.filter(
@@ -228,7 +271,12 @@ export default function ServiciosPage() {
                     <span className="font-semibold text-lg">${servicio.precio}</span>
                   </div>
                   <div className="flex gap-2 pt-2 border-t">
-                    <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex-1 bg-transparent"
+                      onClick={() => handleEdit(servicio)}
+                    >
                       <Edit className="mr-2 h-4 w-4" />
                       Editar
                     </Button>
@@ -274,6 +322,120 @@ export default function ServiciosPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Diálogo de edición */}
+      {editingServicio && (
+        <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+          setIsEditDialogOpen(open)
+          if (!open) setEditingServicio(null)
+        }}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Editar Servicio</DialogTitle>
+              <DialogDescription>Modifica la información del servicio</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleUpdateServicio} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-nombre">Nombre del Servicio *</Label>
+                <Input 
+                  id="edit-nombre" 
+                  name="edit-nombre"
+                  defaultValue={editingServicio.nombre} 
+                  required 
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-descripcion">Descripción</Label>
+                <Textarea 
+                  id="edit-descripcion" 
+                  name="edit-descripcion"
+                  defaultValue={editingServicio.descripcion} 
+                  rows={3} 
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-categoria">Categoría *</Label>
+                  <Select name="edit-categoria" defaultValue={editingServicio.categoria}>
+                    <SelectTrigger id="edit-categoria">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Manicure">Manicure</SelectItem>
+                      <SelectItem value="Pedicure">Pedicure</SelectItem>
+                      <SelectItem value="Facial">Facial</SelectItem>
+                      <SelectItem value="Corporal">Corporal</SelectItem>
+                      <SelectItem value="Masaje">Masaje</SelectItem>
+                      <SelectItem value="Otros">Otros</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-color">Color (opcional)</Label>
+                  <Input 
+                    id="edit-color" 
+                    name="edit-color"
+                    type="color" 
+                    defaultValue={editingServicio.color || "#8b7355"} 
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-duracion">Duración (minutos) *</Label>
+                  <Input 
+                    id="edit-duracion" 
+                    name="edit-duracion"
+                    type="number" 
+                    min="15" 
+                    step="15" 
+                    defaultValue={editingServicio.duracion} 
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-precio">Precio *</Label>
+                  <Input 
+                    id="edit-precio" 
+                    name="edit-precio"
+                    type="number" 
+                    min="0" 
+                    step="0.01" 
+                    defaultValue={editingServicio.precio} 
+                    required 
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setIsEditDialogOpen(false)
+                    setEditingServicio(null)
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar Cambios'
+                  )}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

@@ -22,3 +22,5 @@ ALTER TABLE citas ADD CONSTRAINT citas_estado_check
 -- Nota: Los estados 'en-espera' y 'en-atencion' se mapean a 'en-progreso' en el código
 -- Los estados 'pendiente-por-pagar' y 'pagado' se mapean a 'completada' en el código
 -- Si prefieres usar los estados directamente sin mapeo, ejecuta este script
+
+

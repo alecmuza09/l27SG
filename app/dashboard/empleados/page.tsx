@@ -174,7 +174,6 @@ export default function EmpleadosPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="terapeuta">Terapeuta</SelectItem>
-                      <SelectItem value="esteticista">Esteticista</SelectItem>
                       <SelectItem value="recepcionista">Recepcionista</SelectItem>
                       <SelectItem value="manager">Manager</SelectItem>
                     </SelectContent>
