@@ -30,7 +30,6 @@ import {
   RefreshCw,
   CheckCircle,
 } from "lucide-react"
-import { getSucursalesActivasFromDB } from "@/lib/data/sucursales"
 import { getClientes, type Cliente } from "@/lib/data/clientes"
 import {
   getGiftCards,
