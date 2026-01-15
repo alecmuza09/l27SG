@@ -797,7 +797,7 @@ export default function VacacionesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas las Sucursales</SelectItem>
-                  {sucursalesData.map((s) => (
+                  {sucursales.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.nombre}
                     </SelectItem>
