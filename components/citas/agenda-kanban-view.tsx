@@ -66,6 +66,7 @@ const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
 })
 
 export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanViewProps) {
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [selectedSucursal, setSelectedSucursal] = useState<string>("")
   const [draggedCita, setDraggedCita] = useState<Cita | null>(null)
@@ -78,20 +79,38 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
   const [editingCita, setEditingCita] = useState<Cita | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
+  const isAdmin = currentUser?.role === 'admin'
+  const userSucursalId = currentUser?.sucursalId
+
+  useEffect(() => {
+    const user = getCurrentUser()
+    setCurrentUser(user)
+  }, [])
+
   useEffect(() => {
     setVacaciones(getVacaciones())
   }, [])
 
   useEffect(() => {
     async function loadSucursales() {
-      const sucursalesData = await getSucursalesActivasFromDB()
-      setSucursales(sucursalesData)
-      if (sucursalesData.length > 0 && !selectedSucursal) {
-        setSelectedSucursal(sucursalesData[0].id)
+      if (isAdmin) {
+        const sucursalesData = await getSucursalesActivasFromDB()
+        setSucursales(sucursalesData)
+        if (sucursalesData.length > 0 && !selectedSucursal) {
+          setSelectedSucursal(sucursalesData[0].id)
+        }
+      } else if (userSucursalId) {
+        const sucursal = await getSucursalByIdFromDB(userSucursalId)
+        if (sucursal) {
+          setSucursales([sucursal])
+          setSelectedSucursal(userSucursalId)
+        }
       }
     }
-    loadSucursales()
-  }, [])
+    if (currentUser) {
+      loadSucursales()
+    }
+  }, [currentUser, isAdmin, userSucursalId])
 
   useEffect(() => {
     async function loadEmpleados() {
@@ -274,21 +293,29 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
           </Button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-muted-foreground" />
-          <Select value={selectedSucursal} onValueChange={setSelectedSucursal}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {sucursales.map((sucursal) => (
-                <SelectItem key={sucursal.id} value={sucursal.id}>
-                  {sucursal.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+            <Select value={selectedSucursal} onValueChange={setSelectedSucursal}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sucursales.map((sucursal) => (
+                  <SelectItem key={sucursal.id} value={sucursal.id}>
+                    {sucursal.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {!isAdmin && sucursales.length > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 border rounded-md bg-muted/50">
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">{sucursales[0]?.nombre}</span>
+          </div>
+        )}
       </div>
 
       {empleadosDeVacacionesHoy.length > 0 && (

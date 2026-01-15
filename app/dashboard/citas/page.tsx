@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalByIdFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getCurrentUser, type User } from "@/lib/auth"
 
 export default function CitasPage() {
   // Obtener fecha actual en zona horaria local
@@ -17,21 +18,40 @@ export default function CitasPage() {
     return `${year}-${month}-${day}`
   }
   
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [selectedDate, setSelectedDate] = useState(getTodayLocal())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId] = useState<string>("")
 
+  const isAdmin = currentUser?.role === 'admin'
+  const userSucursalId = currentUser?.sucursalId
+
+  useEffect(() => {
+    const user = getCurrentUser()
+    setCurrentUser(user)
+  }, [])
+
   useEffect(() => {
     async function loadSucursales() {
-      const sucursalesData = await getSucursalesActivasFromDB()
-      setSucursales(sucursalesData)
-      if (sucursalesData.length > 0) {
-        setSucursalId(sucursalesData[0].id)
+      if (isAdmin) {
+        const sucursalesData = await getSucursalesActivasFromDB()
+        setSucursales(sucursalesData)
+        if (sucursalesData.length > 0) {
+          setSucursalId(sucursalesData[0].id)
+        }
+      } else if (userSucursalId) {
+        const sucursal = await getSucursalByIdFromDB(userSucursalId)
+        if (sucursal) {
+          setSucursales([sucursal])
+          setSucursalId(userSucursalId)
+        }
       }
     }
-    loadSucursales()
-  }, [])
+    if (currentUser) {
+      loadSucursales()
+    }
+  }, [currentUser, isAdmin, userSucursalId])
 
   return (
     <div className="space-y-6">

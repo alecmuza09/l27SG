@@ -134,15 +134,17 @@ function transformEmpleado(empleado: EmpleadoRow): Empleado {
 }
 
 // Obtener todos los empleados desde Supabase (solo activos por defecto)
-export async function getEmpleadosFromDB(includeEliminados: boolean = false): Promise<Empleado[]> {
+export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[]> {
   try {
     let query = supabase
       .from('empleados')
       .select('*')
+      .eq('activo', true)
       .order('nombre')
 
-    if (!includeEliminados) {
-      query = query.eq('activo', true)
+    // Filtrar por sucursal si se especifica
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
     }
 
     const { data, error } = await query
@@ -160,13 +162,20 @@ export async function getEmpleadosFromDB(includeEliminados: boolean = false): Pr
 }
 
 // Obtener solo empleados eliminados (activo = false)
-export async function getEmpleadosEliminadosFromDB(): Promise<Empleado[]> {
+export async function getEmpleadosEliminadosFromDB(sucursalId?: string): Promise<Empleado[]> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('empleados')
       .select('*')
       .eq('activo', false)
       .order('nombre')
+
+    // Filtrar por sucursal si se especifica
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error obteniendo empleados eliminados:', error)

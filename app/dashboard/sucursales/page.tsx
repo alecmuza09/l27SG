@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Plus, MapPin, Phone, Mail, Clock, Edit, Trash2, Loader2 } from "lucide-react"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalByIdFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getCurrentUser, type User } from "@/lib/auth"
 import {
   Dialog,
   DialogContent,
@@ -19,16 +20,35 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
 export default function SucursalesPage() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+
+  const isAdmin = currentUser?.role === 'admin'
+  const userSucursalId = currentUser?.sucursalId
+
+  useEffect(() => {
+    const user = getCurrentUser()
+    setCurrentUser(user)
+  }, [])
 
   useEffect(() => {
     async function loadSucursales() {
       try {
         setIsLoading(true)
-        const sucursalesData = await getSucursalesActivasFromDB()
-        setSucursales(sucursalesData)
+        
+        if (isAdmin) {
+          // Admin ve todas las sucursales
+          const sucursalesData = await getSucursalesActivasFromDB()
+          setSucursales(sucursalesData)
+        } else if (userSucursalId) {
+          // Manager/Staff solo ve su sucursal
+          const sucursal = await getSucursalByIdFromDB(userSucursalId)
+          if (sucursal) {
+            setSucursales([sucursal])
+          }
+        }
       } catch (err) {
         console.error('Error cargando sucursales:', err)
       } finally {
@@ -36,8 +56,10 @@ export default function SucursalesPage() {
       }
     }
 
-    loadSucursales()
-  }, [])
+    if (currentUser) {
+      loadSucursales()
+    }
+  }, [currentUser, isAdmin, userSucursalId])
 
   if (isLoading) {
     return (
@@ -55,15 +77,18 @@ export default function SucursalesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Sucursales</h1>
-          <p className="text-muted-foreground">Gestiona las ubicaciones de Luna27</p>
+          <p className="text-muted-foreground">
+            {isAdmin ? "Gestiona las ubicaciones de Luna27" : "Información de tu sucursal"}
+          </p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Nueva Sucursal
-            </Button>
-          </DialogTrigger>
+        {isAdmin && (
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Nueva Sucursal
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Nueva Sucursal</DialogTitle>
@@ -107,6 +132,7 @@ export default function SucursalesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -143,16 +169,18 @@ export default function SucursalesPage() {
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-4 border-t">
-                <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                  <Edit className="mr-2 h-4 w-4" />
-                  Editar
-                </Button>
-                <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Eliminar
-                </Button>
-              </div>
+              {isAdmin && (
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                    <Edit className="mr-2 h-4 w-4" />
+                    Editar
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Eliminar
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}

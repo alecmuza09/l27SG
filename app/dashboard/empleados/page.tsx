@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Mail, Phone, Calendar, Edit, Trash2, Award, Loader2, Filter, RotateCcw } from "lucide-react"
 import { getEmpleadosFromDB, getEmpleadosEliminadosFromDB, eliminarEmpleado, restaurarEmpleado, type Empleado } from "@/lib/data/empleados"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getCurrentUser, type User } from "@/lib/auth"
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 export default function EmpleadosPage() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [empleadosEliminados, setEmpleadosEliminados] = useState<Empleado[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
@@ -49,18 +51,34 @@ export default function EmpleadosPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
   const [activeTab, setActiveTab] = useState<"activos" | "eliminados">("activos")
+
+  const isAdmin = currentUser?.role === 'admin'
+  const userSucursalId = currentUser?.sucursalId
+
   async function loadEmpleados() {
     try {
       setIsLoading(true)
       setError(null)
+      
+      // Si es manager o staff, filtrar por su sucursal
+      const sucursalIdFilter = isAdmin ? undefined : userSucursalId
+      
       const [empleadosData, empleadosEliminadosData, sucursalesData] = await Promise.all([
-        getEmpleadosFromDB(),
-        getEmpleadosEliminadosFromDB(),
-        getSucursalesActivasFromDB()
+        getEmpleadosFromDB(sucursalIdFilter),
+        getEmpleadosEliminadosFromDB(sucursalIdFilter),
+        isAdmin ? getSucursalesActivasFromDB() : getSucursalesActivasFromDB().then(s => 
+          userSucursalId ? s.filter(suc => suc.id === userSucursalId) : []
+        )
       ])
+      
       setEmpleados(empleadosData)
       setEmpleadosEliminados(empleadosEliminadosData)
       setSucursales(sucursalesData)
+      
+      // Si es manager/staff, establecer el filtro a su sucursal automáticamente
+      if (!isAdmin && userSucursalId && sucursalesData.length > 0) {
+        setSucursalFilter(userSucursalId)
+      }
     } catch (err) {
       console.error('Error cargando empleados:', err)
       setError('Error al cargar los empleados. Por favor, intenta de nuevo.')
@@ -70,8 +88,15 @@ export default function EmpleadosPage() {
   }
 
   useEffect(() => {
-    loadEmpleados()
+    const user = getCurrentUser()
+    setCurrentUser(user)
   }, [])
+
+  useEffect(() => {
+    if (currentUser) {
+      loadEmpleados()
+    }
+  }, [currentUser])
 
   const filteredEmpleados = (activeTab === "activos" ? empleados : empleadosEliminados).filter((e) => {
     const matchesSearch = searchQuery
@@ -181,7 +206,7 @@ export default function EmpleadosPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="sucursal">Sucursal *</Label>
-                  <Select>
+                  <Select defaultValue={!isAdmin && userSucursalId ? userSucursalId : undefined} disabled={!isAdmin && !!userSucursalId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar sucursal" />
                     </SelectTrigger>
@@ -193,6 +218,11 @@ export default function EmpleadosPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {!isAdmin && userSucursalId && (
+                    <p className="text-xs text-muted-foreground">
+                      Solo puedes agregar empleados a tu sucursal
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -288,20 +318,22 @@ export default function EmpleadosPage() {
                 className="pl-10"
               />
             </div>
-            <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
-              <SelectTrigger className="w-[200px]">
-                <Filter className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Filtrar por sucursal" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todas">Todas las sucursales</SelectItem>
-                {sucursales.map((sucursal) => (
-                  <SelectItem key={sucursal.id} value={sucursal.id}>
-                    {sucursal.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {isAdmin && (
+              <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
+                <SelectTrigger className="w-[200px]">
+                  <Filter className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Filtrar por sucursal" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas las sucursales</SelectItem>
+                  {sucursales.map((sucursal) => (
+                    <SelectItem key={sucursal.id} value={sucursal.id}>
+                      {sucursal.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <div className="rounded-md border">

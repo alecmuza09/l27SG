@@ -15,9 +15,23 @@ import {
   getServiciosPopulares, 
   getResumenSucursales 
 } from "@/lib/data/dashboard"
+import { getCurrentUser, type User } from "@/lib/auth"
 
 export default function DashboardPage() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [selectedSucursal, setSelectedSucursal] = useState("all")
+
+  const isAdmin = currentUser?.role === 'admin'
+  const userSucursalId = currentUser?.sucursalId
+
+  useEffect(() => {
+    const user = getCurrentUser()
+    setCurrentUser(user)
+    // Si no es admin, establecer su sucursal automáticamente
+    if (user && user.role !== 'admin' && user.sucursalId) {
+      setSelectedSucursal(user.sucursalId)
+    }
+  }, [])
   const [stats, setStats] = useState({ citasHoy: 0, clientesActivos: 0, ingresosHoy: 0, ocupacion: 0 })
   const [estadoCitas, setEstadoCitas] = useState({ completadas: 0, enProgreso: 0, pendientes: 0, canceladas: 0 })
   const [proximasCitas, setProximasCitas] = useState<Array<{ id: string; time: string; client: string; service: string; staff: string; status: string }>>([])
@@ -29,12 +43,17 @@ export default function DashboardPage() {
     async function loadDashboardData() {
       try {
         setIsLoading(true)
+        // Determinar sucursal a usar (filtrar por rol)
+        const sucursalId = !isAdmin && userSucursalId 
+          ? userSucursalId 
+          : (selectedSucursal === 'all' ? undefined : selectedSucursal)
+        
         const [statsData, estadoCitasData, proximasCitasData, serviciosPopularesData, resumenSucursalesData] = await Promise.all([
-          getDashboardStats(selectedSucursal === 'all' ? undefined : selectedSucursal),
-          getEstadoCitas(selectedSucursal === 'all' ? undefined : selectedSucursal),
-          getProximasCitas(4, selectedSucursal === 'all' ? undefined : selectedSucursal),
-          getServiciosPopulares(4, selectedSucursal === 'all' ? undefined : selectedSucursal),
-          getResumenSucursales(selectedSucursal === 'all' ? undefined : selectedSucursal)
+          getDashboardStats(sucursalId),
+          getEstadoCitas(sucursalId),
+          getProximasCitas(4, sucursalId),
+          getServiciosPopulares(4, sucursalId),
+          isAdmin ? getResumenSucursales(sucursalId) : Promise.resolve([]) // Solo admin ve resumen de todas
         ])
         
         setStats(statsData)
@@ -49,8 +68,10 @@ export default function DashboardPage() {
       }
     }
 
-    loadDashboardData()
-  }, [selectedSucursal])
+    if (currentUser) {
+      loadDashboardData()
+    }
+  }, [selectedSucursal, currentUser, isAdmin, userSucursalId])
 
   if (isLoading) {
     return (
@@ -70,9 +91,11 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
           <p className="text-muted-foreground">Resumen general de operaciones y productividad</p>
         </div>
-        <div className="w-64">
-          <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} />
-        </div>
+        {isAdmin && (
+          <div className="w-64">
+            <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} />
+          </div>
+        )}
       </div>
 
       {/* Stats Cards con colores mejorados */}
