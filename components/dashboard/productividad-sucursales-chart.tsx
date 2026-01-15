@@ -1,10 +1,11 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { getProductividadSucursales } from "@/lib/data/dashboard"
+import { getProductividadSucursalesFromDB, type ProductividadSucursal } from "@/lib/data/dashboard"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from "recharts"
-import { TrendingUp, TrendingDown } from "lucide-react"
+import { TrendingUp, TrendingDown, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
 const COLORS = [
@@ -37,7 +38,53 @@ const chartConfig = {
 }
 
 export function ProductividadSucursalesChart() {
-  const data = getProductividadSucursales().sort((a, b) => b.ingresos - a.ingresos)
+  const [data, setData] = useState<ProductividadSucursal[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setIsLoading(true)
+        const productividad = await getProductividadSucursalesFromDB()
+        setData(productividad.sort((a, b) => b.ingresos - a.ingresos))
+      } catch (err) {
+        console.error('Error cargando productividad de sucursales:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <Card className="col-span-full">
+        <CardContent className="flex items-center justify-center h-[400px]">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Cargando productividad...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (data.length === 0) {
+    return (
+      <Card className="col-span-full">
+        <CardHeader>
+          <CardTitle className="text-xl font-bold">Productividad por Sucursal</CardTitle>
+          <CardDescription>Comparativa de ingresos, citas y ocupación por sucursal</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12 text-muted-foreground">
+            <p>No hay datos de productividad disponibles aún</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   // Formatear nombres de sucursales para el gráfico
   const chartData = data.map((sucursal) => ({

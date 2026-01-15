@@ -1,9 +1,8 @@
-// Dashboard productivity data
+// Dashboard data from Supabase
 
-import { MOCK_SUCURSALES } from "./sucursales"
-import { MOCK_EMPLEADOS } from "./empleados"
-import { MOCK_CITAS } from "./citas"
-import { MOCK_PAGOS } from "./pagos"
+import { supabase } from '@/lib/supabase/client'
+import { getSucursalesActivasFromDB } from './sucursales'
+import { getEmpleadosFromDB } from './empleados'
 
 export interface ProductividadSucursal {
   sucursalId: string
@@ -13,7 +12,7 @@ export interface ProductividadSucursal {
   ocupacion: number
   clientesAtendidos: number
   promedioTicket: number
-  tendencia: number // porcentaje de cambio vs período anterior
+  tendencia: number
 }
 
 export interface ProductividadEmpleado {
@@ -30,158 +29,475 @@ export interface ProductividadEmpleado {
   serviciosCompletados: number
 }
 
-// Calcular productividad por sucursal
-export function getProductividadSucursales(): ProductividadSucursal[] {
-  const sucursales = MOCK_SUCURSALES.filter((s) => s.activa)
-  
-  // Generar datos más realistas basados en el índice de la sucursal para variación
-  return sucursales.map((sucursal, index) => {
-    const citasSucursal = MOCK_CITAS.filter((c) => c.sucursalId === sucursal.id)
-    const pagosSucursal = MOCK_PAGOS.filter((p) => p.sucursalId === sucursal.id && p.estado === "completado")
-    
-    // Base de ingresos y citas de datos reales, con variación por sucursal
-    const baseIngresos = pagosSucursal.reduce((sum, p) => sum + p.monto, 0)
-    const baseCitas = citasSucursal.length
-    
-    // Multiplicador basado en el índice para crear variación entre sucursales
-    // Las primeras sucursales tienen más datos, así que usamos un factor de escala
-    const factorEscala = 1 + (index * 0.3) + Math.sin(index) * 0.2
-    const ingresos = Math.round(baseIngresos * factorEscala || (15000 + index * 2000 + Math.random() * 5000))
-    const citas = Math.round(baseCitas * factorEscala || (20 + index * 5 + Math.random() * 15))
-    
-    const clientesAtendidos = new Set(citasSucursal.map((c) => c.clienteId)).size || Math.round(citas * 0.8)
-    const promedioTicket = citas > 0 ? ingresos / citas : 600 + Math.random() * 400
-    
-    // Calcular ocupación (citas completadas / capacidad estimada)
-    const empleadosSucursal = MOCK_EMPLEADOS.filter((e) => e.sucursalId === sucursal.id && e.activo)
-    const numEmpleados = empleadosSucursal.length || 3 + Math.floor(index / 2)
-    const capacidadDiaria = numEmpleados * 8
-    const ocupacion = capacidadDiaria > 0 
-      ? Math.min(100, Math.round((citas / capacidadDiaria) * 100))
-      : Math.round(60 + index * 3 + Math.random() * 20)
-    
-    // Tendencia simulada con más variación
-    const tendencia = (Math.random() * 30 - 10) + (index % 3 - 1) * 5 // -10% a +20% con variación
-    
-    return {
-      sucursalId: sucursal.id,
-      nombre: sucursal.nombre,
-      ingresos,
-      citas,
-      ocupacion,
-      clientesAtendidos,
-      promedioTicket: Math.round(promedioTicket),
-      tendencia: Math.round(tendencia * 10) / 10,
-    }
-  })
+export interface DashboardStats {
+  citasHoy: number
+  clientesActivos: number
+  ingresosHoy: number
+  ocupacion: number
 }
 
-// Calcular top 10 empleados por productividad
-export function getTopEmpleados(limit: number = 10): ProductividadEmpleado[] {
-  const empleados = MOCK_EMPLEADOS.filter((e) => e.activo)
-  
-  // Si hay menos empleados que el límite, generar datos adicionales simulados
-  const empleadosConDatos = empleados.map((empleado, index) => {
-    const citasEmpleado = MOCK_CITAS.filter((c) => c.empleadoId === empleado.id)
-    const pagosEmpleado = MOCK_PAGOS.filter(
-      (p) => p.empleadoId === empleado.id && p.estado === "completado"
+export interface EstadoCitas {
+  completadas: number
+  enProgreso: number
+  pendientes: number
+  canceladas: number
+}
+
+export interface ProximaCita {
+  id: string
+  time: string
+  client: string
+  service: string
+  staff: string
+  status: string
+}
+
+export interface ServicioPopular {
+  name: string
+  count: number
+  percentage: number
+  revenue: number
+}
+
+// Obtener estadísticas del dashboard
+export async function getDashboardStats(sucursalId?: string): Promise<DashboardStats> {
+  try {
+    const hoy = new Date().toISOString().split('T')[0]
+    
+    // Citas de hoy
+    let citasQuery = supabase
+      .from('citas')
+      .select('*', { count: 'exact', head: true })
+      .eq('fecha', hoy)
+    
+    if (sucursalId && sucursalId !== 'all') {
+      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
+    }
+    
+    const { count: citasCount } = await citasQuery
+    
+    // Ingresos de hoy (de citas completadas y pagadas)
+    let ingresosQuery = supabase
+      .from('citas')
+      .select('precio')
+      .eq('fecha', hoy)
+      .eq('estado', 'completada')
+      .eq('pagado', true)
+    
+    if (sucursalId && sucursalId !== 'all') {
+      ingresosQuery = ingresosQuery.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data: ingresosData } = await ingresosQuery
+    const ingresosHoy = ingresosData?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+    
+    // Clientes activos
+    const { count: clientesCount } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .eq('estado', 'activo')
+    
+    // Calcular ocupación (citas completadas hoy / capacidad estimada)
+    const { data: empleados } = await supabase
+      .from('empleados')
+      .select('id')
+      .eq('activo', true)
+    
+    const numEmpleados = empleados?.length || 1
+    const capacidadDiaria = numEmpleados * 8 // 8 horas por empleado
+    const ocupacion = capacidadDiaria > 0 
+      ? Math.min(100, Math.round((citasCount || 0) / capacidadDiaria * 100))
+      : 0
+    
+    return {
+      citasHoy: citasCount || 0,
+      clientesActivos: clientesCount || 0,
+      ingresosHoy,
+      ocupacion
+    }
+  } catch (error) {
+    console.error('Error obteniendo estadísticas del dashboard:', error)
+    return { citasHoy: 0, clientesActivos: 0, ingresosHoy: 0, ocupacion: 0 }
+  }
+}
+
+// Obtener estado de citas
+export async function getEstadoCitas(sucursalId?: string): Promise<EstadoCitas> {
+  try {
+    const hoy = new Date().toISOString().split('T')[0]
+    
+    let citasQuery = supabase
+      .from('citas')
+      .select('estado')
+      .eq('fecha', hoy)
+    
+    if (sucursalId && sucursalId !== 'all') {
+      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data: citas } = await citasQuery
+    
+    if (!citas) return { completadas: 0, enProgreso: 0, pendientes: 0, canceladas: 0 }
+    
+    return {
+      completadas: citas.filter(c => c.estado === 'completada').length,
+      enProgreso: citas.filter(c => c.estado === 'en-progreso').length,
+      pendientes: citas.filter(c => c.estado === 'pendiente' || c.estado === 'confirmada').length,
+      canceladas: citas.filter(c => c.estado === 'cancelada' || c.estado === 'no-asistio').length,
+    }
+  } catch (error) {
+    console.error('Error obteniendo estado de citas:', error)
+    return { completadas: 0, enProgreso: 0, pendientes: 0, canceladas: 0 }
+  }
+}
+
+// Obtener próximas citas
+export async function getProximasCitas(limit: number = 4, sucursalId?: string): Promise<ProximaCita[]> {
+  try {
+    const hoy = new Date().toISOString().split('T')[0]
+    
+    let citasQuery = supabase
+      .from('citas')
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        servicio:servicios(nombre),
+        empleado:empleados(nombre, apellido)
+      `)
+      .gte('fecha', hoy)
+      .in('estado', ['pendiente', 'confirmada'])
+      .order('fecha', { ascending: true })
+      .order('hora_inicio', { ascending: true })
+      .limit(limit)
+    
+    if (sucursalId && sucursalId !== 'all') {
+      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data: citas } = await citasQuery
+    
+    if (!citas) return []
+    
+    return citas.map((cita: any) => {
+      const hora = cita.hora_inicio?.substring(0, 5) || ''
+      return {
+        id: cita.id,
+        time: hora,
+        client: `${cita.cliente?.nombre || ''} ${cita.cliente?.apellido || ''}`.trim(),
+        service: cita.servicio?.nombre || 'Servicio desconocido',
+        staff: `${cita.empleado?.nombre || ''} ${cita.empleado?.apellido || ''}`.trim() || 'Empleado desconocido',
+        status: cita.estado === 'confirmada' ? 'confirmed' : 'pending'
+      }
+    })
+  } catch (error) {
+    console.error('Error obteniendo próximas citas:', error)
+    return []
+  }
+}
+
+// Obtener servicios populares
+export async function getServiciosPopulares(limit: number = 4, sucursalId?: string): Promise<ServicioPopular[]> {
+  try {
+    let citasQuery = supabase
+      .from('citas')
+      .select(`
+        servicio_id,
+        precio,
+        servicio:servicios(nombre)
+      `)
+      .eq('estado', 'completada')
+      .not('servicio_id', 'is', null)
+    
+    if (sucursalId && sucursalId !== 'all') {
+      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data: citas } = await citasQuery
+    
+    if (!citas || citas.length === 0) return []
+    
+    // Agrupar por servicio
+    const serviciosMap = new Map<string, { count: number; revenue: number; name: string }>()
+    
+    citas.forEach((cita: any) => {
+      const servicioId = cita.servicio_id
+      const nombre = cita.servicio?.nombre || 'Servicio desconocido'
+      const precio = Number(cita.precio || 0)
+      
+      if (serviciosMap.has(servicioId)) {
+        const servicio = serviciosMap.get(servicioId)!
+        servicio.count++
+        servicio.revenue += precio
+      } else {
+        serviciosMap.set(servicioId, {
+          count: 1,
+          revenue: precio,
+          name: nombre
+        })
+      }
+    })
+    
+    const servicios = Array.from(serviciosMap.values())
+      .map(s => ({
+        name: s.name,
+        count: s.count,
+        revenue: s.revenue,
+        percentage: 0 // Se calculará después
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit)
+    
+    // Calcular porcentajes
+    const totalCitas = servicios.reduce((sum, s) => sum + s.count, 0)
+    servicios.forEach(servicio => {
+      servicio.percentage = totalCitas > 0 ? Math.round((servicio.count / totalCitas) * 100) : 0
+    })
+    
+    return servicios
+  } catch (error) {
+    console.error('Error obteniendo servicios populares:', error)
+    return []
+  }
+}
+
+// Obtener resumen por sucursal
+export async function getResumenSucursales(sucursalId?: string): Promise<Array<{ nombre: string; ingresos: number; citas: number; tendencia: string }>> {
+  try {
+    const sucursales = await getSucursalesActivasFromDB()
+    
+    if (sucursalId && sucursalId !== 'all') {
+      const sucursal = sucursales.find(s => s.id === sucursalId)
+      if (!sucursal) return []
+      
+      const hoy = new Date()
+      const mesActual = hoy.toISOString().slice(0, 7)
+      const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toISOString().slice(0, 7)
+      
+      // Citas y ingresos del mes actual
+      const { data: citasMesActual } = await supabase
+        .from('citas')
+        .select('precio')
+        .eq('sucursal_id', sucursalId)
+        .eq('estado', 'completada')
+        .gte('fecha', `${mesActual}-01`)
+      
+      const { count: citasCountActual } = await supabase
+        .from('citas')
+        .select('*', { count: 'exact', head: true })
+        .eq('sucursal_id', sucursalId)
+        .eq('estado', 'completada')
+        .gte('fecha', `${mesActual}-01`)
+      
+      // Citas y ingresos del mes anterior
+      const { data: citasMesAnterior } = await supabase
+        .from('citas')
+        .select('precio')
+        .eq('sucursal_id', sucursalId)
+        .eq('estado', 'completada')
+        .gte('fecha', `${mesAnterior}-01`)
+        .lt('fecha', `${mesActual}-01`)
+      
+      const ingresosActual = citasMesActual?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+      const ingresosAnterior = citasMesAnterior?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+      const citasActual = citasCountActual || 0
+      
+      const tendencia = ingresosAnterior > 0
+        ? ((ingresosActual - ingresosAnterior) / ingresosAnterior * 100).toFixed(0)
+        : '0'
+      
+      return [{
+        nombre: sucursal.nombre.replace('Luna27 ', ''),
+        ingresos: ingresosActual,
+        citas: citasActual,
+        tendencia: parseFloat(tendencia) >= 0 ? `+${tendencia}%` : `${tendencia}%`
+      }]
+    }
+    
+    // Todas las sucursales
+    const resumen = await Promise.all(
+      sucursales.slice(0, 4).map(async (sucursal) => {
+        const hoy = new Date()
+        const mesActual = hoy.toISOString().slice(0, 7)
+        const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toISOString().slice(0, 7)
+        
+        const { data: citasMesActual } = await supabase
+          .from('citas')
+          .select('precio')
+          .eq('sucursal_id', sucursal.id)
+          .eq('estado', 'completada')
+          .gte('fecha', `${mesActual}-01`)
+        
+        const { count: citasCountActual } = await supabase
+          .from('citas')
+          .select('*', { count: 'exact', head: true })
+          .eq('sucursal_id', sucursal.id)
+          .eq('estado', 'completada')
+          .gte('fecha', `${mesActual}-01`)
+        
+        const { data: citasMesAnterior } = await supabase
+          .from('citas')
+          .select('precio')
+          .eq('sucursal_id', sucursal.id)
+          .eq('estado', 'completada')
+          .gte('fecha', `${mesAnterior}-01`)
+          .lt('fecha', `${mesActual}-01`)
+        
+        const ingresosActual = citasMesActual?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const ingresosAnterior = citasMesAnterior?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const citasActual = citasCountActual || 0
+        
+        const tendencia = ingresosAnterior > 0
+          ? ((ingresosActual - ingresosAnterior) / ingresosAnterior * 100).toFixed(0)
+          : '0'
+        
+        return {
+          nombre: sucursal.nombre.replace('Luna27 ', ''),
+          ingresos: ingresosActual,
+          citas: citasActual,
+          tendencia: parseFloat(tendencia) >= 0 ? `+${tendencia}%` : `${tendencia}%`
+        }
+      })
     )
     
-    const baseIngresos = pagosEmpleado.reduce((sum, p) => sum + p.monto, 0)
-    const baseCitas = citasEmpleado.length
+    return resumen
+  } catch (error) {
+    console.error('Error obteniendo resumen de sucursales:', error)
+    return []
+  }
+}
+
+// Obtener productividad por sucursal desde BD
+export async function getProductividadSucursalesFromDB(): Promise<ProductividadSucursal[]> {
+  try {
+    const sucursales = await getSucursalesActivasFromDB()
+    const hoy = new Date()
+    const mesActual = hoy.toISOString().slice(0, 7)
+    const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toISOString().slice(0, 7)
     
-    // Generar datos más variados para crear un ranking interesante
-    const factorProductividad = 0.8 + (index * 0.15) + Math.random() * 0.3
-    const ingresos = Math.round(baseIngresos * factorProductividad || (8000 + index * 1000 + Math.random() * 5000))
-    const citas = Math.round(baseCitas * factorProductividad || (15 + index * 3 + Math.random() * 10))
-    const serviciosCompletados = Math.round(citas * 0.85)
-    const promedioTicket = citas > 0 ? ingresos / citas : 500 + Math.random() * 300
-    
-    // Calcular ocupación basada en horas trabajadas
-    const horasTrabajadas = 8
-    const horasOcupadas = citasEmpleado.reduce((sum, c) => sum + c.duracion / 60, 0) || (citas * 1.2)
-    const ocupacion = horasTrabajadas > 0 
-      ? Math.min(100, Math.round((horasOcupadas / horasTrabajadas) * 100))
-      : Math.round(65 + index * 5 + Math.random() * 15)
-    
-    // Rating simulado con variación
-    const rating = 4.2 + (index * 0.05) + Math.random() * 0.6 // 4.2 a 4.8+ con variación
-    
-    const sucursal = MOCK_SUCURSALES.find((s) => s.id === empleado.sucursalId)
-    
-    return {
-      empleadoId: empleado.id,
-      nombre: empleado.nombre,
-      apellido: empleado.apellido,
-      sucursalId: empleado.sucursalId,
-      sucursalNombre: sucursal?.nombre || "N/A",
-      citas,
-      ingresos,
-      ocupacion,
-      promedioTicket: Math.round(promedioTicket),
-      rating: Math.round(rating * 10) / 10,
-      serviciosCompletados,
-    }
-  })
-  
-  // Si necesitamos más empleados para el top 10, generar empleados simulados
-  if (empleadosConDatos.length < limit) {
-    const empleadosFaltantes = limit - empleadosConDatos.length
-    const nombres = ["Carmen", "Patricia", "Sofía", "Elena", "Isabel", "Lucía", "Valeria", "Daniela", "Fernanda", "Alejandra"]
-    const apellidos = ["López", "Hernández", "García", "Martínez", "Sánchez", "Torres", "Ramírez", "Flores", "Morales", "Castro"]
-    
-    for (let i = 0; i < empleadosFaltantes; i++) {
-      const idx = empleadosConDatos.length + i
-      const sucursal = MOCK_SUCURSALES[i % MOCK_SUCURSALES.length]
-      const ingresos = 12000 - (i * 800) + Math.random() * 2000
-      const citas = 20 - (i * 2) + Math.random() * 5
-      
-      empleadosConDatos.push({
-        empleadoId: `sim-${idx}`,
-        nombre: nombres[i % nombres.length],
-        apellido: apellidos[i % apellidos.length],
-        sucursalId: sucursal.id,
-        sucursalNombre: sucursal.nombre,
-        citas: Math.round(citas),
-        ingresos: Math.round(ingresos),
-        ocupacion: Math.round(70 + i * 2 + Math.random() * 10),
-        promedioTicket: Math.round(ingresos / citas),
-        rating: Math.round((4.5 + i * 0.03 + Math.random() * 0.3) * 10) / 10,
-        serviciosCompletados: Math.round(citas * 0.9),
+    const productividad = await Promise.all(
+      sucursales.map(async (sucursal) => {
+        // Citas del mes actual
+        const { data: citasMes, count: citasCount } = await supabase
+          .from('citas')
+          .select('precio, cliente_id', { count: 'exact' })
+          .eq('sucursal_id', sucursal.id)
+          .eq('estado', 'completada')
+          .gte('fecha', `${mesActual}-01`)
+        
+        // Citas del mes anterior
+        const { data: citasMesAnterior } = await supabase
+          .from('citas')
+          .select('precio')
+          .eq('sucursal_id', sucursal.id)
+          .eq('estado', 'completada')
+          .gte('fecha', `${mesAnterior}-01`)
+          .lt('fecha', `${mesActual}-01`)
+        
+        const ingresos = citasMes?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const ingresosAnterior = citasMesAnterior?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const citas = citasCount || 0
+        
+        // Clientes únicos atendidos
+        const clientesUnicos = new Set(citasMes?.map((c: any) => c.cliente_id) || []).size
+        
+        const promedioTicket = citas > 0 ? Math.round(ingresos / citas) : 0
+        
+        // Ocupación estimada (citas / capacidad)
+        const { data: empleados } = await supabase
+          .from('empleados')
+          .select('id')
+          .eq('sucursal_id', sucursal.id)
+          .eq('activo', true)
+        
+        const numEmpleados = empleados?.length || 1
+        const capacidadMensual = numEmpleados * 8 * 30 // 8 horas/día * 30 días
+        const ocupacion = capacidadMensual > 0 
+          ? Math.min(100, Math.round((citas / capacidadMensual) * 100))
+          : 0
+        
+        // Tendencia
+        const tendencia = ingresosAnterior > 0
+          ? ((ingresos - ingresosAnterior) / ingresosAnterior * 100)
+          : 0
+        
+        return {
+          sucursalId: sucursal.id,
+          nombre: sucursal.nombre,
+          ingresos,
+          citas,
+          ocupacion,
+          clientesAtendidos: clientesUnicos,
+          promedioTicket,
+          tendencia: Math.round(tendencia * 10) / 10,
+        }
       })
-    }
+    )
+    
+    return productividad
+  } catch (error) {
+    console.error('Error obteniendo productividad de sucursales:', error)
+    return []
   }
-  
-  // Ordenar por ingresos y tomar top N
-  return empleadosConDatos
-    .sort((a, b) => b.ingresos - a.ingresos)
-    .slice(0, limit)
 }
 
-// Datos para gráficos de tendencia (últimos 7 días)
-export function getTendenciaProductividad() {
-  const dias = 7
-  const data = []
-  
-  for (let i = dias - 1; i >= 0; i--) {
-    const fecha = new Date()
-    fecha.setDate(fecha.getDate() - i)
-    const fechaStr = fecha.toISOString().split("T")[0]
+// Obtener top empleados desde BD
+export async function getTopEmpleadosFromDB(limit: number = 10): Promise<ProductividadEmpleado[]> {
+  try {
+    const empleados = await getEmpleadosFromDB()
+    const hoy = new Date()
+    const mesActual = hoy.toISOString().slice(0, 7)
     
-    const citasDia = MOCK_CITAS.filter((c) => c.fecha === fechaStr)
-    const pagosDia = MOCK_PAGOS.filter((p) => p.fecha === fechaStr && p.estado === "completado")
+    const productividad = await Promise.all(
+      empleados.map(async (empleado) => {
+        // Citas del empleado en el mes actual
+        const { data: citasMes, count: citasCount } = await supabase
+          .from('citas')
+          .select('precio, duracion')
+          .eq('empleado_id', empleado.id)
+          .eq('estado', 'completada')
+          .gte('fecha', `${mesActual}-01`)
+        
+        const ingresos = citasMes?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const citas = citasCount || 0
+        const serviciosCompletados = citas
+        const promedioTicket = citas > 0 ? Math.round(ingresos / citas) : 0
+        
+        // Calcular ocupación (horas trabajadas vs horas ocupadas)
+        const horasOcupadas = citasMes?.reduce((sum, c) => sum + (Number(c.duracion || 0) / 60), 0) || 0
+        const horasTrabajadas = 8 * 30 // 8 horas/día * 30 días del mes
+        const ocupacion = horasTrabajadas > 0
+          ? Math.min(100, Math.round((horasOcupadas / horasTrabajadas) * 100))
+          : 0
+        
+        // Rating simulado (puede ser reemplazado por datos reales si existe tabla de ratings)
+        const rating = 4.5
+        
+        // Obtener sucursal
+        const sucursales = await getSucursalesActivasFromDB()
+        const sucursal = sucursales.find(s => s.id === empleado.sucursalId)
+        
+        return {
+          empleadoId: empleado.id,
+          nombre: empleado.nombre,
+          apellido: empleado.apellido,
+          sucursalId: empleado.sucursalId,
+          sucursalNombre: sucursal?.nombre || 'Sin sucursal',
+          citas,
+          ingresos,
+          ocupacion,
+          promedioTicket,
+          rating,
+          serviciosCompletados,
+        }
+      })
+    )
     
-    const ingresos = pagosDia.reduce((sum, p) => sum + p.monto, 0)
-    const citas = citasDia.length
-    
-    data.push({
-      fecha: fechaStr,
-      dia: fecha.toLocaleDateString("es-MX", { weekday: "short" }),
-      ingresos,
-      citas,
-    })
+    // Ordenar por ingresos y tomar top N
+    return productividad
+      .sort((a, b) => b.ingresos - a.ingresos)
+      .slice(0, limit)
+  } catch (error) {
+    console.error('Error obteniendo top empleados:', error)
+    return []
   }
-  
-  return data
 }
-

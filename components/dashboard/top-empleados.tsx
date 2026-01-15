@@ -1,9 +1,10 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { getTopEmpleados } from "@/lib/data/dashboard"
-import { Trophy, Star, TrendingUp, DollarSign, Calendar, Users } from "lucide-react"
+import { getTopEmpleadosFromDB, type ProductividadEmpleado } from "@/lib/data/dashboard"
+import { Trophy, Star, TrendingUp, DollarSign, Calendar, Users, Loader2 } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 const RANK_COLORS = {
@@ -20,7 +21,56 @@ const RANK_ICONS = {
 }
 
 export function TopEmpleados() {
-  const topEmpleados = getTopEmpleados(10)
+  const [topEmpleados, setTopEmpleados] = useState<ProductividadEmpleado[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setIsLoading(true)
+        const empleados = await getTopEmpleadosFromDB(10)
+        setTopEmpleados(empleados)
+      } catch (err) {
+        console.error('Error cargando top empleados:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center h-[400px]">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Cargando top empleados...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (topEmpleados.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl font-bold flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-yellow-500" />
+            Top 10 Empleados
+          </CardTitle>
+          <CardDescription>Ranking por productividad e ingresos generados</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12 text-muted-foreground">
+            <p>No hay datos de empleados disponibles aún</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>
@@ -146,21 +196,23 @@ export function TopEmpleados() {
                   </div>
                 </div>
 
-                {/* Barra de progreso visual adicional */}
-                <div className="mt-3 pt-3 border-t">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                    <span>Productividad</span>
-                    <span>Ticket Promedio: ${empleado.promedioTicket}</span>
-                  </div>
-                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary via-indigo-500 to-purple-500 rounded-full transition-all"
-                      style={{
-                        width: `${(empleado.ingresos / topEmpleados[0].ingresos) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </div>
+                  {/* Barra de progreso visual adicional */}
+                  {topEmpleados.length > 0 && topEmpleados[0].ingresos > 0 && (
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                        <span>Productividad</span>
+                        <span>Ticket Promedio: ${empleado.promedioTicket}</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-primary via-indigo-500 to-purple-500 rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(100, (empleado.ingresos / topEmpleados[0].ingresos) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
               </div>
             )
           })}
