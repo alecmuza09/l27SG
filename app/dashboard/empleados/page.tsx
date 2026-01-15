@@ -529,6 +529,8 @@ export default function EmpleadosPage() {
             <EditarEmpleadoDialog
               empleado={editingEmpleado}
               sucursales={sucursales}
+              isAdmin={isAdmin}
+              userSucursalId={userSucursalId}
               onClose={() => {
                 setIsEditDialogOpen(false)
                 setEditingEmpleado(null)
@@ -546,11 +548,15 @@ export default function EmpleadosPage() {
 function EditarEmpleadoDialog({
   empleado,
   sucursales,
+  isAdmin,
+  userSucursalId,
   onClose,
   onSuccess,
 }: {
   empleado: Empleado
   sucursales: Sucursal[]
+  isAdmin: boolean
+  userSucursalId?: string
   onClose: () => void
   onSuccess: () => void
 }) {
@@ -672,7 +678,11 @@ function EditarEmpleadoDialog({
         </div>
         <div className="space-y-2">
           <Label htmlFor="edit-sucursal">Sucursal *</Label>
-          <Select value={formData.sucursalId} onValueChange={(value) => setFormData({ ...formData, sucursalId: value })}>
+          <Select 
+            value={formData.sucursalId} 
+            onValueChange={(value) => setFormData({ ...formData, sucursalId: value })}
+            disabled={!isAdmin}
+          >
             <SelectTrigger id="edit-sucursal">
               <SelectValue />
             </SelectTrigger>
@@ -684,6 +694,11 @@ function EditarEmpleadoDialog({
               ))}
             </SelectContent>
           </Select>
+          {!isAdmin && userSucursalId && (
+            <p className="text-xs text-muted-foreground">
+              Solo puedes editar empleados de tu sucursal
+            </p>
+          )}
         </div>
       </div>
 
