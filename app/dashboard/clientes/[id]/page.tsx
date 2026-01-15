@@ -219,10 +219,14 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{cliente.totalVisitas}</div>
-                {cliente.ultimaVisita && (
+                <div className="text-2xl font-bold">{cliente.totalVisitas || 0}</div>
+                {cliente.ultimaVisita ? (
                   <p className="text-xs text-muted-foreground mt-1">
                     Última: {new Date(cliente.ultimaVisita).toLocaleDateString("es-MX")}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sin visitas registradas
                   </p>
                 )}
               </CardContent>
@@ -236,10 +240,15 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">${cliente.totalGastado.toLocaleString()}</div>
-                {cliente.totalVisitas > 0 && (
+                <div className="text-2xl font-bold">${(cliente.totalGastado || 0).toLocaleString()}</div>
+                {cliente.totalVisitas > 0 && cliente.totalGastado > 0 && (
                   <p className="text-xs text-muted-foreground mt-1">
                     Promedio: ${Math.round(cliente.totalGastado / cliente.totalVisitas).toLocaleString()}
+                  </p>
+                )}
+                {cliente.totalVisitas === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sin gastos registrados
                   </p>
                 )}
               </CardContent>
@@ -253,11 +262,17 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{cliente.puntosFidelidad}</div>
-                <Button variant="link" className="h-auto p-0 text-xs mt-1">
-                  <Gift className="h-3 w-3 mr-1" />
-                  Canjear puntos
-                </Button>
+                <div className="text-2xl font-bold">{cliente.puntosFidelidad || 0}</div>
+                {cliente.puntosFidelidad > 0 ? (
+                  <Button variant="link" className="h-auto p-0 text-xs mt-1">
+                    <Gift className="h-3 w-3 mr-1" />
+                    Canjear puntos
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sin puntos acumulados
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>

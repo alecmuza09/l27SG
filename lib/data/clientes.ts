@@ -39,15 +39,15 @@ function transformCliente(cliente: ClienteRow): Cliente {
     direccion: cliente.direccion || undefined,
     ciudad: cliente.ciudad || undefined,
     notas: cliente.notas || undefined,
-    fechaRegistro: cliente.fecha_registro,
+    fechaRegistro: cliente.fecha_registro || new Date().toISOString().split('T')[0],
     ultimaVisita: cliente.ultima_visita || undefined,
-    totalVisitas: cliente.total_visitas,
-    totalGastado: Number(cliente.total_gastado),
-    puntosFidelidad: cliente.puntos_fidelidad,
-    preferencias: cliente.preferencias || undefined,
-    alergias: cliente.alergias || undefined,
+    totalVisitas: cliente.total_visitas ?? 0,
+    totalGastado: Number(cliente.total_gastado) || 0,
+    puntosFidelidad: cliente.puntos_fidelidad ?? 0,
+    preferencias: cliente.preferencias && cliente.preferencias.length > 0 ? cliente.preferencias : undefined,
+    alergias: cliente.alergias && cliente.alergias.length > 0 ? cliente.alergias : undefined,
     sucursalPreferida: cliente.sucursal_preferida || undefined,
-    estado: cliente.estado,
+    estado: cliente.estado || 'activo',
   }
 }
 
