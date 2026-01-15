@@ -1,8 +1,11 @@
 // Dashboard data from Supabase
 
 import { supabase } from '@/lib/supabase/client'
+import type { Database } from '@/lib/supabase/types'
 import { getSucursalesActivasFromDB } from './sucursales'
 import { getEmpleadosFromDB } from './empleados'
+
+type CitaRow = Database['public']['Tables']['citas']['Row']
 
 export interface ProductividadSucursal {
   sucursalId: string
@@ -89,7 +92,7 @@ export async function getDashboardStats(sucursalId?: string): Promise<DashboardS
     }
     
     const { data: ingresosData } = await ingresosQuery
-    const ingresosHoy = ingresosData?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+    const ingresosHoy = ingresosData?.reduce((sum, c: CitaRow) => sum + Number(c.precio || 0), 0) || 0
     
     // Clientes activos
     const { count: clientesCount } = await supabase
@@ -140,10 +143,10 @@ export async function getEstadoCitas(sucursalId?: string): Promise<EstadoCitas> 
     if (!citas) return { completadas: 0, enProgreso: 0, pendientes: 0, canceladas: 0 }
     
     return {
-      completadas: citas.filter(c => c.estado === 'completada').length,
-      enProgreso: citas.filter(c => c.estado === 'en-progreso').length,
-      pendientes: citas.filter(c => c.estado === 'pendiente' || c.estado === 'confirmada').length,
-      canceladas: citas.filter(c => c.estado === 'cancelada' || c.estado === 'no-asistio').length,
+      completadas: citas.filter((c: Pick<CitaRow, 'estado'>) => c.estado === 'completada').length,
+      enProgreso: citas.filter((c: Pick<CitaRow, 'estado'>) => c.estado === 'en-progreso').length,
+      pendientes: citas.filter((c: Pick<CitaRow, 'estado'>) => c.estado === 'pendiente' || c.estado === 'confirmada').length,
+      canceladas: citas.filter((c: Pick<CitaRow, 'estado'>) => c.estado === 'cancelada' || c.estado === 'no-asistio').length,
     }
   } catch (error) {
     console.error('Error obteniendo estado de citas:', error)
@@ -297,8 +300,8 @@ export async function getResumenSucursales(sucursalId?: string): Promise<Array<{
         .gte('fecha', `${mesAnterior}-01`)
         .lt('fecha', `${mesActual}-01`)
       
-      const ingresosActual = citasMesActual?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
-      const ingresosAnterior = citasMesAnterior?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+      const ingresosActual = citasMesActual?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
+      const ingresosAnterior = citasMesAnterior?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
       const citasActual = citasCountActual || 0
       
       const tendencia = ingresosAnterior > 0
@@ -342,8 +345,8 @@ export async function getResumenSucursales(sucursalId?: string): Promise<Array<{
           .gte('fecha', `${mesAnterior}-01`)
           .lt('fecha', `${mesActual}-01`)
         
-        const ingresosActual = citasMesActual?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
-        const ingresosAnterior = citasMesAnterior?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const ingresosActual = citasMesActual?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
+        const ingresosAnterior = citasMesAnterior?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
         const citasActual = citasCountActual || 0
         
         const tendencia = ingresosAnterior > 0
@@ -393,8 +396,8 @@ export async function getProductividadSucursalesFromDB(): Promise<ProductividadS
           .gte('fecha', `${mesAnterior}-01`)
           .lt('fecha', `${mesActual}-01`)
         
-        const ingresos = citasMes?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
-        const ingresosAnterior = citasMesAnterior?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const ingresos = citasMes?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
+        const ingresosAnterior = citasMesAnterior?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
         const citas = citasCount || 0
         
         // Clientes únicos atendidos
@@ -457,13 +460,13 @@ export async function getTopEmpleadosFromDB(limit: number = 10): Promise<Product
           .eq('estado', 'completada')
           .gte('fecha', `${mesActual}-01`)
         
-        const ingresos = citasMes?.reduce((sum, c) => sum + Number(c.precio || 0), 0) || 0
+        const ingresos = citasMes?.reduce((sum, c: Pick<CitaRow, 'precio' | 'cliente_id'>) => sum + Number(c.precio || 0), 0) || 0
         const citas = citasCount || 0
         const serviciosCompletados = citas
         const promedioTicket = citas > 0 ? Math.round(ingresos / citas) : 0
         
         // Calcular ocupación (horas trabajadas vs horas ocupadas)
-        const horasOcupadas = citasMes?.reduce((sum, c) => sum + (Number(c.duracion || 0) / 60), 0) || 0
+        const horasOcupadas = citasMes?.reduce((sum, c: Pick<CitaRow, 'duracion'>) => sum + (Number(c.duracion || 0) / 60), 0) || 0
         const horasTrabajadas = 8 * 30 // 8 horas/día * 30 días del mes
         const ocupacion = horasTrabajadas > 0
           ? Math.min(100, Math.round((horasOcupadas / horasTrabajadas) * 100))

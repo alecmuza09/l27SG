@@ -16,6 +16,53 @@ import {
   getResumenSucursales 
 } from "@/lib/data/dashboard"
 
+export default function DashboardPage() {
+  const [selectedSucursal, setSelectedSucursal] = useState("all")
+  const [stats, setStats] = useState({ citasHoy: 0, clientesActivos: 0, ingresosHoy: 0, ocupacion: 0 })
+  const [estadoCitas, setEstadoCitas] = useState({ completadas: 0, enProgreso: 0, pendientes: 0, canceladas: 0 })
+  const [proximasCitas, setProximasCitas] = useState<Array<{ id: string; time: string; client: string; service: string; staff: string; status: string }>>([])
+  const [serviciosPopulares, setServiciosPopulares] = useState<Array<{ name: string; count: number; percentage: number; revenue: number }>>([])
+  const [resumenSucursales, setResumenSucursales] = useState<Array<{ nombre: string; ingresos: number; citas: number; tendencia: string }>>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadDashboardData() {
+      try {
+        setIsLoading(true)
+        const [statsData, estadoCitasData, proximasCitasData, serviciosPopularesData, resumenSucursalesData] = await Promise.all([
+          getDashboardStats(selectedSucursal === 'all' ? undefined : selectedSucursal),
+          getEstadoCitas(selectedSucursal === 'all' ? undefined : selectedSucursal),
+          getProximasCitas(4, selectedSucursal === 'all' ? undefined : selectedSucursal),
+          getServiciosPopulares(4, selectedSucursal === 'all' ? undefined : selectedSucursal),
+          getResumenSucursales(selectedSucursal === 'all' ? undefined : selectedSucursal)
+        ])
+        
+        setStats(statsData)
+        setEstadoCitas(estadoCitasData)
+        setProximasCitas(proximasCitasData)
+        setServiciosPopulares(serviciosPopularesData)
+        setResumenSucursales(resumenSucursalesData)
+      } catch (err) {
+        console.error('Error cargando datos del dashboard:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadDashboardData()
+  }, [selectedSucursal])
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
