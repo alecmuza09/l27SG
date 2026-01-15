@@ -146,7 +146,7 @@ export default function VacacionesPage() {
     const fechaFinStr = format(formFechaFin, "yyyy-MM-dd")
 
     // Verificar conflictos
-    const conflicto = verificarConflictoVacaciones(formEmpleado, fechaInicioStr, fechaFinStr)
+    const conflicto = await verificarConflictoVacaciones(formEmpleado, fechaInicioStr, fechaFinStr)
     if (conflicto) {
       setError(
         `El empleado ya tiene vacaciones del ${formatDate(conflicto.fechaInicio)} al ${formatDate(conflicto.fechaFin)}`,

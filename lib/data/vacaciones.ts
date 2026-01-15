@@ -74,19 +74,24 @@ export const vacacionesData: Vacacion[] = [
   },
 ]
 
-// Datos mock de saldo de vacaciones (para compatibilidad con localStorage)
+// Helper para generar datos iniciales de saldos (para compatibilidad con localStorage)
 async function getSaldoVacacionesDataInitial(): Promise<SaldoVacaciones[]> {
-  const empleados = await getEmpleadosFromDB()
-  return empleados.map((emp, index) => ({
-    id: `saldo-${emp.id}`,
-    empleadoId: emp.id,
-    empleadoNombre: emp.nombre,
-    anio: new Date().getFullYear(),
-    diasCorrespondientes: 12, // Valor por defecto
-    diasTomados: 0,
-    diasDisponibles: 12,
-    fechaActualizacion: new Date().toISOString(),
-  }))
+  try {
+    const empleados = await getEmpleadosFromDB()
+    return empleados.map((emp) => ({
+      id: `saldo-${emp.id}-${new Date().getFullYear()}`,
+      empleadoId: emp.id,
+      empleadoNombre: emp.nombre,
+      anio: new Date().getFullYear(),
+      diasCorrespondientes: 12, // Valor por defecto
+      diasTomados: 0,
+      diasDisponibles: 12,
+      fechaActualizacion: new Date().toISOString(),
+    }))
+  } catch (err) {
+    console.error('Error generando datos iniciales de saldos:', err)
+    return []
+  }
 }
 
 // Periodos bloqueados
@@ -182,31 +187,36 @@ export function calcularDias(fechaInicio: string, fechaFin: string): number {
 }
 
 // Verificar si hay conflicto con vacaciones existentes
-export function verificarConflictoVacaciones(
+export async function verificarConflictoVacaciones(
   empleadoId: string,
   fechaInicio: string,
   fechaFin: string,
   vacacionId?: string,
-): Vacacion | null {
-  const vacaciones = getVacaciones()
-  const inicio = new Date(fechaInicio)
-  const fin = new Date(fechaFin)
+): Promise<Vacacion | null> {
+  try {
+    const vacaciones = await getVacacionesFromDB()
+    const inicio = new Date(fechaInicio)
+    const fin = new Date(fechaFin)
 
-  for (const vac of vacaciones) {
-    if (vac.id === vacacionId) continue // Ignorar la misma vacación al editar
-    if (vac.empleadoId !== empleadoId) continue
-    if (vac.estado === "rechazada" || vac.estado === "cancelada") continue
+    for (const vac of vacaciones) {
+      if (vac.id === vacacionId) continue // Ignorar la misma vacación al editar
+      if (vac.empleadoId !== empleadoId) continue
+      if (vac.estado === "rechazada" || vac.estado === "cancelada") continue
 
-    const vacInicio = new Date(vac.fechaInicio)
-    const vacFin = new Date(vac.fechaFin)
+      const vacInicio = new Date(vac.fechaInicio)
+      const vacFin = new Date(vac.fechaFin)
 
-    // Verificar solapamiento
-    if (inicio <= vacFin && fin >= vacInicio) {
-      return vac
+      // Verificar solapamiento
+      if (inicio <= vacFin && fin >= vacInicio) {
+        return vac
+      }
     }
-  }
 
-  return null
+    return null
+  } catch (err) {
+    console.error('Error verificando conflictos de vacaciones:', err)
+    return null
+  }
 }
 
 // Obtener vacaciones de un empleado para un rango de fechas
