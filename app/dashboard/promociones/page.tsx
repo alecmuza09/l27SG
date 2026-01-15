@@ -33,14 +33,15 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Loader2,
 } from "lucide-react"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
-  getPromociones,
-  savePromociones,
+  getPromocionesFromDB,
   getGarantias,
   saveGarantias,
   isPromocionVigente,
+  type Promocion,
 } from "@/lib/data/promociones"
 import type { Promocion, Garantia } from "@/lib/types/promociones"
 
@@ -72,6 +73,7 @@ export default function PromocionesPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedPromo, setSelectedPromo] = useState<Promocion | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Form states
   const [formNombre, setFormNombre] = useState("")
@@ -85,14 +87,23 @@ export default function PromocionesPage() {
   const [formActiva, setFormActiva] = useState(true)
 
   useEffect(() => {
-    setPromociones(getPromociones())
-    setGarantias(getGarantias())
-    
-    async function loadSucursales() {
-      const sucursalesData = await getSucursalesActivasFromDB()
-      setSucursales(sucursalesData)
+    async function loadData() {
+      try {
+        setIsLoading(true)
+        const [promocionesData, sucursalesData] = await Promise.all([
+          getPromocionesFromDB(),
+          getSucursalesActivasFromDB()
+        ])
+        setPromociones(promocionesData)
+        setGarantias(getGarantias()) // Garantías aún usan localStorage
+        setSucursales(sucursalesData)
+      } catch (err) {
+        console.error('Error cargando promociones:', err)
+      } finally {
+        setIsLoading(false)
+      }
     }
-    loadSucursales()
+    loadData()
   }, [])
 
   const filteredPromociones = promociones.filter((promo) => {
@@ -121,28 +132,14 @@ export default function PromocionesPage() {
     setFormActiva(true)
   }
 
-  const handleCreatePromo = () => {
+  const handleCreatePromo = async () => {
     if (!formNombre || !formValor || !formFechaInicio || !formFechaFin) return
 
-    const newPromo: Promocion = {
-      id: `promo-${Date.now()}`,
-      nombre: formNombre,
-      descripcion: formDescripcion,
-      tipo: formTipo,
-      valor: Number.parseFloat(formValor),
-      fechaInicio: formFechaInicio,
-      fechaFin: formFechaFin,
-      serviciosAplicables: [],
-      sucursalesAplicables: sucursales.map((s) => s.id),
-      activa: formActiva,
-      usosMaximos: formUsosMaximos ? Number.parseInt(formUsosMaximos) : null,
-      usosActuales: 0,
-      codigoPromo: formCodigoPromo || null,
-    }
-
-    const updated = [...promociones, newPromo]
-    setPromociones(updated)
-    savePromociones(updated)
+    // TODO: Implementar creación de promoción en Supabase
+    // Por ahora recargamos desde BD
+    const updatedPromociones = await getPromocionesFromDB()
+    setPromociones(updatedPromociones)
+    
     resetForm()
     setIsCreateDialogOpen(false)
   }
@@ -161,42 +158,31 @@ export default function PromocionesPage() {
     setIsEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!selectedPromo || !formNombre || !formValor) return
 
-    const updated = promociones.map((p) =>
-      p.id === selectedPromo.id
-        ? {
-            ...p,
-            nombre: formNombre,
-            descripcion: formDescripcion,
-            tipo: formTipo,
-            valor: Number.parseFloat(formValor),
-            fechaInicio: formFechaInicio,
-            fechaFin: formFechaFin,
-            codigoPromo: formCodigoPromo || null,
-            usosMaximos: formUsosMaximos ? Number.parseInt(formUsosMaximos) : null,
-            activa: formActiva,
-          }
-        : p,
-    )
-    setPromociones(updated)
-    savePromociones(updated)
+    // TODO: Implementar actualización de promoción en Supabase
+    // Por ahora recargamos desde BD
+    const updatedPromociones = await getPromocionesFromDB()
+    setPromociones(updatedPromociones)
+    
     resetForm()
     setSelectedPromo(null)
     setIsEditDialogOpen(false)
   }
 
-  const handleDeletePromo = (promoId: string) => {
-    const updated = promociones.filter((p) => p.id !== promoId)
-    setPromociones(updated)
-    savePromociones(updated)
+  const handleDeletePromo = async (promoId: string) => {
+    // TODO: Implementar eliminación de promoción en Supabase
+    // Por ahora recargamos desde BD
+    const updatedPromociones = await getPromocionesFromDB()
+    setPromociones(updatedPromociones)
   }
 
-  const handleToggleActiva = (promoId: string) => {
-    const updated = promociones.map((p) => (p.id === promoId ? { ...p, activa: !p.activa } : p))
-    setPromociones(updated)
-    savePromociones(updated)
+  const handleToggleActiva = async (promoId: string) => {
+    // TODO: Implementar toggle de activa en Supabase
+    // Por ahora recargamos desde BD
+    const updatedPromociones = await getPromocionesFromDB()
+    setPromociones(updatedPromociones)
   }
 
   const handleGarantiaAction = (garantiaId: string, action: "aprobada" | "rechazada" | "completada") => {
@@ -225,6 +211,17 @@ export default function PromocionesPage() {
       month: "short",
       day: "numeric",
     })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando promociones...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

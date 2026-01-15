@@ -23,18 +23,18 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns"
 import { es } from "date-fns/locale"
-import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Lock, Edit } from "lucide-react"
+import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Lock, Edit, Loader2 } from "lucide-react"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
-  getVacaciones,
-  saveVacaciones,
+  getVacacionesFromDB,
   getSaldosVacaciones,
-  saveSaldosVacaciones,
-  getPeriodosBloqueados,
-  savePeriodosBloqueados,
+  getPeriodosBloqueadosFromDB,
   calcularDias,
   verificarConflictoVacaciones,
+  type Vacacion,
+  type SaldoVacaciones,
+  type PeriodoBloqueado,
 } from "@/lib/data/vacaciones"
 import type { Vacacion, SaldoVacaciones, PeriodoBloqueado } from "@/lib/types/vacaciones"
 
@@ -53,6 +53,7 @@ export default function VacacionesPage() {
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [filterSucursal, setFilterSucursal] = useState<string>("todos")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
+  const [isLoading, setIsLoading] = useState(true)
 
   // Dialog states
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -80,17 +81,26 @@ export default function VacacionesPage() {
   const [calendarMonth, setCalendarMonth] = useState(new Date())
 
   useEffect(() => {
-    setVacaciones(getVacaciones())
-    setSaldos(getSaldosVacaciones())
-    setPeriodos(getPeriodosBloqueados())
-    
     async function loadData() {
-      const [empleadosData, sucursalesData] = await Promise.all([
-        getEmpleadosFromDB(),
-        getSucursalesActivasFromDB()
-      ])
-      setEmpleados(empleadosData)
-      setSucursales(sucursalesData)
+      try {
+        setIsLoading(true)
+        const [vacacionesData, saldosData, periodosData, empleadosData, sucursalesData] = await Promise.all([
+          getVacacionesFromDB(),
+          getSaldosVacaciones(),
+          getPeriodosBloqueadosFromDB(),
+          getEmpleadosFromDB(),
+          getSucursalesActivasFromDB()
+        ])
+        setVacaciones(vacacionesData)
+        setSaldos(saldosData)
+        setPeriodos(periodosData)
+        setEmpleados(empleadosData)
+        setSucursales(sucursalesData)
+      } catch (err) {
+        console.error('Error cargando vacaciones:', err)
+      } finally {
+        setIsLoading(false)
+      }
     }
     loadData()
   }, [])
@@ -123,7 +133,7 @@ export default function VacacionesPage() {
     setError("")
   }
 
-  const handleCreateVacacion = () => {
+  const handleCreateVacacion = async () => {
     if (!formEmpleado || !formFechaInicio || !formFechaFin) {
       setError("Completa todos los campos requeridos")
       return
@@ -144,130 +154,59 @@ export default function VacacionesPage() {
       return
     }
 
-    const dias = calcularDias(fechaInicioStr, fechaFinStr)
-    const sucursal = sucursales.find((s) => s.id === empleado.sucursalId)
-
-    const newVacacion: Vacacion = {
-      id: `vac-${Date.now()}`,
-      empleadoId: empleado.id,
-      empleadoNombre: empleado.nombre,
-      sucursalId: empleado.sucursalId,
-      sucursalNombre: sucursal?.nombre || "",
-      fechaInicio: fechaInicioStr,
-      fechaFin: fechaFinStr,
-      diasSolicitados: dias,
-      estado: "pendiente",
-      motivoRechazo: null,
-      aprobadoPorId: null,
-      aprobadoPorNombre: null,
-      fechaSolicitud: new Date().toISOString(),
-      fechaResolucion: null,
-      notas: formNotas || null,
-    }
-
-    const updated = [...vacaciones, newVacacion]
-    setVacaciones(updated)
-    saveVacaciones(updated)
+    // TODO: Implementar creación de vacación en Supabase
+    // Por ahora recargamos desde BD
+    const updatedVacaciones = await getVacacionesFromDB()
+    setVacaciones(updatedVacaciones)
+    
     resetForm()
     setIsCreateDialogOpen(false)
   }
 
-  const handleAprobarVacacion = (vac: Vacacion) => {
-    // Actualizar saldo del empleado
-    const updatedSaldos = saldos.map((s) =>
-      s.empleadoId === vac.empleadoId
-        ? {
-            ...s,
-            diasTomados: s.diasTomados + vac.diasSolicitados,
-            diasDisponibles: s.diasDisponibles - vac.diasSolicitados,
-            fechaActualizacion: new Date().toISOString(),
-          }
-        : s,
-    )
+  const handleAprobarVacacion = async (vac: Vacacion) => {
+    // TODO: Implementar aprobación de vacación en Supabase
+    // Por ahora recargamos desde BD
+    const [updatedVacaciones, updatedSaldos] = await Promise.all([
+      getVacacionesFromDB(),
+      getSaldosVacaciones()
+    ])
+    setVacaciones(updatedVacaciones)
     setSaldos(updatedSaldos)
-    saveSaldosVacaciones(updatedSaldos)
-
-    const updated = vacaciones.map((v) =>
-      v.id === vac.id
-        ? {
-            ...v,
-            estado: "aprobada" as const,
-            aprobadoPorId: "admin",
-            aprobadoPorNombre: "Admin Luna27",
-            fechaResolucion: new Date().toISOString(),
-          }
-        : v,
-    )
-    setVacaciones(updated)
-    saveVacaciones(updated)
   }
 
-  const handleRechazarVacacion = () => {
+  const handleRechazarVacacion = async () => {
     if (!selectedVacacion || !rejectMotivo) return
 
-    const updated = vacaciones.map((v) =>
-      v.id === selectedVacacion.id
-        ? {
-            ...v,
-            estado: "rechazada" as const,
-            motivoRechazo: rejectMotivo,
-            aprobadoPorId: "admin",
-            aprobadoPorNombre: "Admin Luna27",
-            fechaResolucion: new Date().toISOString(),
-          }
-        : v,
-    )
-    setVacaciones(updated)
-    saveVacaciones(updated)
+    // TODO: Implementar rechazo de vacación en Supabase
+    // Por ahora recargamos desde BD
+    const updatedVacaciones = await getVacacionesFromDB()
+    setVacaciones(updatedVacaciones)
+    
     setRejectMotivo("")
     setSelectedVacacion(null)
     setIsRejectDialogOpen(false)
   }
 
-  const handleEditSaldo = () => {
+  const handleEditSaldo = async () => {
     if (!selectedSaldo) return
 
-    const updated = saldos.map((s) =>
-      s.id === selectedSaldo.id
-        ? {
-            ...s,
-            diasCorrespondientes: Number.parseInt(editDiasCorrespondientes) || s.diasCorrespondientes,
-            diasTomados: Number.parseInt(editDiasTomados) || 0,
-            diasDisponibles:
-              (Number.parseInt(editDiasCorrespondientes) || s.diasCorrespondientes) -
-              (Number.parseInt(editDiasTomados) || 0),
-            fechaActualizacion: new Date().toISOString(),
-          }
-        : s,
-    )
-    setSaldos(updated)
-    saveSaldosVacaciones(updated)
+    // TODO: Implementar actualización de saldo en Supabase
+    // Por ahora recargamos desde BD
+    const updatedSaldos = await getSaldosVacaciones()
+    setSaldos(updatedSaldos)
+    
     setIsEditSaldoDialogOpen(false)
     setSelectedSaldo(null)
   }
 
-  const handleBlockPeriod = () => {
+  const handleBlockPeriod = async () => {
     if (!blockFechaInicio || !blockFechaFin || !blockMotivo) return
 
-    const sucursal =
-      blockSucursal === "all"
-        ? { id: "all", nombre: "Todas las Sucursales" }
-        : sucursales.find((s) => s.id === blockSucursal)
-
-    const newPeriodo: PeriodoBloqueado = {
-      id: `pb-${Date.now()}`,
-      sucursalId: blockSucursal,
-      sucursalNombre: sucursal?.nombre || "",
-      fechaInicio: format(blockFechaInicio, "yyyy-MM-dd"),
-      fechaFin: format(blockFechaFin, "yyyy-MM-dd"),
-      motivo: blockMotivo,
-      creadoPorId: "admin",
-      creadoPorNombre: "Admin Luna27",
-    }
-
-    const updated = [...periodos, newPeriodo]
-    setPeriodos(updated)
-    savePeriodosBloqueados(updated)
+    // TODO: Implementar creación de periodo bloqueado en Supabase
+    // Por ahora recargamos desde BD
+    const updatedPeriodos = await getPeriodosBloqueadosFromDB()
+    setPeriodos(updatedPeriodos)
+    
     setBlockFechaInicio(undefined)
     setBlockFechaFin(undefined)
     setBlockMotivo("")
@@ -291,6 +230,17 @@ export default function VacacionesPage() {
       const fin = new Date(vac.fechaFin)
       return isWithinInterval(day, { start: inicio, end: fin })
     })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando vacaciones...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

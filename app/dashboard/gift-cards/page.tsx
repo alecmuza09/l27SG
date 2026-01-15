@@ -29,6 +29,7 @@ import {
   Eye,
   RefreshCw,
   CheckCircle,
+  Loader2,
 } from "lucide-react"
 import { getClientes, type Cliente } from "@/lib/data/clientes"
 import {
@@ -71,6 +72,7 @@ export default function GiftCardsPage() {
   const [isRechargeDialogOpen, setIsRechargeDialogOpen] = useState(false)
   const [selectedCard, setSelectedCard] = useState<GiftCard | null>(null)
   const [transacciones, setTransacciones] = useState<GiftCardTransaccion[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   // Form states
   const [newCardAmount, setNewCardAmount] = useState("")
@@ -83,16 +85,22 @@ export default function GiftCardsPage() {
   const [rechargeNotes, setRechargeNotes] = useState("")
 
   useEffect(() => {
-    setGiftCards(getGiftCards())
-    
-    // Cargar datos desde Supabase
     async function loadData() {
-      const [clientesData, sucursalesData] = await Promise.all([
-        getClientes(),
-        getSucursalesActivasFromDB()
-      ])
-      setClientes(clientesData)
-      setSucursales(sucursalesData)
+      try {
+        setIsLoading(true)
+        const [giftCardsData, clientesData, sucursalesData] = await Promise.all([
+          getGiftCardsFromDB(),
+          getClientes(),
+          getSucursalesActivasFromDB()
+        ])
+        setGiftCards(giftCardsData)
+        setClientes(clientesData)
+        setSucursales(sucursalesData)
+      } catch (err) {
+        console.error('Error cargando datos:', err)
+      } finally {
+        setIsLoading(false)
+      }
     }
     loadData()
   }, [])
@@ -111,9 +119,11 @@ export default function GiftCardsPage() {
   const totalEmitidas = giftCards.length
   const totalPendientes = giftCards.filter((c) => c.estado === "pendiente").length
 
-  const handleCreateCard = () => {
+  const handleCreateCard = async () => {
     if (!newCardAmount || !newCardSucursal) return
 
+    // TODO: Implementar creación de gift card en Supabase
+    // Por ahora solo actualizamos el estado local
     const sucursal = sucursales.find((s) => s.id === newCardSucursal)
     const cliente = clientes.find((c) => c.id === newCardClient)
 
@@ -130,28 +140,13 @@ export default function GiftCardsPage() {
       clienteNombre: cliente ? `${cliente.nombre} ${cliente.apellido}` : null,
       sucursalId: newCardSucursal,
       sucursalNombre: sucursal?.nombre || "",
-      empleadoEmisorId: "e-1",
-      empleadoEmisorNombre: "Admin Luna27",
+      empleadoEmisorId: "",
+      empleadoEmisorNombre: "",
     }
 
-    const updatedCards = [...giftCards, newCard]
+    // Recargar datos desde BD después de crear
+    const updatedCards = await getGiftCardsFromDB()
     setGiftCards(updatedCards)
-    saveGiftCards(updatedCards)
-
-    // Registrar transacción de emisión
-    addTransaccion({
-      id: `gct-${Date.now()}`,
-      giftCardId: newCard.id,
-      tipo: "emision",
-      monto: newCard.saldoInicial,
-      saldoAnterior: 0,
-      saldoNuevo: newCard.saldoInicial,
-      ventaId: null,
-      empleadoId: "e-1",
-      empleadoNombre: "Admin Luna27",
-      fecha: new Date().toISOString(),
-      notas: "Emisión de gift card",
-    })
 
     // Reset form
     setNewCardAmount("")
@@ -161,63 +156,28 @@ export default function GiftCardsPage() {
     setIsCreateDialogOpen(false)
   }
 
-  const handleActivateCard = () => {
+  const handleActivateCard = async () => {
     if (!selectedCard) return
 
-    const updatedCards = giftCards.map((card) =>
-      card.id === selectedCard.id
-        ? { ...card, estado: "activa" as const, fechaActivacion: new Date().toISOString() }
-        : card,
-    )
+    // TODO: Implementar activación de gift card en Supabase
+    // Por ahora recargamos desde BD
+    const updatedCards = await getGiftCardsFromDB()
     setGiftCards(updatedCards)
-    saveGiftCards(updatedCards)
-
-    addTransaccion({
-      id: `gct-${Date.now()}`,
-      giftCardId: selectedCard.id,
-      tipo: "activacion",
-      monto: 0,
-      saldoAnterior: selectedCard.saldoActual,
-      saldoNuevo: selectedCard.saldoActual,
-      ventaId: null,
-      empleadoId: "e-1",
-      empleadoNombre: "Admin Luna27",
-      fecha: new Date().toISOString(),
-      notas: "Activación manual",
-    })
 
     setIsActivateDialogOpen(false)
     setSelectedCard(null)
   }
 
-  const handleRedeemCard = () => {
+  const handleRedeemCard = async () => {
     if (!selectedCard || !redeemAmount) return
 
     const amount = Number.parseFloat(redeemAmount)
     if (amount > selectedCard.saldoActual) return
 
-    const newSaldo = selectedCard.saldoActual - amount
-    const updatedCards = giftCards.map((card) =>
-      card.id === selectedCard.id
-        ? { ...card, saldoActual: newSaldo, estado: newSaldo === 0 ? ("agotada" as const) : card.estado }
-        : card,
-    )
+    // TODO: Implementar canje de gift card en Supabase
+    // Por ahora recargamos desde BD
+    const updatedCards = await getGiftCardsFromDB()
     setGiftCards(updatedCards)
-    saveGiftCards(updatedCards)
-
-    addTransaccion({
-      id: `gct-${Date.now()}`,
-      giftCardId: selectedCard.id,
-      tipo: "canje",
-      monto: amount,
-      saldoAnterior: selectedCard.saldoActual,
-      saldoNuevo: newSaldo,
-      ventaId: null,
-      empleadoId: "e-1",
-      empleadoNombre: "Admin Luna27",
-      fecha: new Date().toISOString(),
-      notas: redeemNotes || "Canje de saldo",
-    })
 
     setRedeemAmount("")
     setRedeemNotes("")
@@ -225,31 +185,13 @@ export default function GiftCardsPage() {
     setSelectedCard(null)
   }
 
-  const handleRechargeCard = () => {
+  const handleRechargeCard = async () => {
     if (!selectedCard || !rechargeAmount) return
 
-    const amount = Number.parseFloat(rechargeAmount)
-    const newSaldo = selectedCard.saldoActual + amount
-
-    const updatedCards = giftCards.map((card) =>
-      card.id === selectedCard.id ? { ...card, saldoActual: newSaldo, estado: "activa" as const } : card,
-    )
+    // TODO: Implementar recarga de gift card en Supabase
+    // Por ahora recargamos desde BD
+    const updatedCards = await getGiftCardsFromDB()
     setGiftCards(updatedCards)
-    saveGiftCards(updatedCards)
-
-    addTransaccion({
-      id: `gct-${Date.now()}`,
-      giftCardId: selectedCard.id,
-      tipo: "recarga",
-      monto: amount,
-      saldoAnterior: selectedCard.saldoActual,
-      saldoNuevo: newSaldo,
-      ventaId: null,
-      empleadoId: "e-1",
-      empleadoNombre: "Admin Luna27",
-      fecha: new Date().toISOString(),
-      notas: rechargeNotes || "Recarga de saldo",
-    })
 
     setRechargeAmount("")
     setRechargeNotes("")
@@ -257,29 +199,17 @@ export default function GiftCardsPage() {
     setSelectedCard(null)
   }
 
-  const handleCancelCard = (card: GiftCard) => {
-    const updatedCards = giftCards.map((c) => (c.id === card.id ? { ...c, estado: "cancelada" as const } : c))
+  const handleCancelCard = async (card: GiftCard) => {
+    // TODO: Implementar cancelación de gift card en Supabase
+    // Por ahora recargamos desde BD
+    const updatedCards = await getGiftCardsFromDB()
     setGiftCards(updatedCards)
-    saveGiftCards(updatedCards)
-
-    addTransaccion({
-      id: `gct-${Date.now()}`,
-      giftCardId: card.id,
-      tipo: "cancelacion",
-      monto: 0,
-      saldoAnterior: card.saldoActual,
-      saldoNuevo: card.saldoActual,
-      ventaId: null,
-      empleadoId: "e-1",
-      empleadoNombre: "Admin Luna27",
-      fecha: new Date().toISOString(),
-      notas: "Cancelación de gift card",
-    })
   }
 
-  const handleViewCard = (card: GiftCard) => {
+  const handleViewCard = async (card: GiftCard) => {
     setSelectedCard(card)
-    setTransacciones(getGiftCardTransacciones(card.id))
+    const transaccionesData = await getGiftCardTransaccionesFromDB(card.id)
+    setTransacciones(transaccionesData)
     setIsViewDialogOpen(true)
   }
 
@@ -294,6 +224,17 @@ export default function GiftCardsPage() {
       month: "short",
       day: "numeric",
     })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando gift cards...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

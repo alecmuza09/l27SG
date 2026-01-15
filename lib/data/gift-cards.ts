@@ -1,4 +1,5 @@
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
+import { supabase } from '@/lib/supabase/client'
 
 // Generador de código único para gift cards
 export function generarCodigoGiftCard(): string {
@@ -6,6 +7,98 @@ export function generarCodigoGiftCard(): string {
   const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
   const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
   return `GC-${part1}-${part2}`
+}
+
+// Obtener gift cards desde Supabase
+export async function getGiftCardsFromDB(sucursalId?: string): Promise<GiftCard[]> {
+  try {
+    let query = supabase
+      .from('gift_cards')
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        sucursal:sucursales(nombre),
+        empleado:empleados(nombre, apellido)
+      `)
+      .order('fecha_emision', { ascending: false })
+    
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error obteniendo gift cards:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data.map((gc: any) => ({
+      id: gc.id,
+      codigo: gc.codigo,
+      saldoInicial: Number(gc.monto_inicial) || 0,
+      saldoActual: Number(gc.saldo_actual) || 0,
+      estado: gc.estado,
+      fechaEmision: gc.fecha_emision || gc.created_at,
+      fechaActivacion: gc.fecha_activacion || null,
+      fechaExpiracion: gc.fecha_vencimiento || null,
+      clienteId: gc.cliente_id || null,
+      clienteNombre: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : null,
+      sucursalId: gc.sucursal_id,
+      sucursalNombre: gc.sucursal?.nombre || '',
+      empleadoEmisorId: gc.empleado_emisor_id || '',
+      empleadoEmisorNombre: gc.empleado ? `${gc.empleado.nombre} ${gc.empleado.apellido}` : '',
+    }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo gift cards:', error)
+    return []
+  }
+}
+
+// Obtener transacciones de gift card desde Supabase
+export async function getGiftCardTransaccionesFromDB(giftCardId?: string): Promise<GiftCardTransaccion[]> {
+  try {
+    let query = supabase
+      .from('gift_card_transacciones')
+      .select(`
+        *,
+        empleado:empleados(nombre, apellido)
+      `)
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false })
+    
+    if (giftCardId) {
+      query = query.eq('gift_card_id', giftCardId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error obteniendo transacciones de gift cards:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data.map((t: any) => ({
+      id: t.id,
+      giftCardId: t.gift_card_id,
+      tipo: t.tipo,
+      monto: Number(t.monto) || 0,
+      saldoAnterior: Number(t.saldo_anterior) || 0,
+      saldoNuevo: Number(t.saldo_nuevo) || 0,
+      ventaId: t.venta_id || null,
+      empleadoId: t.empleado_id || '',
+      empleadoNombre: t.empleado ? `${t.empleado.nombre} ${t.empleado.apellido}` : '',
+      fecha: t.fecha || t.created_at,
+      notas: t.notas || '',
+    }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo transacciones:', error)
+    return []
+  }
 }
 
 // Datos mock de gift cards

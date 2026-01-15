@@ -1,6 +1,7 @@
 import type { Promocion, Garantia } from "@/lib/types/promociones"
+import { supabase } from '@/lib/supabase/client'
 
-// Datos mock de promociones
+// Datos mock de promociones (para compatibilidad con localStorage)
 export const promocionesData: Promocion[] = [
   {
     id: "promo-1",
@@ -169,4 +170,40 @@ export function isPromocionVigente(promo: Promocion): boolean {
 // Generar código de autorización para descuentos manuales
 export function generarCodigoAutorizacion(): string {
   return Math.floor(1000 + Math.random() * 9000).toString()
+}
+
+// Obtener promociones desde Supabase
+export async function getPromocionesFromDB(): Promise<Promocion[]> {
+  try {
+    const { data, error } = await supabase
+      .from('promociones')
+      .select('*')
+      .order('fecha_inicio', { ascending: false })
+    
+    if (error) {
+      console.error('Error obteniendo promociones:', error)
+      return []
+    }
+    
+    if (!data) return []
+    
+    return data.map((p: any) => ({
+      id: p.id,
+      nombre: p.nombre,
+      descripcion: p.descripcion || '',
+      tipo: p.tipo,
+      valor: Number(p.valor) || 0,
+      fechaInicio: p.fecha_inicio,
+      fechaFin: p.fecha_fin,
+      serviciosAplicables: p.servicios_aplicables || [],
+      sucursalesAplicables: p.sucursales_aplicables || [],
+      activa: p.activa ?? true,
+      usosMaximos: p.usos_maximos || null,
+      usosActuales: p.usos_actuales || 0,
+      codigoPromo: p.codigo_promo || null,
+    }))
+  } catch (error) {
+    console.error('Error inesperado obteniendo promociones:', error)
+    return []
+  }
 }
