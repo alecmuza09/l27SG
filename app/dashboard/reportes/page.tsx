@@ -1,38 +1,109 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, TrendingUp, Users, Calendar } from "lucide-react"
+import { Download, TrendingUp, Users, Calendar, Loader2 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getPagosFromDB } from "@/lib/data/pagos"
+import { getDashboardStats, getServiciosPopulares, getTopEmpleadosFromDB } from "@/lib/data/dashboard"
+import { getClientesStats } from "@/lib/data/clientes"
 
 export default function ReportesPage() {
-  const ventasPorDia = [
-    { dia: "Lun", ventas: 12450 },
-    { dia: "Mar", ventas: 15200 },
-    { dia: "Mié", ventas: 13800 },
-    { dia: "Jue", ventas: 16500 },
-    { dia: "Vie", ventas: 18900 },
-    { dia: "Sáb", ventas: 22300 },
-    { dia: "Dom", ventas: 19800 },
-  ]
+  const [isLoading, setIsLoading] = useState(true)
+  const [ventasPorDia, setVentasPorDia] = useState<Array<{ dia: string; ventas: number }>>([])
+  const [serviciosMasVendidos, setServiciosMasVendidos] = useState<Array<{ name: string; count: number; revenue: number }>>([])
+  const [empleadosTop, setEmpleadosTop] = useState<Array<{ nombre: string; apellido: string; citas: number; ingresos: number }>>([])
+  const [stats, setStats] = useState({ ingresosTotales: 0, totalServicios: 0, nuevosClientes: 0, ticketPromedio: 0 })
+  const [clientesStats, setClientesStats] = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
 
-  const maxVentas = Math.max(...ventasPorDia.map((d) => d.ventas))
+  useEffect(() => {
+    async function loadReportes() {
+      try {
+        setIsLoading(true)
+        
+        // Calcular ventas por día de la última semana
+        const pagos = await getPagosFromDB()
+        const hoy = new Date()
+        const ventasPorDiaArray = []
+        
+        for (let i = 6; i >= 0; i--) {
+          const fecha = new Date(hoy)
+          fecha.setDate(fecha.getDate() - i)
+          const fechaStr = fecha.toISOString().split('T')[0]
+          const diaNombre = fecha.toLocaleDateString('es-MX', { weekday: 'short' })
+          
+          const ventasDia = pagos
+            .filter(p => p.fecha === fechaStr && p.estado === 'completado')
+            .reduce((sum, p) => sum + p.monto, 0)
+          
+          ventasPorDiaArray.push({ dia: diaNombre, ventas: ventasDia })
+        }
+        
+        setVentasPorDia(ventasPorDiaArray)
+        
+        // Obtener servicios populares y empleados top
+        const [servicios, empleados] = await Promise.all([
+          getServiciosPopulares(5),
+          getTopEmpleadosFromDB(4)
+        ])
+        
+        setServiciosMasVendidos(servicios.map(s => ({
+          name: s.name,
+          cantidad: s.count,
+          ingresos: s.revenue
+        })))
+        
+        setEmpleadosTop(empleados.map(e => ({
+          nombre: e.nombre,
+          apellido: e.apellido,
+          servicios: e.citas,
+          ingresos: e.ingresos,
+          comision: Math.round(e.ingresos * 0.4) // Estimación de comisión 40%
+        })))
+        
+        // Obtener estadísticas generales
+        const dashboardStats = await getDashboardStats()
+        const clientesData = await getClientesStats()
+        
+        const ingresosTotales = pagos
+          .filter(p => p.estado === 'completado')
+          .reduce((sum, p) => sum + p.monto, 0)
+        
+        const totalServicios = pagos.filter(p => p.estado === 'completado').length
+        const ticketPromedio = totalServicios > 0 ? ingresosTotales / totalServicios : 0
+        
+        setStats({
+          ingresosTotales,
+          totalServicios,
+          nuevosClientes: clientesData.nuevos,
+          ticketPromedio: Math.round(ticketPromedio)
+        })
+        
+        setClientesStats(clientesData)
+      } catch (err) {
+        console.error('Error cargando reportes:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
 
-  const serviciosMasVendidos = [
-    { nombre: "Masaje Relajante", cantidad: 45, ingresos: 38250 },
-    { nombre: "Facial Hidratante", cantidad: 38, ingresos: 24700 },
-    { nombre: "Manicure & Pedicure", cantidad: 32, ingresos: 24000 },
-    { nombre: "Tratamiento Corporal", cantidad: 28, ingresos: 33600 },
-    { nombre: "Aromaterapia", cantidad: 25, ingresos: 27500 },
-  ]
+    loadReportes()
+  }, [])
 
-  const empleadosTop = [
-    { nombre: "María González", servicios: 52, ingresos: 44200, comision: 17680 },
-    { nombre: "Laura Martínez", servicios: 48, ingresos: 38400, comision: 13440 },
-    { nombre: "Carmen López", servicios: 42, ingresos: 31500, comision: 9450 },
-    { nombre: "Ana Rodríguez", servicios: 38, ingresos: 32300, comision: 12920 },
-  ]
+  const maxVentas = ventasPorDia.length > 0 ? Math.max(...ventasPorDia.map((d) => d.ventas)) : 1
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando reportes...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -66,10 +137,9 @@ export default function ReportesPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Ingresos Totales</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">$148,150</div>
-            <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
-              <TrendingUp className="h-3 w-3" />
-              +12.5% vs mes anterior
+            <div className="text-2xl font-bold">${stats.ingresosTotales.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Ingresos totales
             </p>
           </CardContent>
         </Card>
@@ -78,10 +148,9 @@ export default function ReportesPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Servicios</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">168</div>
-            <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
-              <TrendingUp className="h-3 w-3" />
-              +8.3% vs mes anterior
+            <div className="text-2xl font-bold">{stats.totalServicios}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Servicios completados
             </p>
           </CardContent>
         </Card>
@@ -90,10 +159,9 @@ export default function ReportesPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Nuevos Clientes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">24</div>
-            <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
-              <TrendingUp className="h-3 w-3" />
-              +15.2% vs mes anterior
+            <div className="text-2xl font-bold">{stats.nuevosClientes}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Últimos 30 días
             </p>
           </CardContent>
         </Card>
@@ -102,10 +170,9 @@ export default function ReportesPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Ticket Promedio</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">$882</div>
-            <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
-              <TrendingUp className="h-3 w-3" />
-              +3.8% vs mes anterior
+            <div className="text-2xl font-bold">${stats.ticketPromedio.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Promedio por servicio
             </p>
           </CardContent>
         </Card>
@@ -151,11 +218,34 @@ export default function ReportesPage() {
                 <CardTitle className="text-base">Métodos de Pago</CardTitle>
               </CardHeader>
               <CardContent>
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Los métodos de pago se calcularán desde los datos de pagos</p>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Ventas por Sucursal</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Las ventas por sucursal se calcularán desde los datos de pagos</p>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Métodos de pago - placeholder */}
+            <Card className="md:col-span-2" style={{ display: 'none' }}>
+              <CardHeader>
+                <CardTitle className="text-base">Métodos de Pago</CardTitle>
+              </CardHeader>
+              <CardContent>
                 <div className="space-y-4">
                   {[
-                    { metodo: "Tarjeta", porcentaje: 65, monto: 96297 },
-                    { metodo: "Efectivo", porcentaje: 25, monto: 37037 },
-                    { metodo: "Transferencia", porcentaje: 10, monto: 14815 },
+                    { metodo: "Tarjeta", porcentaje: 0, monto: 0 },
+                    { metodo: "Efectivo", porcentaje: 0, monto: 0 },
+                    { metodo: "Transferencia", porcentaje: 0, monto: 0 },
                   ].map((item) => (
                     <div key={item.metodo} className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
@@ -174,30 +264,6 @@ export default function ReportesPage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Ventas por Sucursal</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { sucursal: "Luna27 Centro", ventas: 68450, porcentaje: 46 },
-                    { sucursal: "Luna27 Polanco", ventas: 52530, porcentaje: 35 },
-                    { sucursal: "Luna27 Santa Fe", ventas: 27170, porcentaje: 19 },
-                  ].map((item) => (
-                    <div key={item.sucursal} className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{item.sucursal}</span>
-                        <span className="font-semibold">${item.ventas.toLocaleString()}</span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${item.porcentaje}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </TabsContent>
 
@@ -208,6 +274,11 @@ export default function ReportesPage() {
               <CardDescription>Top 5 servicios del mes</CardDescription>
             </CardHeader>
             <CardContent>
+              {serviciosMasVendidos.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No hay datos de servicios disponibles aún</p>
+                </div>
+              ) : (
               <div className="space-y-4">
                 {serviciosMasVendidos.map((servicio, index) => (
                   <div key={servicio.nombre} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
@@ -227,6 +298,7 @@ export default function ReportesPage() {
                   </div>
                 ))}
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -238,6 +310,11 @@ export default function ReportesPage() {
               <CardDescription>Top empleados del mes</CardDescription>
             </CardHeader>
             <CardContent>
+              {empleadosTop.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No hay datos de empleados disponibles aún</p>
+                </div>
+              ) : (
               <div className="space-y-4">
                 {empleadosTop.map((empleado, index) => (
                   <div key={empleado.nombre} className="p-4 rounded-lg border bg-card">
@@ -256,13 +333,14 @@ export default function ReportesPage() {
                         <p className="font-semibold text-lg">${empleado.ingresos.toLocaleString()}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Comisión</p>
-                        <p className="font-semibold text-lg text-green-600">${empleado.comision.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Comisión Estimada</p>
+                        <p className="font-semibold text-lg text-green-600">${(empleado as any).comision?.toLocaleString() || '0'}</p>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -279,11 +357,10 @@ export default function ReportesPage() {
               <CardContent>
                 <div className="space-y-4">
                   {[
-                    { categoria: "VIP", cantidad: 45, porcentaje: 15 },
-                    { categoria: "Frecuentes", cantidad: 128, porcentaje: 42 },
-                    { categoria: "Ocasionales", cantidad: 95, porcentaje: 31 },
-                    { categoria: "Nuevos", cantidad: 36, porcentaje: 12 },
-                  ].map((item) => (
+                    { categoria: "VIP", cantidad: clientesStats.vip, porcentaje: clientesStats.total > 0 ? Math.round((clientesStats.vip / clientesStats.total) * 100) : 0 },
+                    { categoria: "Activos", cantidad: clientesStats.activos, porcentaje: clientesStats.total > 0 ? Math.round((clientesStats.activos / clientesStats.total) * 100) : 0 },
+                    { categoria: "Nuevos (30 días)", cantidad: clientesStats.nuevos, porcentaje: clientesStats.total > 0 ? Math.round((clientesStats.nuevos / clientesStats.total) * 100) : 0 },
+                  ].filter(item => item.cantidad > 0).map((item) => (
                     <div key={item.categoria} className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium">{item.categoria}</span>
@@ -305,23 +382,23 @@ export default function ReportesPage() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
-                  Retención de Clientes
+                  Estadísticas de Clientes
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="text-center p-6 rounded-lg bg-primary/5">
-                    <div className="text-4xl font-bold text-primary mb-2">78%</div>
-                    <p className="text-sm text-muted-foreground">Tasa de retención mensual</p>
+                    <div className="text-4xl font-bold text-primary mb-2">{clientesStats.total}</div>
+                    <p className="text-sm text-muted-foreground">Total de clientes</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="text-center p-4 rounded-lg bg-muted/50">
-                      <div className="text-2xl font-bold">156</div>
-                      <p className="text-xs text-muted-foreground">Clientes recurrentes</p>
+                      <div className="text-2xl font-bold">{clientesStats.activos}</div>
+                      <p className="text-xs text-muted-foreground">Clientes activos</p>
                     </div>
                     <div className="text-center p-4 rounded-lg bg-muted/50">
-                      <div className="text-2xl font-bold">3.2</div>
-                      <p className="text-xs text-muted-foreground">Visitas promedio/mes</p>
+                      <div className="text-2xl font-bold">{clientesStats.nuevos}</div>
+                      <p className="text-xs text-muted-foreground">Nuevos (30 días)</p>
                     </div>
                   </div>
                 </div>
