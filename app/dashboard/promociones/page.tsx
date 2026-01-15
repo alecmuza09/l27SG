@@ -34,7 +34,7 @@ import {
   XCircle,
   AlertCircle,
 } from "lucide-react"
-import { sucursalesData } from "@/lib/data"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
   getPromociones,
   savePromociones,
@@ -66,6 +66,7 @@ const estadoGarantiaColors: Record<Garantia["estado"], string> = {
 export default function PromocionesPage() {
   const [promociones, setPromociones] = useState<Promocion[]>([])
   const [garantias, setGarantias] = useState<Garantia[]>([])
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterTipo, setFilterTipo] = useState<string>("todos")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -86,6 +87,12 @@ export default function PromocionesPage() {
   useEffect(() => {
     setPromociones(getPromociones())
     setGarantias(getGarantias())
+    
+    async function loadSucursales() {
+      const sucursalesData = await getSucursalesActivasFromDB()
+      setSucursales(sucursalesData)
+    }
+    loadSucursales()
   }, [])
 
   const filteredPromociones = promociones.filter((promo) => {
@@ -126,7 +133,7 @@ export default function PromocionesPage() {
       fechaInicio: formFechaInicio,
       fechaFin: formFechaFin,
       serviciosAplicables: [],
-      sucursalesAplicables: sucursalesData.map((s) => s.id),
+      sucursalesAplicables: sucursales.map((s) => s.id),
       activa: formActiva,
       usosMaximos: formUsosMaximos ? Number.parseInt(formUsosMaximos) : null,
       usosActuales: 0,

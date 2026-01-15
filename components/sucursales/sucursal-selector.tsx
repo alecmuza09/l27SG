@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { getSucursalesActivas, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 
 interface SucursalSelectorProps {
   value?: string
@@ -20,7 +20,11 @@ export function SucursalSelector({ value, onChange, showAllOption = true }: Sucu
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
 
   useEffect(() => {
-    setSucursales(getSucursalesActivas())
+    async function loadSucursales() {
+      const sucursalesData = await getSucursalesActivasFromDB()
+      setSucursales(sucursalesData)
+    }
+    loadSucursales()
   }, [])
 
   const handleSelect = (currentValue: string) => {

@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag } from "lucide-react"
-import { MOCK_SERVICIOS } from "@/lib/data/servicios"
+import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag, Loader2 } from "lucide-react"
+import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import {
   Dialog,
   DialogContent,
@@ -20,9 +20,26 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export default function ServiciosPage() {
-  const [servicios] = useState(MOCK_SERVICIOS)
+  const [servicios, setServicios] = useState<Servicio[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadServicios() {
+      try {
+        setIsLoading(true)
+        const serviciosData = await getServiciosActivosFromDB()
+        setServicios(serviciosData)
+      } catch (err) {
+        console.error('Error cargando servicios:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadServicios()
+  }, [])
 
   const filteredServicios = searchQuery
     ? servicios.filter(
@@ -37,8 +54,19 @@ export default function ServiciosPage() {
   const stats = {
     total: servicios.length,
     activos: servicios.filter((s) => s.activo).length,
-    precioPromedio: Math.round(servicios.reduce((acc, s) => acc + s.precio, 0) / servicios.length),
-    duracionPromedio: Math.round(servicios.reduce((acc, s) => acc + s.duracion, 0) / servicios.length),
+    precioPromedio: servicios.length > 0 ? Math.round(servicios.reduce((acc, s) => acc + s.precio, 0) / servicios.length) : 0,
+    duracionPromedio: servicios.length > 0 ? Math.round(servicios.reduce((acc, s) => acc + s.duracion, 0) / servicios.length) : 0,
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando servicios...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

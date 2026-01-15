@@ -30,7 +30,7 @@ import {
   RefreshCw,
   CheckCircle,
 } from "lucide-react"
-import { sucursalesData } from "@/lib/data"
+import { getSucursalesActivasFromDB } from "@/lib/data/sucursales"
 import { getClientes, type Cliente } from "@/lib/data/clientes"
 import {
   getGiftCards,
@@ -57,9 +57,12 @@ const estadoLabels: Record<GiftCard["estado"], string> = {
   expirada: "Expirada",
 }
 
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+
 export default function GiftCardsPage() {
   const [giftCards, setGiftCards] = useState<GiftCard[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -83,12 +86,16 @@ export default function GiftCardsPage() {
   useEffect(() => {
     setGiftCards(getGiftCards())
     
-    // Cargar clientes desde Supabase
-    async function loadClientes() {
-      const clientesData = await getClientes()
+    // Cargar datos desde Supabase
+    async function loadData() {
+      const [clientesData, sucursalesData] = await Promise.all([
+        getClientes(),
+        getSucursalesActivasFromDB()
+      ])
       setClientes(clientesData)
+      setSucursales(sucursalesData)
     }
-    loadClientes()
+    loadData()
   }, [])
 
   const filteredCards = giftCards.filter((card) => {
@@ -108,7 +115,7 @@ export default function GiftCardsPage() {
   const handleCreateCard = () => {
     if (!newCardAmount || !newCardSucursal) return
 
-    const sucursal = sucursalesData.find((s) => s.id === newCardSucursal)
+    const sucursal = sucursales.find((s) => s.id === newCardSucursal)
     const cliente = clientes.find((c) => c.id === newCardClient)
 
     const newCard: GiftCard = {
@@ -506,7 +513,7 @@ export default function GiftCardsPage() {
                   <SelectValue placeholder="Seleccionar sucursal" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sucursalesData.map((sucursal) => (
+                  {sucursales.map((sucursal) => (
                     <SelectItem key={sucursal.id} value={sucursal.id}>
                       {sucursal.nombre}
                     </SelectItem>

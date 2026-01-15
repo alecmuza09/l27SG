@@ -24,7 +24,8 @@ import { cn } from "@/lib/utils"
 import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns"
 import { es } from "date-fns/locale"
 import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Lock, Edit } from "lucide-react"
-import { empleadosData, sucursalesData } from "@/lib/data"
+import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
   getVacaciones,
   saveVacaciones,
@@ -48,6 +49,8 @@ export default function VacacionesPage() {
   const [vacaciones, setVacaciones] = useState<Vacacion[]>([])
   const [saldos, setSaldos] = useState<SaldoVacaciones[]>([])
   const [periodos, setPeriodos] = useState<PeriodoBloqueado[]>([])
+  const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [filterSucursal, setFilterSucursal] = useState<string>("todos")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
 
@@ -80,6 +83,16 @@ export default function VacacionesPage() {
     setVacaciones(getVacaciones())
     setSaldos(getSaldosVacaciones())
     setPeriodos(getPeriodosBloqueados())
+    
+    async function loadData() {
+      const [empleadosData, sucursalesData] = await Promise.all([
+        getEmpleadosFromDB(),
+        getSucursalesActivasFromDB()
+      ])
+      setEmpleados(empleadosData)
+      setSucursales(sucursalesData)
+    }
+    loadData()
   }, [])
 
   const filteredVacaciones = vacaciones.filter((vac) => {
@@ -116,7 +129,7 @@ export default function VacacionesPage() {
       return
     }
 
-    const empleado = empleadosData.find((e) => e.id === formEmpleado)
+    const empleado = empleados.find((e) => e.id === formEmpleado)
     if (!empleado) return
 
     const fechaInicioStr = format(formFechaInicio, "yyyy-MM-dd")
@@ -132,7 +145,7 @@ export default function VacacionesPage() {
     }
 
     const dias = calcularDias(fechaInicioStr, fechaFinStr)
-    const sucursal = sucursalesData.find((s) => s.id === empleado.sucursalId)
+    const sucursal = sucursales.find((s) => s.id === empleado.sucursalId)
 
     const newVacacion: Vacacion = {
       id: `vac-${Date.now()}`,
@@ -239,7 +252,7 @@ export default function VacacionesPage() {
     const sucursal =
       blockSucursal === "all"
         ? { id: "all", nombre: "Todas las Sucursales" }
-        : sucursalesData.find((s) => s.id === blockSucursal)
+        : sucursales.find((s) => s.id === blockSucursal)
 
     const newPeriodo: PeriodoBloqueado = {
       id: `pb-${Date.now()}`,
@@ -374,7 +387,7 @@ export default function VacacionesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todos">Todas las sucursales</SelectItem>
-                      {sucursalesData.map((s) => (
+                      {sucursales.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.nombre}
                         </SelectItem>
@@ -630,7 +643,7 @@ export default function VacacionesPage() {
                   <SelectValue placeholder="Seleccionar empleado" />
                 </SelectTrigger>
                 <SelectContent>
-                  {empleadosData.map((emp) => (
+                  {empleados.map((emp) => (
                     <SelectItem key={emp.id} value={emp.id}>
                       {emp.nombre}
                     </SelectItem>

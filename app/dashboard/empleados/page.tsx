@@ -49,23 +49,27 @@ export default function EmpleadosPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
   const [activeTab, setActiveTab] = useState<"activos" | "eliminados">("activos")
-
+  async function loadEmpleados() {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const [empleadosData, empleadosEliminadosData, sucursalesData] = await Promise.all([
+        getEmpleadosFromDB(),
+        getEmpleadosEliminadosFromDB(),
+        getSucursalesActivasFromDB()
+      ])
+      setEmpleados(empleadosData)
+      setEmpleadosEliminados(empleadosEliminadosData)
+      setSucursales(sucursalesData)
+    } catch (err) {
+      console.error('Error cargando empleados:', err)
+      setError('Error al cargar los empleados. Por favor, intenta de nuevo.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function loadEmpleados() {
-      try {
-        setIsLoading(true)
-        setError(null)
-        const empleadosData = await getEmpleadosFromDB()
-        setEmpleados(empleadosData)
-      } catch (err) {
-        console.error('Error cargando empleados:', err)
-        setError('Error al cargar los empleados. Por favor, intenta de nuevo.')
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
     loadEmpleados()
   }, [])
 

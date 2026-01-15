@@ -1,11 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Plus, MapPin, Phone, Mail, Clock, Edit, Trash2 } from "lucide-react"
-import { MOCK_SUCURSALES } from "@/lib/data/sucursales"
+import { Plus, MapPin, Phone, Mail, Clock, Edit, Trash2, Loader2 } from "lucide-react"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
   Dialog,
   DialogContent,
@@ -19,8 +19,36 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
 export default function SucursalesPage() {
-  const [sucursales] = useState(MOCK_SUCURSALES)
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadSucursales() {
+      try {
+        setIsLoading(true)
+        const sucursalesData = await getSucursalesActivasFromDB()
+        setSucursales(sucursalesData)
+      } catch (err) {
+        console.error('Error cargando sucursales:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadSucursales()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando sucursales...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -137,31 +165,22 @@ export default function SucursalesPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {sucursales.map((sucursal, i) => {
-              const stats = [
-                { value: Math.floor(Math.random() * 50) + 20, max: 70 },
-                { value: Math.floor(Math.random() * 30000) + 10000, max: 40000 },
-                { value: Math.floor(Math.random() * 30) + 60, max: 100 },
-              ]
-              return (
+            {sucursales.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">No hay sucursales registradas</p>
+            ) : (
+              sucursales.map((sucursal) => (
                 <div key={sucursal.id} className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{sucursal.nombre}</span>
-                    <div className="flex gap-6 text-sm text-muted-foreground">
-                      <span>{stats[0].value} citas</span>
-                      <span>${stats[1].value.toLocaleString()}</span>
-                      <span>{stats[2].value}% ocupación</span>
+                    <div className="text-sm text-muted-foreground">
+                      <Badge variant={sucursal.activa ? "default" : "secondary"}>
+                        {sucursal.activa ? "Activa" : "Inactiva"}
+                      </Badge>
                     </div>
                   </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary rounded-full"
-                      style={{ width: `${(stats[2].value / stats[2].max) * 100}%` }}
-                    />
-                  </div>
                 </div>
-              )
-            })}
+              ))
+            )}
           </div>
         </CardContent>
       </Card>
