@@ -20,7 +20,8 @@ import {
   Download,
   Loader2,
 } from "lucide-react"
-import { getClientesPaginated, searchClientesPaginated, getClientesStats, createCliente, type Cliente } from "@/lib/data/clientes"
+import { getClientesPaginated, searchClientesPaginated, getClientesStats, createCliente, updateCliente, type Cliente } from "@/lib/data/clientes"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -48,8 +49,11 @@ import {
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [stats, setStats] = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -67,6 +71,7 @@ export default function ClientesPage() {
     fechaNacimiento: "",
     genero: "",
     notas: "",
+    sucursalPreferida: "",
   })
 
   // Función para cargar estadísticas
@@ -105,9 +110,15 @@ export default function ClientesPage() {
     }
   }
 
-  // Cargar estadísticas solo una vez al montar
+  // Cargar estadísticas y sucursales solo una vez al montar
   useEffect(() => {
-    loadStats()
+    async function loadInitialData() {
+      await Promise.all([
+        loadStats(),
+        getSucursalesActivasFromDB().then(setSucursales)
+      ])
+    }
+    loadInitialData()
   }, [])
 
   // Cargar clientes cuando cambia la página
@@ -139,8 +150,8 @@ export default function ClientesPage() {
     setFormData(prev => ({ ...prev, [id]: value }))
   }
 
-  const handleSelectChange = (value: string) => {
-    setFormData(prev => ({ ...prev, genero: value }))
+  const handleSelectChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
   }
 
   // Manejar submit del formulario
@@ -160,6 +171,7 @@ export default function ClientesPage() {
       if (formData.fechaNacimiento) clienteData.fechaNacimiento = formData.fechaNacimiento
       if (formData.genero) clienteData.genero = formData.genero as 'masculino' | 'femenino' | 'otro'
       if (formData.notas) clienteData.notas = formData.notas
+      if (formData.sucursalPreferida) clienteData.sucursalPreferida = formData.sucursalPreferida
 
       const result = await createCliente(clienteData)
 
@@ -175,6 +187,7 @@ export default function ClientesPage() {
           fechaNacimiento: "",
           genero: "",
           notas: "",
+          sucursalPreferida: "",
         })
         // Recargar clientes y estadísticas
         await Promise.all([loadClientes(), loadStats()])
@@ -298,7 +311,7 @@ export default function ClientesPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="genero">Género</Label>
-                    <Select value={formData.genero} onValueChange={handleSelectChange}>
+                    <Select value={formData.genero} onValueChange={(value) => handleSelectChange('genero', value)}>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar" />
                       </SelectTrigger>
@@ -309,6 +322,25 @@ export default function ClientesPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sucursalPreferida">Sucursal Preferida</Label>
+                  <Select value={formData.sucursalPreferida} onValueChange={(value) => handleSelectChange('sucursalPreferida', value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar sucursal (opcional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Sin sucursal preferida</SelectItem>
+                      {sucursales.map((sucursal) => (
+                        <SelectItem key={sucursal.id} value={sucursal.id}>
+                          {sucursal.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Sucursal donde se registró o donde suele asistir
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notas">Notas</Label>
@@ -487,7 +519,7 @@ export default function ClientesPage() {
                             <Eye className="h-4 w-4" />
                           </Link>
                         </Button>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" onClick={() => handleEdit(cliente)}>
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon">
@@ -597,6 +629,147 @@ export default function ClientesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Diálogo de edición de cliente */}
+      <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+        setIsEditDialogOpen(open)
+        if (!open) {
+          setEditingCliente(null)
+          // Resetear formulario
+          setFormData({
+            nombre: "",
+            apellido: "",
+            telefono: "",
+            email: "",
+            fechaNacimiento: "",
+            genero: "",
+            notas: "",
+            sucursalPreferida: "",
+          })
+        }
+      }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar Cliente</DialogTitle>
+            <DialogDescription>Modifica la información del cliente</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleUpdate}>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="nombre">Nombre *</Label>
+                <Input 
+                  id="nombre" 
+                  placeholder="Ana" 
+                  value={formData.nombre}
+                  onChange={handleInputChange}
+                  required 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="apellido">Apellido *</Label>
+                <Input 
+                  id="apellido" 
+                  placeholder="García" 
+                  value={formData.apellido}
+                  onChange={handleInputChange}
+                  required 
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="telefono">Teléfono *</Label>
+                <Input 
+                  id="telefono" 
+                  placeholder="8112345678" 
+                  value={formData.telefono}
+                  onChange={handleInputChange}
+                  required 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input 
+                  id="email" 
+                  type="email" 
+                  placeholder="ana@email.com" 
+                  value={formData.email}
+                  onChange={handleInputChange}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="fechaNacimiento">Fecha de Nacimiento</Label>
+                <Input 
+                  id="fechaNacimiento" 
+                  type="date" 
+                  value={formData.fechaNacimiento}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="genero">Género</Label>
+                <Select value={formData.genero} onValueChange={(value) => handleSelectChange('genero', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No especificar</SelectItem>
+                    <SelectItem value="femenino">Femenino</SelectItem>
+                    <SelectItem value="masculino">Masculino</SelectItem>
+                    <SelectItem value="otro">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sucursalPreferida">Sucursal Preferida</Label>
+              <Select value={formData.sucursalPreferida} onValueChange={(value) => handleSelectChange('sucursalPreferida', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar sucursal (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Sin sucursal preferida</SelectItem>
+                  {sucursales.map((sucursal) => (
+                    <SelectItem key={sucursal.id} value={sucursal.id}>
+                      {sucursal.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Sucursal donde se registró o donde suele asistir
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="notas">Notas</Label>
+              <Textarea 
+                id="notas" 
+                placeholder="Preferencias, alergias, observaciones..." 
+                rows={3} 
+                value={formData.notas}
+                onChange={handleInputChange}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Guardando...
+                  </>
+                ) : (
+                  'Guardar Cambios'
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

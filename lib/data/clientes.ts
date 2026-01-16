@@ -282,6 +282,7 @@ export async function createCliente(clienteData: {
   fechaNacimiento?: string
   genero?: 'masculino' | 'femenino' | 'otro'
   notas?: string
+  sucursalPreferida?: string
 }): Promise<{ success: boolean; cliente?: Cliente; error?: string }> {
   try {
     const insertData: any = {
@@ -292,6 +293,7 @@ export async function createCliente(clienteData: {
       fecha_nacimiento: clienteData.fechaNacimiento || null,
       genero: clienteData.genero || null,
       notas: clienteData.notas || null,
+      sucursal_preferida: clienteData.sucursalPreferida || null,
       estado: 'activo',
     }
 
@@ -313,6 +315,63 @@ export async function createCliente(clienteData: {
     return { success: true, cliente: transformCliente(data as ClienteRow) }
   } catch (error: any) {
     console.error('Error inesperado creando cliente:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Actualizar un cliente existente
+export async function updateCliente(
+  clienteId: string,
+  clienteData: {
+    nombre?: string
+    apellido?: string
+    telefono?: string
+    email?: string
+    fechaNacimiento?: string
+    genero?: 'masculino' | 'femenino' | 'otro'
+    direccion?: string
+    ciudad?: string
+    notas?: string
+    sucursalPreferida?: string
+    estado?: 'activo' | 'inactivo' | 'vip'
+  }
+): Promise<{ success: boolean; cliente?: Cliente; error?: string }> {
+  try {
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    }
+
+    if (clienteData.nombre !== undefined) updateData.nombre = clienteData.nombre
+    if (clienteData.apellido !== undefined) updateData.apellido = clienteData.apellido
+    if (clienteData.telefono !== undefined) updateData.telefono = clienteData.telefono
+    if (clienteData.email !== undefined) updateData.email = clienteData.email || null
+    if (clienteData.fechaNacimiento !== undefined) updateData.fecha_nacimiento = clienteData.fechaNacimiento || null
+    if (clienteData.genero !== undefined) updateData.genero = clienteData.genero || null
+    if (clienteData.direccion !== undefined) updateData.direccion = clienteData.direccion || null
+    if (clienteData.ciudad !== undefined) updateData.ciudad = clienteData.ciudad || null
+    if (clienteData.notas !== undefined) updateData.notas = clienteData.notas || null
+    if (clienteData.sucursalPreferida !== undefined) updateData.sucursal_preferida = clienteData.sucursalPreferida || null
+    if (clienteData.estado !== undefined) updateData.estado = clienteData.estado
+
+    const { data, error } = await supabase
+      .from('clientes')
+      .update(updateData)
+      .eq('id', clienteId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error actualizando cliente:', error)
+      return { success: false, error: error.message }
+    }
+
+    if (!data) {
+      return { success: false, error: 'No se recibieron datos del servidor' }
+    }
+
+    return { success: true, cliente: transformCliente(data as ClienteRow) }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando cliente:', error)
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }
