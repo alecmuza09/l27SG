@@ -79,7 +79,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
   const [editingCita, setEditingCita] = useState<Cita | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
-  const isAdmin = currentUser?.role === 'admin'
+  // Calcular isAdmin de forma segura (siempre definido)
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
   const userSucursalId = currentUser?.sucursalId
 
   useEffect(() => {

@@ -52,7 +52,8 @@ export default function EmpleadosPage() {
   const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
   const [activeTab, setActiveTab] = useState<"activos" | "eliminados">("activos")
 
-  const isAdmin = currentUser?.role === 'admin'
+  // Calcular isAdmin de forma segura (siempre definido)
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
   const userSucursalId = currentUser?.sucursalId
 
   async function loadEmpleados() {

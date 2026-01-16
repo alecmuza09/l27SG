@@ -24,7 +24,8 @@ export default function CitasPage() {
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId] = useState<string>("")
 
-  const isAdmin = currentUser?.role === 'admin'
+  // Calcular isAdmin de forma segura (siempre definido)
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
   const userSucursalId = currentUser?.sucursalId
 
   useEffect(() => {

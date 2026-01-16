@@ -40,7 +40,7 @@ export default function ConfiguracionPage() {
   const [formPassword, setFormPassword] = useState("")
 
   // Calcular isAdmin de forma segura (siempre definido)
-  const isAdmin = currentUser?.role === 'admin' || false
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
 
   useEffect(() => {
     const user = getCurrentUser()

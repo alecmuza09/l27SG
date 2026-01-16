@@ -25,7 +25,8 @@ export default function SucursalesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
-  const isAdmin = currentUser?.role === 'admin'
+  // Calcular isAdmin de forma segura (siempre definido)
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
   const userSucursalId = currentUser?.sucursalId
 
   useEffect(() => {
