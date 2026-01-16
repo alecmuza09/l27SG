@@ -169,13 +169,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
       const day = String(now.getDate()).padStart(2, '0')
       onDateChange(`${year}-${month}-${day}`)
     } else {
-      // Usar fecha local en lugar de UTC para evitar problemas de zona horaria
-      const date = new Date(selectedDate + 'T12:00:00') // Usar mediodía para evitar problemas de zona horaria
+      // Parsear la fecha correctamente para evitar problemas de zona horaria
+      const [year, month, day] = selectedDate.split('-').map(Number)
+      const date = new Date(year, month - 1, day)
       date.setDate(date.getDate() + (direction === "next" ? 1 : -1))
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
-      onDateChange(`${year}-${month}-${day}`)
+      const newYear = date.getFullYear()
+      const newMonth = String(date.getMonth() + 1).padStart(2, '0')
+      const newDay = String(date.getDate()).padStart(2, '0')
+      onDateChange(`${newYear}-${newMonth}-${newDay}`)
     }
   }
 
@@ -203,7 +204,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
   }, [selectedDate])
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
+    // Parsear la fecha correctamente para evitar problemas de zona horaria
+    // La fecha viene en formato YYYY-MM-DD, agregamos hora local para evitar conversión UTC
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day)
     return new Intl.DateTimeFormat("es-MX", {
       weekday: "long",
       year: "numeric",
@@ -360,37 +364,6 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                 </div>
               ) : (
                 <ScrollArea className="h-[600px] relative">
-                  {/* Línea de hora actual que cruza todas las columnas */}
-                  {isToday && currentTime && (() => {
-                    const [currentHour, currentMin] = currentTime.split(":")
-                    const currentHourNum = parseInt(currentHour)
-                    const currentMinNum = parseInt(currentMin)
-                    const totalMinutes = currentHourNum * 60 + currentMinNum
-                    const startMinutes = 9 * 60 // 09:00
-                    const slotHeight = 40 // altura de cada slot
-                    const slotGap = 4 // gap entre slots
-                    const slotIndex = Math.floor((totalMinutes - startMinutes) / 30)
-                    const positionInSlot = ((totalMinutes - startMinutes) % 30) / 30
-                    const topPosition = slotIndex * (slotHeight + slotGap) + (positionInSlot * slotHeight)
-                    
-                    if (slotIndex >= 0 && slotIndex < TIME_SLOTS.length) {
-                      return (
-                        <div
-                          key="current-time-line"
-                          className="absolute left-0 right-0 z-30 pointer-events-none"
-                          style={{ top: `${topPosition}px` }}
-                        >
-                          <div className="flex gap-2">
-                            <div className="w-12 flex-shrink-0 flex items-center justify-end pr-2">
-                              <div className="h-0.5 w-8 bg-red-500 rounded-full" />
-                            </div>
-                            <div className="flex-1 border-t-2 border-red-500 border-dashed" />
-                          </div>
-                        </div>
-                      )
-                    }
-                    return null
-                  })()}
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
                     {[...empleadosDisponibles, ...empleadosDeVacacionesHoy].map((empleado) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
@@ -458,21 +431,6 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
                                 if (!hora) return ''
                                 return hora.substring(0, 5) // Toma solo HH:MM
                               }
-                              
-                              // Verificar si este slot corresponde a la hora actual (solo si es hoy)
-                              const isCurrentTimeSlot = isToday && currentTime && (() => {
-                                const [currentHour, currentMin] = currentTime.split(":")
-                                const slotHour = parseInt(hour)
-                                const slotMin = parseInt(minutes)
-                                const currentHourNum = parseInt(currentHour)
-                                const currentMinNum = parseInt(currentMin)
-                                
-                                // Verificar si la hora actual está dentro de este slot de 30 minutos
-                                if (currentHourNum === slotHour) {
-                                  return currentMinNum >= slotMin && currentMinNum < slotMin + 30
-                                }
-                                return false
-                              })()
                               
                               // Buscar citas que empiecen exactamente en este slot
                               const cita = citasEmpleado.find((c) => {
