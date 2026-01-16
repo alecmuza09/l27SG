@@ -39,6 +39,9 @@ export default function ConfiguracionPage() {
   const [formSucursalId, setFormSucursalId] = useState<string>("")
   const [formPassword, setFormPassword] = useState("")
 
+  // Calcular isAdmin de forma segura (siempre definido)
+  const isAdmin = currentUser?.role === 'admin' || false
+
   useEffect(() => {
     const user = getCurrentUser()
     setCurrentUser(user)
@@ -64,8 +67,6 @@ export default function ConfiguracionPage() {
 
     loadData()
   }, [])
-
-  const isAdmin = currentUser?.role === 'admin'
 
   const handleCreateUsuario = async () => {
     if (!formEmail || !formNombre || !formPassword || !formRol) {
@@ -204,7 +205,7 @@ export default function ConfiguracionPage() {
           </div>
         </div>
       ) : (
-      <Tabs defaultValue={isAdmin ? "usuarios" : "general"} className="space-y-4">
+      <Tabs defaultValue={currentUser?.role === 'admin' ? "usuarios" : "general"} className="space-y-4">
         <TabsList>
           {isAdmin && <TabsTrigger value="usuarios">Usuarios</TabsTrigger>}
           <TabsTrigger value="general">General</TabsTrigger>
