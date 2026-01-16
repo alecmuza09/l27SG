@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
 import { getVacaciones } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
+import { getCurrentUser, type User } from "@/lib/auth"
+import { getSucursalByIdFromDB } from "@/lib/data/sucursales"
 
 interface AgendaKanbanViewProps {
   selectedDate: string
