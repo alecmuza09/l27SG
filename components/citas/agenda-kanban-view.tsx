@@ -125,6 +125,25 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
     loadEmpleados()
   }, [selectedSucursal])
 
+  useEffect(() => {
+    async function loadCitas() {
+      if (selectedSucursal && selectedDate) {
+        setIsLoadingCitas(true)
+        try {
+          const citasData = await getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal)
+          setCitas(citasData)
+        } catch (error) {
+          console.error('Error cargando citas:', error)
+          toast.error('Error al cargar las citas')
+        } finally {
+          setIsLoadingCitas(false)
+        }
+      }
+    }
+    
+    loadCitas()
+  }, [selectedSucursal, selectedDate])
+
   const isEmpleadoDeVacaciones = (empleadoId: string, fecha: string): Vacacion | null => {
     const fechaDate = new Date(fecha)
     return (
