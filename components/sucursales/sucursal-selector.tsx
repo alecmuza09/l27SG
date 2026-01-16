@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalByIdFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getCurrentUser, type User } from "@/lib/auth"
 
 interface SucursalSelectorProps {
   value?: string
@@ -16,16 +17,42 @@ interface SucursalSelectorProps {
 
 export function SucursalSelector({ value, onChange, showAllOption = true }: SucursalSelectorProps) {
   const [open, setOpen] = useState(false)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [selectedValue, setSelectedValue] = useState(value || "all")
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
 
+  // Calcular isAdmin de forma segura (siempre definido)
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
+  const userSucursalId = currentUser?.sucursalId
+
+  useEffect(() => {
+    const user = getCurrentUser()
+    setCurrentUser(user)
+  }, [])
+
   useEffect(() => {
     async function loadSucursales() {
-      const sucursalesData = await getSucursalesActivasFromDB()
-      setSucursales(sucursalesData)
+      if (isAdmin) {
+        // Admin ve todas las sucursales
+        const sucursalesData = await getSucursalesActivasFromDB()
+        setSucursales(sucursalesData)
+      } else if (userSucursalId) {
+        // Manager/Staff solo ve su sucursal
+        const sucursal = await getSucursalByIdFromDB(userSucursalId)
+        if (sucursal) {
+          setSucursales([sucursal])
+          // Establecer automáticamente su sucursal si no hay valor seleccionado
+          if (!value && onChange) {
+            onChange(userSucursalId)
+            setSelectedValue(userSucursalId)
+          }
+        }
+      }
     }
-    loadSucursales()
-  }, [])
+    if (currentUser) {
+      loadSucursales()
+    }
+  }, [currentUser, isAdmin, userSucursalId])
 
   const handleSelect = (currentValue: string) => {
     setSelectedValue(currentValue)
