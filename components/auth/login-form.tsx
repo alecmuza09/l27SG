@@ -86,13 +86,6 @@ export function LoginForm() {
               "Iniciar Sesión"
             )}
           </Button>
-
-          <div className="text-sm text-muted-foreground space-y-1 mt-4 p-3 bg-muted rounded-md">
-            <p className="font-medium">Usuarios de prueba:</p>
-            <p>Admin: admin@luna27.com / demo123</p>
-            <p>Manager: manager@luna27.com / demo123</p>
-            <p>Staff: staff@luna27.com / demo123</p>
-          </div>
         </form>
       </CardContent>
     </Card>

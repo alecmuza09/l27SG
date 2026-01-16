@@ -2,29 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { supabaseAdmin } from "@/lib/supabase/server"
 
-// Mock users for development (fallback)
-const MOCK_USERS = [
-  {
-    id: "1",
-    email: "admin@luna27.com",
-    name: "Admin Luna27",
-    role: "admin",
-  },
-  {
-    id: "2",
-    email: "manager@luna27.com",
-    name: "Manager Sucursal Centro",
-    role: "manager",
-    sucursalId: "1",
-  },
-  {
-    id: "3",
-    email: "staff@luna27.com",
-    name: "María González",
-    role: "staff",
-    sucursalId: "1",
-  },
-]
+// Mock users removed - using only Supabase Auth
 
 export async function POST(request: NextRequest) {
   try {
@@ -97,30 +75,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ user, success: true })
       }
     } catch (supabaseError) {
-      console.log('Supabase Auth no disponible, usando mock users:', supabaseError)
+      console.error('Error en autenticación con Supabase:', supabaseError)
+      return NextResponse.json({ error: "Error de autenticación. Por favor, verifica tus credenciales." }, { status: 401 })
     }
 
-    // Fallback a mock users para desarrollo
-    await new Promise((resolve) => setTimeout(resolve, 800))
-
-    const user = MOCK_USERS.find((u) => u.email === email)
-
-    if (!user || password !== "demo123") {
-      return NextResponse.json({ error: "Credenciales inválidas" }, { status: 401 })
-    }
-
-    const sessionData = JSON.stringify(user)
-    const cookieStore = await cookies()
-
-    cookieStore.set("luna27_session", sessionData, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7,
-      path: "/",
-    })
-
-    return NextResponse.json({ user, success: true })
+    // Si llegamos aquí, la autenticación falló
+    return NextResponse.json({ error: "Credenciales inválidas" }, { status: 401 })
   } catch (error) {
     console.error("[v0] Login error:", error)
     return NextResponse.json({ error: "Error al procesar la solicitud" }, { status: 500 })
