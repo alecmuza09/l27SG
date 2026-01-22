@@ -156,3 +156,31 @@ export async function deleteUsuarioFromDB(usuarioId: string): Promise<{ success:
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }
+
+// Actualizar contraseña de usuario (solo admin) - usando API route
+export async function updateUsuarioPassword(
+  usuarioId: string,
+  password: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`/api/usuarios/${usuarioId}/password`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ password }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      return { success: false, error: data.error || 'Error actualizando contraseña' }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando contraseña:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}

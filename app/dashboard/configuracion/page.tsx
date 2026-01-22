@@ -19,10 +19,10 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getCurrentUser, checkPermission, type User } from "@/lib/auth"
-import { getUsuariosFromDB, createUsuarioFromDB, updateUsuarioFromDB, deleteUsuarioFromDB, type Usuario } from "@/lib/data/usuarios"
+import { getUsuariosFromDB, createUsuarioFromDB, updateUsuarioFromDB, deleteUsuarioFromDB, updateUsuarioPassword, type Usuario } from "@/lib/data/usuarios"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { normalizeEmail } from "@/lib/utils"
-import { Plus, Edit, Trash2, Loader2, UserPlus, Shield, UserCog, AlertCircle } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2, UserPlus, Shield, UserCog, AlertCircle, Key } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ConfiguracionPage() {
@@ -32,6 +32,9 @@ export default function ConfiguracionPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false)
   const [editingUsuario, setEditingUsuario] = useState<Usuario | null>(null)
+  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false)
+  const [passwordUsuario, setPasswordUsuario] = useState<Usuario | null>(null)
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
   
   // Form states
   const [formEmail, setFormEmail] = useState("")
@@ -39,6 +42,8 @@ export default function ConfiguracionPage() {
   const [formRol, setFormRol] = useState<'admin' | 'manager' | 'staff'>('staff')
   const [formSucursalId, setFormSucursalId] = useState<string>("")
   const [formPassword, setFormPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
@@ -164,6 +169,47 @@ export default function ConfiguracionPage() {
     }
   }
 
+  const handleOpenPasswordDialog = (usuario: Usuario) => {
+    setPasswordUsuario(usuario)
+    setNewPassword("")
+    setConfirmPassword("")
+    setIsPasswordDialogOpen(true)
+  }
+
+  const handleChangePassword = async () => {
+    if (!passwordUsuario) return
+
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error('Las contraseñas no coinciden')
+      return
+    }
+
+    setIsChangingPassword(true)
+
+    try {
+      const result = await updateUsuarioPassword(passwordUsuario.id, newPassword)
+      if (result.success) {
+        toast.success('Contraseña actualizada exitosamente')
+        setIsPasswordDialogOpen(false)
+        setPasswordUsuario(null)
+        setNewPassword("")
+        setConfirmPassword("")
+      } else {
+        toast.error(result.error || 'Error actualizando contraseña')
+      }
+    } catch (err) {
+      console.error('Error actualizando contraseña:', err)
+      toast.error('Error inesperado al actualizar la contraseña')
+    } finally {
+      setIsChangingPassword(false)
+    }
+  }
+
   const resetForm = () => {
     setFormEmail("")
     setFormNombre("")
@@ -286,14 +332,24 @@ export default function ConfiguracionPage() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => openEditDialog(usuario)}
+                                title="Editar usuario"
                               >
                                 <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleOpenPasswordDialog(usuario)}
+                                title="Cambiar contraseña"
+                              >
+                                <Key className="h-4 w-4" />
                               </Button>
                               {usuario.id !== currentUser?.id && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => handleDeleteUsuario(usuario.id)}
+                                  title="Desactivar usuario"
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
@@ -427,6 +483,92 @@ export default function ConfiguracionPage() {
                     }
                   >
                     {editingUsuario ? "Guardar Cambios" : "Crear Usuario"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Dialog: Cambiar Contraseña */}
+            <Dialog open={isPasswordDialogOpen} onOpenChange={(open) => {
+              setIsPasswordDialogOpen(open)
+              if (!open) {
+                setPasswordUsuario(null)
+                setNewPassword("")
+                setConfirmPassword("")
+              }
+            }}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Cambiar Contraseña</DialogTitle>
+                  <DialogDescription>
+                    {passwordUsuario && `Actualiza la contraseña de ${passwordUsuario.nombre}`}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="newPassword">Nueva Contraseña *</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Mínimo 6 caracteres"
+                      disabled={isChangingPassword}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      La contraseña debe tener al menos 6 caracteres
+                    </p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="confirmPassword">Confirmar Contraseña *</Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Repite la contraseña"
+                      disabled={isChangingPassword}
+                    />
+                  </div>
+                  {newPassword && confirmPassword && newPassword !== confirmPassword && (
+                    <div className="flex items-start gap-2 p-2 text-xs bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md">
+                      <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                      <p className="text-red-800 dark:text-red-300">
+                        Las contraseñas no coinciden
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsPasswordDialogOpen(false)
+                      setPasswordUsuario(null)
+                      setNewPassword("")
+                      setConfirmPassword("")
+                    }}
+                    disabled={isChangingPassword}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={handleChangePassword}
+                    disabled={
+                      !newPassword || 
+                      newPassword.length < 6 || 
+                      newPassword !== confirmPassword ||
+                      isChangingPassword
+                    }
+                  >
+                    {isChangingPassword ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Actualizando...
+                      </>
+                    ) : (
+                      "Actualizar Contraseña"
+                    )}
                   </Button>
                 </DialogFooter>
               </DialogContent>
