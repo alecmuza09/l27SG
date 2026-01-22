@@ -1,27 +1,31 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { supabaseAdmin } from "@/lib/supabase/server"
+import { normalizeEmail } from "@/lib/utils"
 
 // Mock users removed - using only Supabase Auth
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json()
+    let { email, password } = await request.json()
 
-    // Primero intentar autenticación con Supabase Auth
+    // Normalizar el email para que coincida con el formato almacenado
+    const emailNormalizado = normalizeEmail(email)
+
+    // Primero intentar autenticación con Supabase Auth (usar email normalizado)
     try {
       const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
-        email,
+        email: emailNormalizado,
         password,
       })
 
       if (!authError && authData.user) {
         // Usuario autenticado en Supabase Auth
-        // Obtener información del usuario de la tabla usuarios
+        // Obtener información del usuario de la tabla usuarios (usar email normalizado)
         const { data: usuarioData, error: usuarioError } = await supabaseAdmin
           .from('usuarios')
           .select('*')
-          .eq('email', email)
+          .eq('email', emailNormalizado)
           .eq('activo', true)
           .maybeSingle()
 
