@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { supabaseAdmin } from "@/lib/supabase/server"
+import { normalizeEmail } from "@/lib/utils"
 
 // GET - Obtener usuarios (solo admin)
 export async function GET(request: NextRequest) {
@@ -69,10 +70,20 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { email, nombre, rol, sucursalId, password } = body
+    let { email, nombre, rol, sucursalId, password } = body
 
     if (!email || !nombre || !rol || !password) {
       return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 })
+    }
+
+    // Normalizar el email para remover acentos y caracteres especiales
+    // Supabase Auth no acepta caracteres especiales en la parte local del email
+    const emailOriginal = email
+    email = normalizeEmail(email)
+
+    // Si el email fue normalizado, informar al usuario
+    if (email !== emailOriginal.toLowerCase()) {
+      console.log(`Email normalizado: "${emailOriginal}" → "${email}"`)
     }
 
     // Crear usuario en Supabase Auth

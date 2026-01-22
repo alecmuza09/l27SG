@@ -81,6 +81,8 @@ export default function ClientesPage() {
       setStats(statsData)
     } catch (err) {
       console.error('Error cargando estadísticas:', err)
+      // Establecer valores por defecto en caso de error
+      setStats({ total: 0, activos: 0, vip: 0, nuevos: 0 })
     }
   }
 
@@ -113,10 +115,17 @@ export default function ClientesPage() {
   // Cargar estadísticas y sucursales solo una vez al montar
   useEffect(() => {
     async function loadInitialData() {
-      await Promise.all([
-        loadStats(),
-        getSucursalesActivasFromDB().then(setSucursales)
-      ])
+      try {
+        await Promise.all([
+          loadStats(),
+          getSucursalesActivasFromDB().then(setSucursales).catch(err => {
+            console.error('Error cargando sucursales:', err)
+            setSucursales([])
+          })
+        ])
+      } catch (err) {
+        console.error('Error cargando datos iniciales:', err)
+      }
     }
     loadInitialData()
   }, [])
@@ -197,6 +206,73 @@ export default function ClientesPage() {
     } catch (err: any) {
       console.error('Error creando cliente:', err)
       toast.error('Error inesperado al crear el cliente')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Manejar edición de cliente
+  const handleEdit = (cliente: Cliente) => {
+    setEditingCliente(cliente)
+    setFormData({
+      nombre: cliente.nombre,
+      apellido: cliente.apellido,
+      telefono: cliente.telefono,
+      email: cliente.email || "",
+      fechaNacimiento: cliente.fechaNacimiento || "",
+      genero: cliente.genero || "",
+      notas: cliente.notas || "",
+      sucursalPreferida: cliente.sucursalPreferida || "",
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  // Manejar actualización de cliente
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingCliente) return
+
+    setIsSubmitting(true)
+
+    try {
+      const clienteData: any = {
+        nombre: formData.nombre,
+        apellido: formData.apellido,
+        telefono: formData.telefono,
+      }
+
+      // Agregar campos opcionales solo si tienen valor
+      if (formData.email) clienteData.email = formData.email
+      if (formData.fechaNacimiento) clienteData.fechaNacimiento = formData.fechaNacimiento
+      if (formData.genero) clienteData.genero = formData.genero as 'masculino' | 'femenino' | 'otro'
+      if (formData.notas) clienteData.notas = formData.notas
+      if (formData.sucursalPreferida) clienteData.sucursalPreferida = formData.sucursalPreferida
+
+      const result = await updateCliente(editingCliente.id, clienteData)
+
+      if (result.success) {
+        toast.success('Cliente actualizado exitosamente')
+        setIsEditDialogOpen(false)
+        setEditingCliente(null)
+        // Resetear formulario
+        setFormData({
+          nombre: "",
+          apellido: "",
+          telefono: "",
+          email: "",
+          fechaNacimiento: "",
+          genero: "",
+          notas: "",
+          sucursalPreferida: "",
+        })
+        // Recargar clientes y estadísticas
+        await Promise.all([loadClientes(), loadStats()])
+      } else {
+        toast.error(`Error al actualizar cliente: ${result.error}`)
+      }
+    } catch (err: any) {
+      console.error('Error actualizando cliente:', err)
+      toast.error('Error inesperado al actualizar el cliente')
     } finally {
       setIsSubmitting(false)
     }

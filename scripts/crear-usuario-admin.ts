@@ -15,6 +15,31 @@ import { resolve } from 'path'
 // Cargar variables de entorno
 dotenv.config({ path: resolve(process.cwd(), '.env.local') })
 
+/**
+ * Normaliza un email removiendo acentos y caracteres especiales
+ * que no son válidos según RFC 5322 para la parte local del email.
+ */
+function normalizeEmail(email: string): string {
+  if (!email) return email
+  
+  // Separar la parte local y el dominio
+  const [localPart, ...domainParts] = email.toLowerCase().split('@')
+  
+  if (!localPart || domainParts.length === 0) {
+    return email // Retornar original si el formato es inválido
+  }
+  
+  const domain = domainParts.join('@')
+  
+  // Normalizar la parte local: remover acentos y caracteres especiales
+  const normalizedLocal = localPart
+    .normalize('NFD') // Descompone caracteres con acentos
+    .replace(/[\u0300-\u036f]/g, '') // Remueve diacríticos (acentos)
+    .replace(/[^a-z0-9._+-]/g, '') // Solo permite letras, números y caracteres permitidos
+  
+  return `${normalizedLocal}@${domain}`
+}
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -31,13 +56,26 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
   }
 })
 
-const EMAIL = 'alecmuza09@gmail.com'
-const PASSWORD = 'alecmuza09'
-const NOMBRE = 'Admin Alecmuza'
+// Permitir email desde argumentos de línea de comandos o usar el default
+const EMAIL_ARG = process.argv[2] || 'alecmuza09@gmail.com'
+const PASSWORD_ARG = process.argv[3] || 'alecmuza09'
+const NOMBRE_ARG = process.argv[4] || 'Admin Alecmuza'
+
+// Normalizar el email para remover acentos y caracteres especiales
+const EMAIL = normalizeEmail(EMAIL_ARG)
+const PASSWORD = PASSWORD_ARG
+const NOMBRE = NOMBRE_ARG
 
 async function crearUsuarioAdmin() {
   try {
     console.log('🔐 Creando usuario admin en Supabase Auth...')
+    
+    // Mostrar advertencia si el email fue normalizado
+    if (EMAIL !== EMAIL_ARG.toLowerCase()) {
+      console.log(`⚠️  Email normalizado: "${EMAIL_ARG}" → "${EMAIL}"`)
+      console.log('   (Se removieron acentos y caracteres especiales)')
+    }
+    
     console.log(`📧 Email: ${EMAIL}`)
     console.log(`👤 Nombre: ${NOMBRE}`)
     console.log('')

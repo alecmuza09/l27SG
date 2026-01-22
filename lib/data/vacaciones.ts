@@ -243,15 +243,10 @@ export async function getVacacionesFromDB(sucursalId?: string): Promise<Vacacion
       .from('vacaciones')
       .select(`
         *,
-        empleado:empleados(nombre, apellido),
-        sucursal:sucursales(nombre),
-        aprobador:empleados!vacaciones_aprobado_por_id_fkey(nombre, apellido)
+        empleado:empleados(nombre, apellido, sucursal:sucursales(id, nombre)),
+        aprobador:usuarios!vacaciones_aprobado_por_id_fkey(nombre)
       `)
       .order('fecha_solicitud', { ascending: false })
-    
-    if (sucursalId) {
-      query = query.eq('sucursal_id', sucursalId)
-    }
     
     const { data, error } = await query
     
@@ -262,19 +257,27 @@ export async function getVacacionesFromDB(sucursalId?: string): Promise<Vacacion
     
     if (!data) return []
     
-    return data.map((v: any) => ({
+    // Filtrar por sucursal si se especifica (a través del empleado)
+    let vacacionesFiltradas = data
+    if (sucursalId) {
+      vacacionesFiltradas = data.filter((v: any) => 
+        v.empleado?.sucursal?.id === sucursalId
+      )
+    }
+    
+    return vacacionesFiltradas.map((v: any) => ({
       id: v.id,
       empleadoId: v.empleado_id,
       empleadoNombre: v.empleado ? `${v.empleado.nombre} ${v.empleado.apellido}` : '',
-      sucursalId: v.sucursal_id,
-      sucursalNombre: v.sucursal?.nombre || '',
+      sucursalId: v.empleado?.sucursal?.id || '',
+      sucursalNombre: v.empleado?.sucursal?.nombre || '',
       fechaInicio: v.fecha_inicio,
       fechaFin: v.fecha_fin,
       diasSolicitados: v.dias_solicitados || 0,
       estado: v.estado,
       motivoRechazo: v.motivo_rechazo || null,
       aprobadoPorId: v.aprobado_por_id || null,
-      aprobadoPorNombre: v.aprobador ? `${v.aprobador.nombre} ${v.aprobador.apellido}` : null,
+      aprobadoPorNombre: v.aprobador?.nombre || null,
       fechaSolicitud: v.fecha_solicitud || v.created_at,
       fechaResolucion: v.fecha_resolucion || null,
       notas: v.notas || null,
@@ -328,7 +331,7 @@ export async function getPeriodosBloqueadosFromDB(): Promise<PeriodoBloqueado[]>
       .select(`
         *,
         sucursal:sucursales(nombre),
-        creador:empleados!periodos_bloqueados_creado_por_id_fkey(nombre, apellido)
+        creador:usuarios!periodos_bloqueados_creado_por_id_fkey(nombre)
       `)
       .order('fecha_inicio', { ascending: false })
     
@@ -347,7 +350,7 @@ export async function getPeriodosBloqueadosFromDB(): Promise<PeriodoBloqueado[]>
       fechaFin: p.fecha_fin,
       motivo: p.motivo || '',
       creadoPorId: p.creado_por_id || '',
-      creadoPorNombre: p.creador ? `${p.creador.nombre} ${p.creador.apellido}` : 'Admin',
+      creadoPorNombre: p.creador?.nombre || 'Admin',
     }))
   } catch (error) {
     console.error('Error inesperado obteniendo periodos bloqueados:', error)

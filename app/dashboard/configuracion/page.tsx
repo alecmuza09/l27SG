@@ -21,7 +21,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { getCurrentUser, checkPermission, type User } from "@/lib/auth"
 import { getUsuariosFromDB, createUsuarioFromDB, updateUsuarioFromDB, deleteUsuarioFromDB, type Usuario } from "@/lib/data/usuarios"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { Plus, Edit, Trash2, Loader2, UserPlus, Shield, UserCog } from "lucide-react"
+import { normalizeEmail } from "@/lib/utils"
+import { Plus, Edit, Trash2, Loader2, UserPlus, Shield, UserCog, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ConfiguracionPage() {
@@ -79,9 +80,17 @@ export default function ConfiguracionPage() {
       return
     }
 
+    // Normalizar email y mostrar advertencia si fue modificado
+    const emailNormalizado = normalizeEmail(formEmail)
+    if (emailNormalizado !== formEmail.toLowerCase()) {
+      toast.warning(`El email será normalizado: "${formEmail}" → "${emailNormalizado}"`, {
+        description: 'Se removieron acentos y caracteres especiales para compatibilidad con Supabase'
+      })
+    }
+
     try {
       const result = await createUsuarioFromDB({
-        email: formEmail,
+        email: emailNormalizado,
         nombre: formNombre,
         rol: formRol,
         sucursalId: formRol === 'admin' ? null : formSucursalId,
@@ -329,6 +338,22 @@ export default function ConfiguracionPage() {
                       placeholder="usuario@luna27.com"
                       disabled={!!editingUsuario}
                     />
+                    {formEmail && normalizeEmail(formEmail) !== formEmail.toLowerCase() && (
+                      <div className="flex items-start gap-2 p-2 text-xs bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md">
+                        <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-amber-800 dark:text-amber-300 font-medium">
+                            El email será normalizado automáticamente
+                          </p>
+                          <p className="text-amber-700 dark:text-amber-400 mt-1">
+                            <span className="font-mono">{formEmail}</span> → <span className="font-mono">{normalizeEmail(formEmail)}</span>
+                          </p>
+                          <p className="text-amber-600 dark:text-amber-500 mt-1">
+                            Se removerán acentos y caracteres especiales para compatibilidad.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="nombre">Nombre *</Label>
