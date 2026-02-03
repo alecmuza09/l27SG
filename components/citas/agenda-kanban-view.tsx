@@ -500,12 +500,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         onDragStart={() => handleDragStart(cita)}
                                         onClick={(e) => e.stopPropagation()}
                                         style={{
-                                          height: `${calcularSlotsOcupados(cita) * 40 + (calcularSlotsOcupados(cita) - 1) * 4}px`,
-                                          minHeight: '84px',
+                                          height: `${Math.max(calcularSlotsOcupados(cita) * 40 + (calcularSlotsOcupados(cita) - 1) * 4, 88)}px`,
+                                          minHeight: '88px',
                                         }}
                                       >
-                                        <CardContent className="p-2.5 h-full flex flex-col justify-between gap-1.5 overflow-hidden">
-                                          <div className="flex items-start justify-between gap-1.5 min-w-0">
+                                        <CardContent className="p-2.5 h-full flex flex-col gap-1.5 overflow-hidden min-h-0">
+                                          <div className="flex items-center justify-between gap-1 shrink-0">
                                             <Badge
                                               className={cn(
                                                 "text-[10px] px-1.5 py-0 shrink-0",
@@ -514,21 +514,35 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                             >
                                               {ESTADOS.find((e) => e.dbValue === cita.estado)?.label || cita.estado}
                                             </Badge>
-                                            <DropdownMenu>
-                                              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
-                                                  <MoreVertical className="h-3 w-3" />
-                                                </Button>
-                                              </DropdownMenuTrigger>
-                                              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                                <DropdownMenuItem onClick={(e) => { 
+                                            <div className="flex items-center gap-0.5 shrink-0">
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6"
+                                                title="Editar cita"
+                                                onClick={(e) => {
                                                   e.stopPropagation()
                                                   setEditingCita(cita)
                                                   setIsEditDialogOpen(true)
-                                                }}>
-                                                  <Edit className="h-4 w-4 mr-2" />
-                                                  Editar Cita
-                                                </DropdownMenuItem>
+                                                }}
+                                              >
+                                                <Edit className="h-3.5 w-3.5" />
+                                              </Button>
+                                              <DropdownMenu>
+                                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                  <Button variant="ghost" size="icon" className="h-6 w-6">
+                                                    <MoreVertical className="h-3 w-3" />
+                                                  </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                                  <DropdownMenuItem onClick={(e) => { 
+                                                    e.stopPropagation()
+                                                    setEditingCita(cita)
+                                                    setIsEditDialogOpen(true)
+                                                  }}>
+                                                    <Edit className="h-4 w-4 mr-2" />
+                                                    Editar Cita
+                                                  </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
                                                   Cambiar Estado:
@@ -551,14 +565,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                     </DropdownMenuItem>
                                                   )
                                                 })}
-                                              </DropdownMenuContent>
-                                            </DropdownMenu>
+                                                </DropdownMenuContent>
+                                              </DropdownMenu>
+                                            </div>
                                           </div>
-                                          <div className="space-y-0.5 min-w-0 flex-1 flex flex-col justify-center">
-                                            <p className="font-semibold text-base leading-tight text-foreground truncate" title={cita.clienteNombre}>
+                                          <div className="space-y-0.5 min-w-0 min-h-[2.5rem] flex-1 flex flex-col justify-center overflow-hidden">
+                                            <p className="font-semibold text-sm leading-tight text-foreground truncate" title={cita.clienteNombre}>
                                               {cita.clienteNombre}
                                             </p>
-                                            <p className="text-sm font-medium text-muted-foreground leading-tight truncate" title={cita.servicioNombre}>
+                                            <p className="text-xs font-medium text-muted-foreground leading-tight truncate" title={cita.servicioNombre}>
                                               {cita.servicioNombre}
                                             </p>
                                           </div>
