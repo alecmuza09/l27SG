@@ -18,6 +18,7 @@ import { updateCitaEstado } from "@/lib/data/citas"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
+import { EditarCitaDialog } from "./editar-cita-dialog"
 import { getVacaciones } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
 import { getCurrentUser, type User } from "@/lib/auth"
@@ -482,12 +483,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               // Solo mostrar la cita en el slot donde empieza
                               const mostrarCita = cita && normalizarHora(cita.horaInicio) === slotTime
 
+                              const slotTieneCita = mostrarCita && !!cita
                               return (
                                 <div key={slot} className="flex gap-2 relative">
                                   <div className="text-xs text-muted-foreground py-2 w-12 flex-shrink-0">{slot}</div>
                                   <div
                                     className={cn(
                                       "flex-1 min-h-[40px] border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
+                                      slotTieneCita && "min-h-[88px]",
                                       !isInRange && "bg-muted/30 cursor-not-allowed",
                                       (cita || citaQueOcupaEsteSlot) && "cursor-default bg-primary/5",
                                     )}
@@ -514,35 +517,27 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                             >
                                               {ESTADOS.find((e) => e.dbValue === cita.estado)?.label || cita.estado}
                                             </Badge>
-                                            <div className="flex items-center gap-0.5 shrink-0">
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6"
-                                                title="Editar cita"
-                                                onClick={(e) => {
-                                                  e.stopPropagation()
-                                                  setEditingCita(cita)
-                                                  setIsEditDialogOpen(true)
-                                                }}
-                                              >
-                                                <Edit className="h-3.5 w-3.5" />
-                                              </Button>
-                                              <DropdownMenu>
-                                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                  <Button variant="ghost" size="icon" className="h-6 w-6">
-                                                    <MoreVertical className="h-3 w-3" />
-                                                  </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                                  <DropdownMenuItem onClick={(e) => { 
-                                                    e.stopPropagation()
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6 shrink-0"
+                                                  onClick={(e) => e.stopPropagation()}
+                                                >
+                                                  <MoreVertical className="h-3 w-3" />
+                                                </Button>
+                                              </DropdownMenuTrigger>
+                                              <DropdownMenuContent align="end" className="z-50" onClick={(e) => e.stopPropagation()}>
+                                                <DropdownMenuItem
+                                                  onSelect={() => {
                                                     setEditingCita(cita)
                                                     setIsEditDialogOpen(true)
-                                                  }}>
-                                                    <Edit className="h-4 w-4 mr-2" />
-                                                    Editar Cita
-                                                  </DropdownMenuItem>
+                                                  }}
+                                                >
+                                                  <Edit className="h-4 w-4 mr-2" />
+                                                  Editar Cita
+                                                </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
                                                   Cambiar Estado:
@@ -567,7 +562,6 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                 })}
                                                 </DropdownMenuContent>
                                               </DropdownMenu>
-                                            </div>
                                           </div>
                                           <div className="space-y-0.5 min-w-0 min-h-[2.5rem] flex-1 flex flex-col justify-center overflow-hidden">
                                             <p className="font-semibold text-sm leading-tight text-foreground truncate" title={cita.clienteNombre}>
@@ -656,7 +650,6 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           setDialogOpen(open)
           if (!open) {
             setSelectedSlot(null)
-            // Esperar un momento antes de recargar para asegurar que la cita se guardó
             await new Promise(resolve => setTimeout(resolve, 300))
             await handleCitaCreated()
           }
@@ -665,6 +658,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         selectedTime={selectedSlot?.time}
         selectedEmpleadoId={selectedSlot?.empleadoId}
         sucursalId={selectedSucursal}
+      />
+
+      <EditarCitaDialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open)
+          if (!open) setEditingCita(null)
+        }}
+        cita={editingCita}
+        sucursalId={selectedSucursal}
+        onCitaUpdated={handleCitaCreated}
       />
     </div>
   )
