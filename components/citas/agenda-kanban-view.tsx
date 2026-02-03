@@ -484,34 +484,33 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               const mostrarCita = cita && normalizarHora(cita.horaInicio) === slotTime
 
                               const slotTieneCita = mostrarCita && !!cita
+                              const alturaCita = slotTieneCita ? Math.max(calcularSlotsOcupados(cita!) * 40 + (calcularSlotsOcupados(cita!) - 1) * 4, 100) : 40
                               return (
                                 <div key={slot} className="flex gap-2 relative">
                                   <div className="text-xs text-muted-foreground py-2 w-12 flex-shrink-0">{slot}</div>
                                   <div
                                     className={cn(
-                                      "flex-1 min-h-[40px] border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
-                                      slotTieneCita && "min-h-[88px]",
+                                      "flex-1 border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
+                                      !slotTieneCita && "min-h-[40px]",
                                       !isInRange && "bg-muted/30 cursor-not-allowed",
                                       (cita || citaQueOcupaEsteSlot) && "cursor-default bg-primary/5",
                                     )}
+                                    style={slotTieneCita ? { minHeight: `${alturaCita}px` } : undefined}
                                     onClick={() => !cita && !citaQueOcupaEsteSlot && handleSlotClick(slotTime, empleado.id, isInRange)}
                                   >
                                     {mostrarCita && cita ? (
                                       <Card
-                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10 border border-primary/25 bg-card shadow-sm rounded-lg overflow-hidden"
+                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10 border border-border bg-card shadow-sm rounded-md overflow-visible"
                                         draggable
                                         onDragStart={() => handleDragStart(cita)}
                                         onClick={(e) => e.stopPropagation()}
-                                        style={{
-                                          height: `${Math.max(calcularSlotsOcupados(cita) * 40 + (calcularSlotsOcupados(cita) - 1) * 4, 88)}px`,
-                                          minHeight: '88px',
-                                        }}
+                                        style={{ minHeight: `${alturaCita}px` }}
                                       >
-                                        <CardContent className="p-2.5 h-full flex flex-col gap-1.5 overflow-hidden min-h-0">
+                                        <CardContent className="p-2 h-full flex flex-col gap-1 min-h-0 overflow-visible">
                                           <div className="flex items-center justify-between gap-1 shrink-0">
                                             <Badge
                                               className={cn(
-                                                "text-[10px] px-1.5 py-0 shrink-0",
+                                                "text-[10px] px-1.5 py-0.5 shrink-0",
                                                 ESTADOS.find((e) => e.dbValue === cita.estado)?.color || "bg-gray-500",
                                               )}
                                             >
@@ -563,22 +562,20 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                 </DropdownMenuContent>
                                               </DropdownMenu>
                                           </div>
-                                          <div className="space-y-0.5 min-w-0 min-h-[2.5rem] flex-1 flex flex-col justify-center overflow-hidden">
-                                            <p className="font-semibold text-sm leading-tight text-foreground truncate" title={cita.clienteNombre}>
+                                          <div className="flex-1 min-h-[2.75rem] flex flex-col justify-center gap-0.5 min-w-0">
+                                            <p className="font-semibold text-sm text-foreground leading-snug truncate" title={cita.clienteNombre}>
                                               {cita.clienteNombre}
                                             </p>
-                                            <p className="text-xs font-medium text-muted-foreground leading-tight truncate" title={cita.servicioNombre}>
+                                            <p className="text-xs text-muted-foreground leading-snug truncate" title={cita.servicioNombre}>
                                               {cita.servicioNombre}
                                             </p>
                                           </div>
-                                          <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/80 shrink-0">
+                                          <div className="flex items-center justify-between text-[11px] text-muted-foreground shrink-0 pt-1 border-t border-border/80">
                                             <span className="flex items-center gap-0.5">
                                               <Clock className="h-3 w-3 shrink-0" />
-                                              <span>{cita.horaInicio} - {cita.horaFin}</span>
+                                              {cita.horaInicio} – {cita.horaFin}
                                             </span>
-                                            <span className="flex items-center gap-0.5 font-semibold text-foreground">
-                                              <DollarSign className="h-3 w-3 shrink-0" />${cita.precio}
-                                            </span>
+                                            <span className="font-medium text-foreground">${cita.precio}</span>
                                           </div>
                                         </CardContent>
                                       </Card>
