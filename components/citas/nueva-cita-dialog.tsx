@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getClientes, createCliente, type Cliente } from "@/lib/data/clientes"
+import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { createCita } from "@/lib/data/citas"
@@ -38,7 +38,9 @@ export function NuevaCitaDialog({
   const [clienteMode, setClienteMode] = useState<"existing" | "new">("existing")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedClienteId, setSelectedClienteId] = useState("")
-  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null)
+  const [clientesBusqueda, setClientesBusqueda] = useState<Cliente[]>([])
+  const [isLoadingClientes, setIsLoadingClientes] = useState(false)
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -74,14 +76,40 @@ export function NuevaCitaDialog({
         horaInicio: selectedTime || "",
         notas: "",
       })
-      // Resetear selección de cliente cuando se abre desde un slot
-      if (selectedTime && selectedEmpleadoId) {
-        setSelectedClienteId("")
-        setClienteMode("existing")
-        setSearchQuery("")
-      }
+      setSelectedClienteId("")
+      setSelectedCliente(null)
+      setClienteMode("existing")
+      setSearchQuery("")
+      setClientesBusqueda([])
     }
   }, [open, selectedDate, selectedTime, selectedEmpleadoId])
+
+  // Búsqueda de clientes en el servidor (todos los clientes activos, con debounce)
+  useEffect(() => {
+    if (!open || clienteMode !== "existing") return
+
+    const trimmed = searchQuery.trim()
+    if (!trimmed) {
+      setClientesBusqueda([])
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setIsLoadingClientes(true)
+      try {
+        const resultados = await searchClientes(trimmed, 100)
+        setClientesBusqueda(resultados)
+      } catch (error) {
+        console.error("Error buscando clientes:", error)
+        setClientesBusqueda([])
+        toast.error("Error al buscar clientes")
+      } finally {
+        setIsLoadingClientes(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [open, clienteMode, searchQuery])
 
   useEffect(() => {
     async function loadData() {
@@ -92,13 +120,11 @@ export function NuevaCitaDialog({
         setIsLoadingEmpleados(true)
         setErrorServicios(null)
         
-        const [clientesData, serviciosData, empleadosData] = await Promise.all([
-          getClientes(),
+        const [serviciosData, empleadosData] = await Promise.all([
           getServiciosActivosFromDB(),
           getEmpleadosBySucursalFromDB(sucursalId),
         ])
         
-        setClientes(clientesData)
         setServicios(serviciosData)
         setEmpleados(empleadosData)
         
@@ -117,14 +143,6 @@ export function NuevaCitaDialog({
     
     loadData()
   }, [open, sucursalId])
-
-  const clientesFiltrados = clientes.filter(
-    (c) =>
-      c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      c.telefono.includes(searchQuery),
-  )
 
   const servicioSeleccionado = servicios.find((s) => s.id === citaForm.servicioId)
 
@@ -184,7 +202,7 @@ export function NuevaCitaDialog({
       // Obtener información del cliente y empleado para mostrar en el resumen
       const clienteSeleccionado = clienteMode === "new" 
         ? { nombre: nuevoCliente.nombre, apellido: nuevoCliente.apellido }
-        : clientes.find(c => c.id === clienteIdFinal)
+        : selectedCliente?.id === clienteIdFinal ? selectedCliente : null
       const empleadoSeleccionado = empleados.find(e => e.id === citaForm.empleadoId)
 
       // Mostrar resumen antes de guardar
@@ -293,11 +311,27 @@ export function NuevaCitaDialog({
                     </div>
                     <ScrollArea className="h-[200px] border rounded-md">
                       <div className="p-2 space-y-1">
-                        {clientesFiltrados.map((cliente) => (
+                        {isLoadingClientes ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : searchQuery.trim() === "" ? (
+                          <p className="p-4 text-sm text-muted-foreground text-center">
+                            Escribe nombre, email o teléfono para buscar entre todos los clientes
+                          </p>
+                        ) : clientesBusqueda.length === 0 ? (
+                          <p className="p-4 text-sm text-muted-foreground text-center">
+                            No se encontraron clientes. Prueba con otro término.
+                          </p>
+                        ) : (
+                          clientesBusqueda.map((cliente) => (
                           <button
                             key={cliente.id}
                             type="button"
-                            onClick={() => setSelectedClienteId(cliente.id)}
+                            onClick={() => {
+                          setSelectedClienteId(cliente.id)
+                          setSelectedCliente(cliente)
+                        }}
                             className={`w-full text-left p-3 rounded-md hover:bg-accent transition-colors ${
                               selectedClienteId === cliente.id ? "bg-accent" : ""
                             }`}
@@ -317,7 +351,8 @@ export function NuevaCitaDialog({
                               </div>
                             </div>
                           </button>
-                        ))}
+                          ))
+                        )}
                       </div>
                     </ScrollArea>
                   </TabsContent>
@@ -513,8 +548,8 @@ export function NuevaCitaDialog({
                         <span className="font-medium">
                           {clienteMode === "new" 
                             ? `${nuevoCliente.nombre} ${nuevoCliente.apellido} (nuevo)`
-                            : clientes.find(c => c.id === selectedClienteId) 
-                              ? `${clientes.find(c => c.id === selectedClienteId)!.nombre} ${clientes.find(c => c.id === selectedClienteId)!.apellido}`
+                            : selectedCliente?.id === selectedClienteId 
+                              ? `${selectedCliente.nombre} ${selectedCliente.apellido}`
                               : "No seleccionado"}
                         </span>
                       </div>

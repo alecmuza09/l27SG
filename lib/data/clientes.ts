@@ -139,8 +139,12 @@ export async function getClienteById(id: string): Promise<Cliente | null> {
   }
 }
 
-// Buscar clientes por query (sin límite de resultados, busca en toda la base de datos)
-export async function searchClientes(query: string, limit: number = 1000): Promise<Cliente[]> {
+// Buscar clientes por query en toda la base de datos (nombre, apellido, email, teléfono)
+export async function searchClientes(
+  query: string,
+  limit: number = 500,
+  soloActivos: boolean = false
+): Promise<Cliente[]> {
   try {
     if (!query || query.trim() === '') {
       return []
@@ -148,13 +152,18 @@ export async function searchClientes(query: string, limit: number = 1000): Promi
 
     const searchTerm = `%${query.trim()}%`
     
-    // Buscar en toda la base de datos usando ilike para búsqueda case-insensitive
-    const { data, error } = await supabase
+    let q = supabase
       .from('clientes')
       .select('*')
       .or(`nombre.ilike.${searchTerm},apellido.ilike.${searchTerm},email.ilike.${searchTerm},telefono.ilike.${searchTerm}`)
       .order('created_at', { ascending: false })
       .limit(limit)
+
+    if (soloActivos) {
+      q = q.eq('estado', 'activo')
+    }
+
+    const { data, error } = await q
 
     if (error) {
       console.error('Error buscando clientes:', error)
