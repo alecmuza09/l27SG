@@ -495,80 +495,80 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                   >
                                     {mostrarCita && cita ? (
                                       <Card
-                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10 border-primary/20 bg-primary/5"
+                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10 border border-primary/25 bg-card shadow-sm rounded-lg overflow-hidden"
                                         draggable
                                         onDragStart={() => handleDragStart(cita)}
                                         onClick={(e) => e.stopPropagation()}
                                         style={{
                                           height: `${calcularSlotsOcupados(cita) * 40 + (calcularSlotsOcupados(cita) - 1) * 4}px`,
-                                          minHeight: '80px',
+                                          minHeight: '84px',
                                         }}
                                       >
-                                        <CardContent className="p-3 h-full flex flex-col justify-between gap-2">
-                                          <div className="space-y-1.5">
-                                            <div className="flex items-center justify-between gap-2">
-                                              <Badge
-                                                className={cn(
-                                                  "text-xs px-2 py-0.5",
-                                                  ESTADOS.find((e) => e.dbValue === cita.estado)?.color || "bg-gray-500",
-                                                )}
-                                              >
-                                                {ESTADOS.find((e) => e.dbValue === cita.estado)?.label || cita.estado}
-                                              </Badge>
-                                              <DropdownMenu>
-                                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                  <Button variant="ghost" size="icon" className="h-7 w-7">
-                                                    <MoreVertical className="h-3.5 w-3.5" />
-                                                  </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                                  <DropdownMenuItem onClick={(e) => { 
-                                                    e.stopPropagation()
-                                                    setEditingCita(cita)
-                                                    setIsEditDialogOpen(true)
-                                                  }}>
-                                                    <Edit className="h-4 w-4 mr-2" />
-                                                    Editar Cita
-                                                  </DropdownMenuItem>
-                                                  <DropdownMenuSeparator />
-                                                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                                                    Cambiar Estado:
-                                                  </div>
-                                                  {ESTADOS.map((estado) => {
-                                                    const estadoActual = ESTADOS.find((e) => e.dbValue === cita.estado)
-                                                    const isCurrentState = estadoActual?.value === estado.value
-                                                    return (
-                                                      <DropdownMenuItem
-                                                        key={estado.value}
-                                                        onClick={(e) => {
-                                                          e.stopPropagation()
-                                                          handleCambiarEstado(cita.id, estado.value)
-                                                        }}
-                                                        disabled={isCurrentState}
-                                                        className={isCurrentState ? "bg-accent" : ""}
-                                                      >
-                                                        <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
-                                                        {estado.label}
-                                                      </DropdownMenuItem>
-                                                    )
-                                                  })}
-                                                </DropdownMenuContent>
-                                              </DropdownMenu>
-                                            </div>
-                                            <p className="font-semibold text-sm leading-tight text-foreground">
+                                        <CardContent className="p-2.5 h-full flex flex-col justify-between gap-1.5 overflow-hidden">
+                                          <div className="flex items-start justify-between gap-1.5 min-w-0">
+                                            <Badge
+                                              className={cn(
+                                                "text-[10px] px-1.5 py-0 shrink-0",
+                                                ESTADOS.find((e) => e.dbValue === cita.estado)?.color || "bg-gray-500",
+                                              )}
+                                            >
+                                              {ESTADOS.find((e) => e.dbValue === cita.estado)?.label || cita.estado}
+                                            </Badge>
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
+                                                  <MoreVertical className="h-3 w-3" />
+                                                </Button>
+                                              </DropdownMenuTrigger>
+                                              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                                <DropdownMenuItem onClick={(e) => { 
+                                                  e.stopPropagation()
+                                                  setEditingCita(cita)
+                                                  setIsEditDialogOpen(true)
+                                                }}>
+                                                  <Edit className="h-4 w-4 mr-2" />
+                                                  Editar Cita
+                                                </DropdownMenuItem>
+                                                <DropdownMenuSeparator />
+                                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                                  Cambiar Estado:
+                                                </div>
+                                                {ESTADOS.map((estado) => {
+                                                  const estadoActual = ESTADOS.find((e) => e.dbValue === cita.estado)
+                                                  const isCurrentState = estadoActual?.value === estado.value
+                                                  return (
+                                                    <DropdownMenuItem
+                                                      key={estado.value}
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleCambiarEstado(cita.id, estado.value)
+                                                      }}
+                                                      disabled={isCurrentState}
+                                                      className={isCurrentState ? "bg-accent" : ""}
+                                                    >
+                                                      <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
+                                                      {estado.label}
+                                                    </DropdownMenuItem>
+                                                  )
+                                                })}
+                                              </DropdownMenuContent>
+                                            </DropdownMenu>
+                                          </div>
+                                          <div className="space-y-0.5 min-w-0 flex-1 flex flex-col justify-center">
+                                            <p className="font-semibold text-base leading-tight text-foreground truncate" title={cita.clienteNombre}>
                                               {cita.clienteNombre}
                                             </p>
-                                            <p className="text-xs font-medium text-muted-foreground leading-tight">
+                                            <p className="text-sm font-medium text-muted-foreground leading-tight truncate" title={cita.servicioNombre}>
                                               {cita.servicioNombre}
                                             </p>
                                           </div>
-                                          <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t">
-                                            <span className="flex items-center gap-1">
-                                              <Clock className="h-3 w-3" />
-                                              {cita.horaInicio} - {cita.horaFin}
+                                          <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/80 shrink-0">
+                                            <span className="flex items-center gap-0.5">
+                                              <Clock className="h-3 w-3 shrink-0" />
+                                              <span>{cita.horaInicio} - {cita.horaFin}</span>
                                             </span>
-                                            <span className="flex items-center gap-1 font-semibold text-foreground">
-                                              <DollarSign className="h-3 w-3" />${cita.precio}
+                                            <span className="flex items-center gap-0.5 font-semibold text-foreground">
+                                              <DollarSign className="h-3 w-3 shrink-0" />${cita.precio}
                                             </span>
                                           </div>
                                         </CardContent>
