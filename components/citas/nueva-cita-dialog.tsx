@@ -25,6 +25,8 @@ interface NuevaCitaDialogProps {
   selectedTime?: string
   selectedEmpleadoId?: string
   sucursalId: string
+  /** Se llama después de crear una cita para que la agenda recargue */
+  onCitaCreada?: () => void
 }
 
 export function NuevaCitaDialog({
@@ -34,6 +36,7 @@ export function NuevaCitaDialog({
   selectedTime,
   selectedEmpleadoId,
   sucursalId,
+  onCitaCreada,
 }: NuevaCitaDialogProps) {
   const [clienteMode, setClienteMode] = useState<"existing" | "new">("existing")
   const [searchQuery, setSearchQuery] = useState("")
@@ -247,10 +250,10 @@ export function NuevaCitaDialog({
         `Cita creada exitosamente: ${resumenCita.cliente} - ${resumenCita.servicio} - ${resumenCita.fecha} ${resumenCita.hora}`,
         { duration: 4000 }
       )
-      
-      // Cerrar diálogo (esto disparará el callback en el componente padre para recargar citas)
+
+      onCitaCreada?.()
       onOpenChange(false)
-      
+
       // Resetear formulario
       setNuevoCliente({
         nombre: "",
@@ -269,9 +272,6 @@ export function NuevaCitaDialog({
       setSelectedClienteId("")
       setClienteMode("existing")
       setSearchQuery("")
-
-      // Cerrar diálogo
-      onOpenChange(false)
     } catch (error: any) {
       console.error("Error inesperado:", error)
       toast.error("Error inesperado al crear la cita")

@@ -23,6 +23,7 @@ export default function CitasPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId] = useState<string>("")
+  const [refreshCitasKey, setRefreshCitasKey] = useState(0)
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
@@ -67,6 +68,7 @@ export default function CitasPage() {
             onOpenChange={setIsDialogOpen}
             selectedDate={selectedDate}
             sucursalId={sucursalId}
+            onCitaCreada={() => setRefreshCitasKey((k) => k + 1)}
           />
         )}
         <Button onClick={() => setIsDialogOpen(true)}>
@@ -75,7 +77,13 @@ export default function CitasPage() {
         </Button>
       </div>
 
-      <AgendaKanbanView selectedDate={selectedDate} onDateChange={setSelectedDate} />
+      <AgendaKanbanView
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
+        selectedSucursal={sucursalId}
+        onSucursalChange={setSucursalId}
+        refreshCitasKey={refreshCitasKey}
+      />
     </div>
   )
 }

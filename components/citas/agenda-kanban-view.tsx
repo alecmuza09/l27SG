@@ -26,6 +26,11 @@ import { getSucursalByIdFromDB } from "@/lib/data/sucursales"
 interface AgendaKanbanViewProps {
   selectedDate: string
   onDateChange: (date: string) => void
+  /** Sucursal seleccionada (desde la página). Si se pasa, la agenda usa esta y notifica cambios para que el diálogo "Nueva Cita" use la misma. */
+  selectedSucursal?: string
+  onSucursalChange?: (sucursalId: string) => void
+  /** Incrementar para forzar recarga de citas (ej. después de crear una) */
+  refreshCitasKey?: number
 }
 
 // Estados permitidos en la base de datos
@@ -67,10 +72,13 @@ const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
   return `${hour.toString().padStart(2, "0")}:${minutes}`
 })
 
-export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanViewProps) {
+export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal: selectedSucursalProp, onSucursalChange, refreshCitasKey }: AgendaKanbanViewProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
-  const [selectedSucursal, setSelectedSucursal] = useState<string>("")
+  const [selectedSucursalState, setSelectedSucursalState] = useState<string>("")
+  const isControlledSucursal = selectedSucursalProp !== undefined && onSucursalChange !== undefined
+  const selectedSucursal = isControlledSucursal ? selectedSucursalProp : selectedSucursalState
+  const setSelectedSucursal = isControlledSucursal ? onSucursalChange : setSelectedSucursalState
   const [draggedCita, setDraggedCita] = useState<Cita | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ time: string; empleadoId: string } | null>(null)
@@ -99,14 +107,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
       if (isAdmin) {
         const sucursalesData = await getSucursalesActivasFromDB()
         setSucursales(sucursalesData)
-        if (sucursalesData.length > 0 && !selectedSucursal) {
-          setSelectedSucursal(sucursalesData[0].id)
+        if (sucursalesData.length > 0 && !isControlledSucursal && !selectedSucursalState) {
+          setSelectedSucursalState(sucursalesData[0].id)
         }
       } else if (userSucursalId) {
         const sucursal = await getSucursalByIdFromDB(userSucursalId)
         if (sucursal) {
           setSucursales([sucursal])
-          setSelectedSucursal(userSucursalId)
+          if (onSucursalChange) onSucursalChange(userSucursalId)
+          else setSelectedSucursalState(userSucursalId)
         }
       }
     }
@@ -140,9 +149,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange }: AgendaKanbanVie
         }
       }
     }
-    
     loadCitas()
-  }, [selectedSucursal, selectedDate])
+  }, [selectedSucursal, selectedDate, refreshCitasKey])
 
   const isEmpleadoDeVacaciones = (empleadoId: string, fecha: string): Vacacion | null => {
     const fechaDate = new Date(fecha)
