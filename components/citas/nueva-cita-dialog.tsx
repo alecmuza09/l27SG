@@ -8,13 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { createCita } from "@/lib/data/citas"
-import { Plus, Search, User, Loader2 } from "lucide-react"
+import { Plus, Search, User, Loader2, ChevronsUpDown } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "sonner"
 
@@ -50,6 +52,7 @@ export function NuevaCitaDialog({
   const [isLoadingServicios, setIsLoadingServicios] = useState(false)
   const [isLoadingEmpleados, setIsLoadingEmpleados] = useState(false)
   const [errorServicios, setErrorServicios] = useState<string | null>(null)
+  const [servicioPopoverOpen, setServicioPopoverOpen] = useState(false)
 
   // Nuevo cliente form
   const [nuevoCliente, setNuevoCliente] = useState({
@@ -455,22 +458,55 @@ export function NuevaCitaDialog({
                       </p>
                     </div>
                   ) : (
-                    <Select
-                      value={citaForm.servicioId}
-                      onValueChange={(value) => setCitaForm({ ...citaForm, servicioId: value })}
-                      required
-                    >
-                      <SelectTrigger id="servicio">
-                        <SelectValue placeholder="Seleccionar servicio" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {servicios.map((servicio) => (
-                          <SelectItem key={servicio.id} value={servicio.id}>
-                            {servicio.nombre} - ${servicio.precio} ({servicio.duracion} min)
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={servicioPopoverOpen} onOpenChange={setServicioPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={servicioPopoverOpen}
+                          className="w-full justify-between font-normal"
+                          id="servicio"
+                        >
+                          {servicioSeleccionado
+                            ? `${servicioSeleccionado.nombre} - $${servicioSeleccionado.precio} (${servicioSeleccionado.duracion} min)`
+                            : "Buscar o seleccionar servicio..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                        <Command
+                          filter={(value, search) => {
+                            const s = servicios.find((sv) => sv.id === value)
+                            if (!s) return 0
+                            const term = search.toLowerCase()
+                            return s.nombre.toLowerCase().includes(term) ||
+                              String(s.precio).includes(term) ||
+                              String(s.duracion).includes(term)
+                              ? 1
+                              : 0
+                          }}
+                        >
+                          <CommandInput placeholder="Escribir nombre del servicio..." />
+                          <CommandList>
+                            <CommandEmpty>No hay servicios que coincidan.</CommandEmpty>
+                            <CommandGroup>
+                              {servicios.map((servicio) => (
+                                <CommandItem
+                                  key={servicio.id}
+                                  value={servicio.id}
+                                  onSelect={() => {
+                                    setCitaForm({ ...citaForm, servicioId: servicio.id })
+                                    setServicioPopoverOpen(false)
+                                  }}
+                                >
+                                  {servicio.nombre} - ${servicio.precio} ({servicio.duracion} min)
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   )}
                   {servicioSeleccionado && (
                     <div className="p-3 bg-muted/50 rounded-md border">
