@@ -119,8 +119,8 @@ function transformEmpleado(empleado: EmpleadoRow): Empleado {
     id: empleado.id,
     nombre: empleado.nombre,
     apellido: empleado.apellido,
-    email: empleado.email,
-    telefono: empleado.telefono,
+    email: empleado.email ?? '',
+    telefono: empleado.telefono ?? '',
     rol: empleado.rol as "terapeuta" | "esteticista" | "recepcionista" | "manager",
     sucursalId: empleado.sucursal_id,
     especialidades: empleado.especialidades || [],
@@ -251,6 +251,50 @@ export async function eliminarEmpleado(empleadoId: string): Promise<{ success: b
     return { success: true }
   } catch (error: any) {
     console.error('Error inesperado eliminando empleado:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Crear empleado (email y teléfono opcionales)
+export async function createEmpleado(datos: {
+  nombre: string
+  apellido: string
+  rol: 'terapeuta' | 'esteticista' | 'recepcionista' | 'manager'
+  sucursal_id: string
+  email?: string | null
+  telefono?: string | null
+  horario_inicio?: string
+  horario_fin?: string
+  dias_trabajo?: number[]
+  comision?: number
+  especialidades?: string[]
+}): Promise<{ success: boolean; empleado?: EmpleadoRow; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('empleados')
+      .insert({
+        nombre: datos.nombre.trim(),
+        apellido: datos.apellido.trim(),
+        rol: datos.rol,
+        sucursal_id: datos.sucursal_id,
+        email: datos.email?.trim() || null,
+        telefono: datos.telefono?.trim() || null,
+        horario_inicio: datos.horario_inicio || '09:00',
+        horario_fin: datos.horario_fin || '18:00',
+        dias_trabajo: datos.dias_trabajo ?? [1, 2, 3, 4, 5],
+        comision: datos.comision ?? 0,
+        especialidades: datos.especialidades ?? [],
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creando empleado:', error)
+      return { success: false, error: error.message }
+    }
+    return { success: true, empleado: data }
+  } catch (error: any) {
+    console.error('Error inesperado creando empleado:', error)
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }

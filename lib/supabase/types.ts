@@ -50,8 +50,8 @@ export type Database = {
           id: string
           nombre: string
           apellido: string
-          email: string
-          telefono: string
+          email: string | null
+          telefono: string | null
           rol: 'terapeuta' | 'esteticista' | 'recepcionista' | 'manager'
           sucursal_id: string
           especialidades: string[] | null
@@ -68,8 +68,8 @@ export type Database = {
           id?: string
           nombre: string
           apellido: string
-          email: string
-          telefono: string
+          email?: string | null
+          telefono?: string | null
           rol: 'terapeuta' | 'esteticista' | 'recepcionista' | 'manager'
           sucursal_id: string
           especialidades?: string[] | null

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Mail, Phone, Calendar, Edit, Trash2, Award, Loader2, Filter, RotateCcw } from "lucide-react"
-import { getEmpleadosFromDB, getEmpleadosEliminadosFromDB, eliminarEmpleado, restaurarEmpleado, type Empleado } from "@/lib/data/empleados"
+import { getEmpleadosFromDB, getEmpleadosEliminadosFromDB, createEmpleado, eliminarEmpleado, restaurarEmpleado, type Empleado } from "@/lib/data/empleados"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getCurrentUser, type User } from "@/lib/auth"
 import {
@@ -51,6 +51,19 @@ export default function EmpleadosPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
   const [activeTab, setActiveTab] = useState<"activos" | "eliminados">("activos")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formNuevo, setFormNuevo] = useState({
+    nombre: "",
+    apellido: "",
+    email: "",
+    telefono: "",
+    rol: "" as "" | "terapeuta" | "esteticista" | "recepcionista" | "manager",
+    sucursalId: "",
+    horarioInicio: "09:00",
+    horarioFin: "18:00",
+    diasTrabajo: [1, 2, 3, 4, 5] as number[],
+    comision: 40,
+  })
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
@@ -99,11 +112,17 @@ export default function EmpleadosPage() {
     }
   }, [currentUser])
 
+  useEffect(() => {
+    if (isDialogOpen && !isAdmin && userSucursalId) {
+      setFormNuevo((prev) => ({ ...prev, sucursalId: userSucursalId }))
+    }
+  }, [isDialogOpen, isAdmin, userSucursalId])
+
   const filteredEmpleados = (activeTab === "activos" ? empleados : empleadosEliminados).filter((e) => {
     const matchesSearch = searchQuery
       ? e.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
         e.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.email.toLowerCase().includes(searchQuery.toLowerCase())
+        (e.email && e.email.toLowerCase().includes(searchQuery.toLowerCase()))
       : true
 
     const matchesSucursal = sucursalFilter === "todas" || e.sucursalId === sucursalFilter
@@ -149,6 +168,69 @@ export default function EmpleadosPage() {
 
   const diasSemana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
+  const handleSubmitNuevo = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formNuevo.nombre.trim() || !formNuevo.apellido.trim()) {
+      toast.error("Nombre y apellido son obligatorios")
+      return
+    }
+    if (!formNuevo.rol) {
+      toast.error("Selecciona un rol")
+      return
+    }
+    if (!formNuevo.sucursalId) {
+      toast.error("Selecciona una sucursal")
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = await createEmpleado({
+        nombre: formNuevo.nombre.trim(),
+        apellido: formNuevo.apellido.trim(),
+        rol: formNuevo.rol,
+        sucursal_id: formNuevo.sucursalId,
+        email: formNuevo.email.trim() || null,
+        telefono: formNuevo.telefono.trim() || null,
+        horario_inicio: formNuevo.horarioInicio,
+        horario_fin: formNuevo.horarioFin,
+        dias_trabajo: formNuevo.diasTrabajo,
+        comision: formNuevo.comision,
+      })
+      if (result.success) {
+        toast.success("Empleado creado correctamente")
+        setIsDialogOpen(false)
+        setFormNuevo({
+          nombre: "",
+          apellido: "",
+          email: "",
+          telefono: "",
+          rol: "",
+          sucursalId: "",
+          horarioInicio: "09:00",
+          horarioFin: "18:00",
+          diasTrabajo: [1, 2, 3, 4, 5],
+          comision: 40,
+        })
+        await loadEmpleados()
+      } else {
+        toast.error(result.error || "Error al crear empleado")
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error("Error al crear empleado")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const toggleDiaNuevo = (index: number) => {
+    if (formNuevo.diasTrabajo.includes(index)) {
+      setFormNuevo({ ...formNuevo, diasTrabajo: formNuevo.diasTrabajo.filter((d) => d !== index) })
+    } else {
+      setFormNuevo({ ...formNuevo, diasTrabajo: [...formNuevo.diasTrabajo, index].sort((a, b) => a - b) })
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -168,38 +250,65 @@ export default function EmpleadosPage() {
               <DialogTitle>Nuevo Empleado</DialogTitle>
               <DialogDescription>Registra un nuevo miembro del equipo</DialogDescription>
             </DialogHeader>
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSubmitNuevo}>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="nombre">Nombre *</Label>
-                  <Input id="nombre" placeholder="María" required />
+                  <Input
+                    id="nombre"
+                    placeholder="María"
+                    value={formNuevo.nombre}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, nombre: e.target.value })}
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="apellido">Apellido *</Label>
-                  <Input id="apellido" placeholder="González" required />
+                  <Input
+                    id="apellido"
+                    placeholder="González"
+                    value={formNuevo.apellido}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, apellido: e.target.value })}
+                    required
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email *</Label>
-                  <Input id="email" type="email" placeholder="maria@luna27.com" required />
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="maria@luna27.com"
+                    value={formNuevo.email}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, email: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="telefono">Teléfono *</Label>
-                  <Input id="telefono" placeholder="+52 55 1234 5678" required />
+                  <Label htmlFor="telefono">Teléfono</Label>
+                  <Input
+                    id="telefono"
+                    placeholder="+52 55 1234 5678"
+                    value={formNuevo.telefono}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, telefono: e.target.value })}
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="rol">Rol *</Label>
-                  <Select>
+                  <Select
+                    value={formNuevo.rol}
+                    onValueChange={(v) => setFormNuevo({ ...formNuevo, rol: v as typeof formNuevo.rol })}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar rol" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="terapeuta">Terapeuta</SelectItem>
+                      <SelectItem value="esteticista">Esteticista</SelectItem>
                       <SelectItem value="recepcionista">Recepcionista</SelectItem>
                       <SelectItem value="manager">Manager</SelectItem>
                     </SelectContent>
@@ -207,7 +316,11 @@ export default function EmpleadosPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="sucursal">Sucursal *</Label>
-                  <Select defaultValue={!isAdmin && userSucursalId ? userSucursalId : undefined} disabled={!isAdmin && !!userSucursalId}>
+                  <Select
+                    value={formNuevo.sucursalId || (!isAdmin && userSucursalId ? userSucursalId : "")}
+                    onValueChange={(v) => setFormNuevo({ ...formNuevo, sucursalId: v })}
+                    disabled={!isAdmin && !!userSucursalId}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar sucursal" />
                     </SelectTrigger>
@@ -230,11 +343,21 @@ export default function EmpleadosPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="horarioInicio">Horario Inicio</Label>
-                  <Input id="horarioInicio" type="time" defaultValue="09:00" />
+                  <Input
+                    id="horarioInicio"
+                    type="time"
+                    value={formNuevo.horarioInicio}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, horarioInicio: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="horarioFin">Horario Fin</Label>
-                  <Input id="horarioFin" type="time" defaultValue="18:00" />
+                  <Input
+                    id="horarioFin"
+                    type="time"
+                    value={formNuevo.horarioFin}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, horarioFin: e.target.value })}
+                  />
                 </div>
               </div>
 
@@ -243,7 +366,11 @@ export default function EmpleadosPage() {
                 <div className="grid grid-cols-4 gap-3">
                   {diasSemana.map((dia, index) => (
                     <div key={dia} className="flex items-center space-x-2">
-                      <Checkbox id={`dia-${index}`} defaultChecked={index < 5} />
+                      <Checkbox
+                        id={`dia-${index}`}
+                        checked={formNuevo.diasTrabajo.includes(index)}
+                        onCheckedChange={() => toggleDiaNuevo(index)}
+                      />
                       <label htmlFor={`dia-${index}`} className="text-sm cursor-pointer">
                         {dia}
                       </label>
@@ -254,14 +381,24 @@ export default function EmpleadosPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="comision">Comisión (%)</Label>
-                <Input id="comision" type="number" min="0" max="100" defaultValue="40" />
+                <Input
+                  id="comision"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={formNuevo.comision}
+                  onChange={(e) => setFormNuevo({ ...formNuevo, comision: Number(e.target.value) || 0 })}
+                />
               </div>
 
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button type="submit">Guardar Empleado</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Guardar Empleado
+                </Button>
               </div>
             </form>
           </DialogContent>
