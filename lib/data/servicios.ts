@@ -197,6 +197,43 @@ export async function getServicioByIdFromDB(id: string): Promise<Servicio | null
   }
 }
 
+// Crear un servicio en la base de datos
+export async function createServicio(datos: {
+  nombre: string
+  descripcion?: string | null
+  duracion: number
+  precio: number
+  categoria: string
+  color?: string | null
+  activo?: boolean
+}): Promise<{ success: boolean; servicio?: Servicio; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('servicios')
+      .insert({
+        nombre: datos.nombre,
+        descripcion: datos.descripcion ?? null,
+        duracion: datos.duracion,
+        precio: Number(datos.precio),
+        categoria: datos.categoria,
+        color: datos.color ?? null,
+        activo: datos.activo ?? true,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creando servicio:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, servicio: transformServicio(data) }
+  } catch (error: any) {
+    console.error('Error inesperado creando servicio:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
 // Actualizar un servicio
 export async function updateServicio(
   servicioId: string,

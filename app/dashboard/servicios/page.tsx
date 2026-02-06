@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag, Loader2 } from "lucide-react"
-import { getServiciosFromDB, updateServicio, type Servicio } from "@/lib/data/servicios"
+import { getServiciosFromDB, createServicio, updateServicio, type Servicio } from "@/lib/data/servicios"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -28,6 +28,7 @@ export default function ServiciosPage() {
   const [editingServicio, setEditingServicio] = useState<Servicio | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [newServicioCategoria, setNewServicioCategoria] = useState("")
 
   const loadServicios = async () => {
     try {
@@ -84,6 +85,46 @@ export default function ServiciosPage() {
     }
   }
 
+  const handleCreateServicio = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const form = e.target as HTMLFormElement
+    const nombre = (form.querySelector('#nombre') as HTMLInputElement)?.value?.trim()
+    const descripcion = (form.querySelector('#descripcion') as HTMLTextAreaElement)?.value?.trim() || undefined
+    const duracion = Number((form.querySelector('#duracion') as HTMLInputElement)?.value)
+    const precio = Number((form.querySelector('#precio') as HTMLInputElement)?.value)
+    const color = (form.querySelector('#color') as HTMLInputElement)?.value || undefined
+    if (!nombre || !newServicioCategoria || duracion < 1 || precio < 0) {
+      toast.error('Completa nombre, categoría, duración y precio')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = await createServicio({
+        nombre,
+        descripcion: descripcion || null,
+        duracion,
+        precio,
+        categoria: newServicioCategoria,
+        color: color || null,
+        activo: true,
+      })
+      if (result.success) {
+        toast.success('Servicio creado correctamente')
+        setIsDialogOpen(false)
+        setNewServicioCategoria('')
+        form.reset()
+        await loadServicios()
+      } else {
+        toast.error(result.error || 'Error al crear el servicio')
+      }
+    } catch (err: any) {
+      console.error('Error creando servicio:', err)
+      toast.error('Error inesperado al crear el servicio')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const filteredServicios = searchQuery
     ? servicios.filter(
         (s) =>
@@ -119,7 +160,10 @@ export default function ServiciosPage() {
           <h1 className="text-3xl font-bold text-foreground">Servicios</h1>
           <p className="text-muted-foreground">Gestiona el catálogo de servicios</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open)
+            if (!open) setNewServicioCategoria('')
+          }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
@@ -131,47 +175,48 @@ export default function ServiciosPage() {
               <DialogTitle>Nuevo Servicio</DialogTitle>
               <DialogDescription>Agrega un nuevo servicio al catálogo</DialogDescription>
             </DialogHeader>
-            <form className="space-y-4">
+            <form onSubmit={handleCreateServicio} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="nombre">Nombre del Servicio *</Label>
-                <Input id="nombre" placeholder="Masaje Relajante" required />
+                <Input id="nombre" name="nombre" placeholder="Masaje Relajante" required />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="descripcion">Descripción</Label>
-                <Textarea id="descripcion" placeholder="Descripción detallada del servicio..." rows={3} />
+                <Textarea id="descripcion" name="descripcion" placeholder="Descripción detallada del servicio..." rows={3} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="categoria">Categoría *</Label>
-                  <Select>
-                    <SelectTrigger>
+                  <Select value={newServicioCategoria} onValueChange={setNewServicioCategoria} required>
+                    <SelectTrigger id="categoria">
                       <SelectValue placeholder="Seleccionar categoría" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="masajes">Masajes</SelectItem>
-                      <SelectItem value="faciales">Faciales</SelectItem>
-                      <SelectItem value="estetica">Estética</SelectItem>
-                      <SelectItem value="tratamientos">Tratamientos</SelectItem>
-                      <SelectItem value="otros">Otros</SelectItem>
+                      <SelectItem value="Manicure">Manicure</SelectItem>
+                      <SelectItem value="Pedicure">Pedicure</SelectItem>
+                      <SelectItem value="Facial">Facial</SelectItem>
+                      <SelectItem value="Corporal">Corporal</SelectItem>
+                      <SelectItem value="Masaje">Masaje</SelectItem>
+                      <SelectItem value="Otros">Otros</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="color">Color (opcional)</Label>
-                  <Input id="color" type="color" defaultValue="#8b7355" />
+                  <Input id="color" name="color" type="color" defaultValue="#8b7355" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="duracion">Duración (minutos) *</Label>
-                  <Input id="duracion" type="number" min="1" step="1" placeholder="60" required />
+                  <Input id="duracion" name="duracion" type="number" min="1" step="1" placeholder="60" required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="precio">Precio *</Label>
-                  <Input id="precio" type="number" min="0" step="any" placeholder="850" required />
+                  <Input id="precio" name="precio" type="number" min="0" step="any" placeholder="850" required />
                 </div>
               </div>
 
@@ -179,7 +224,16 @@ export default function ServiciosPage() {
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button type="submit">Guardar Servicio</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar Servicio'
+                  )}
+                </Button>
               </div>
             </form>
           </DialogContent>
