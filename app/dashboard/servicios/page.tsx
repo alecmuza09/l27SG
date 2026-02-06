@@ -171,7 +171,7 @@ export default function ServiciosPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="precio">Precio *</Label>
-                  <Input id="precio" type="number" min="0" step="0.01" placeholder="850" required />
+                  <Input id="precio" type="number" min="0" step="any" placeholder="850" required />
                 </div>
               </div>
 
@@ -403,7 +403,7 @@ export default function ServiciosPage() {
                     name="edit-precio"
                     type="number" 
                     min="0" 
-                    step="0.01" 
+                    step="any" 
                     defaultValue={editingServicio.precio} 
                     required 
                   />
