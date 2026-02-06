@@ -167,11 +167,11 @@ export default function ServiciosPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="duracion">Duración (minutos) *</Label>
-                  <Input id="duracion" type="number" min="15" step="15" placeholder="60" required />
+                  <Input id="duracion" type="number" min="1" step="1" placeholder="60" required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="precio">Precio *</Label>
-                  <Input id="precio" type="number" min="0" step="50" placeholder="850" required />
+                  <Input id="precio" type="number" min="0" step="0.01" placeholder="850" required />
                 </div>
               </div>
 
@@ -390,8 +390,8 @@ export default function ServiciosPage() {
                     id="edit-duracion" 
                     name="edit-duracion"
                     type="number" 
-                    min="15" 
-                    step="15" 
+                    min="1" 
+                    step="1" 
                     defaultValue={editingServicio.duracion} 
                     required 
                   />

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Plus, MapPin, Phone, Mail, Clock, Edit, Trash2, Loader2 } from "lucide-react"
-import { getSucursalesActivasFromDB, getSucursalByIdFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalByIdFromDB, createSucursal, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, type User } from "@/lib/auth"
 import {
   Dialog,
@@ -18,12 +18,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { toast } from "sonner"
 
 export default function SucursalesPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
@@ -34,33 +36,64 @@ export default function SucursalesPage() {
     setCurrentUser(user)
   }, [])
 
-  useEffect(() => {
-    async function loadSucursales() {
-      try {
-        setIsLoading(true)
-        
-        if (isAdmin) {
-          // Admin ve todas las sucursales
-          const sucursalesData = await getSucursalesActivasFromDB()
-          setSucursales(sucursalesData)
-        } else if (userSucursalId) {
-          // Manager/Staff solo ve su sucursal
-          const sucursal = await getSucursalByIdFromDB(userSucursalId)
-          if (sucursal) {
-            setSucursales([sucursal])
-          }
-        }
-      } catch (err) {
-        console.error('Error cargando sucursales:', err)
-      } finally {
-        setIsLoading(false)
+  async function loadSucursales() {
+    try {
+      setIsLoading(true)
+      if (isAdmin) {
+        const sucursalesData = await getSucursalesActivasFromDB()
+        setSucursales(sucursalesData)
+      } else if (userSucursalId) {
+        const sucursal = await getSucursalByIdFromDB(userSucursalId)
+        if (sucursal) setSucursales([sucursal])
       }
+    } catch (err) {
+      console.error('Error cargando sucursales:', err)
+    } finally {
+      setIsLoading(false)
     }
+  }
 
-    if (currentUser) {
-      loadSucursales()
-    }
+  useEffect(() => {
+    if (currentUser) loadSucursales()
   }, [currentUser, isAdmin, userSucursalId])
+
+  const handleCreateSucursal = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const form = e.target as HTMLFormElement
+    const formData = new FormData(form)
+    const nombre = (formData.get('nombre') as string)?.trim()
+    const direccion = (formData.get('direccion') as string)?.trim()
+    const telefono = (formData.get('telefono') as string)?.trim()
+    const email = (formData.get('email') as string)?.trim()
+    if (!nombre || !direccion || !telefono || !email) {
+      toast.error("Completa nombre, dirección, teléfono y email")
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = await createSucursal({
+        nombre,
+        direccion,
+        telefono,
+        email,
+        ciudad: (formData.get('ciudad') as string)?.trim() || null,
+        horario: (formData.get('horario') as string)?.trim() || null,
+      })
+      if (result.success) {
+        toast.success("Sucursal creada correctamente")
+        setIsDialogOpen(false)
+        form.reset()
+        await loadSucursales()
+      } else {
+        toast.error(result.error || "Error al crear sucursal")
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error("Error al crear sucursal")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -95,40 +128,42 @@ export default function SucursalesPage() {
               <DialogTitle>Nueva Sucursal</DialogTitle>
               <DialogDescription>Agrega una nueva ubicación de Luna27</DialogDescription>
             </DialogHeader>
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleCreateSucursal}>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="nombre">Nombre</Label>
-                  <Input id="nombre" placeholder="Luna27 Centro" />
+                  <Label htmlFor="nombre">Nombre *</Label>
+                  <Input id="nombre" name="nombre" placeholder="Luna27 Centro" required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="ciudad">Ciudad</Label>
-                  <Input id="ciudad" placeholder="Ciudad de México" />
+                  <Input id="ciudad" name="ciudad" placeholder="Ciudad de México" />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="direccion">Dirección</Label>
-                <Textarea id="direccion" placeholder="Av. Principal 123, Centro" />
+                <Label htmlFor="direccion">Dirección *</Label>
+                <Textarea id="direccion" name="direccion" placeholder="Av. Principal 123, Centro" required />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="telefono">Teléfono</Label>
-                  <Input id="telefono" placeholder="+52 55 1234 5678" />
+                  <Label htmlFor="telefono">Teléfono *</Label>
+                  <Input id="telefono" name="telefono" placeholder="+52 55 1234 5678" required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" placeholder="centro@luna27.com" />
+                  <Label htmlFor="email">Email *</Label>
+                  <Input id="email" name="email" type="email" placeholder="centro@luna27.com" required />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="horario">Horario</Label>
-                <Input id="horario" placeholder="Lun-Sab: 9:00 - 20:00" />
+                <Input id="horario" name="horario" placeholder="Lun-Sab: 9:00 - 20:00" />
               </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button type="submit">Guardar Sucursal</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Guardando..." : "Guardar Sucursal"}
+                </Button>
               </div>
             </form>
           </DialogContent>

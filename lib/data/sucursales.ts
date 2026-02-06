@@ -168,6 +168,44 @@ function transformSucursal(sucursal: SucursalRow): Sucursal {
   }
 }
 
+// Crear sucursal
+export async function createSucursal(datos: {
+  nombre: string
+  direccion: string
+  telefono: string
+  email: string
+  horario?: string | null
+  ciudad?: string | null
+  pais?: string | null
+  activa?: boolean
+}): Promise<{ success: boolean; sucursal?: SucursalRow; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('sucursales')
+      .insert({
+        nombre: datos.nombre.trim(),
+        direccion: datos.direccion.trim(),
+        telefono: datos.telefono.trim(),
+        email: datos.email.trim(),
+        horario: datos.horario?.trim() || null,
+        ciudad: datos.ciudad?.trim() || null,
+        pais: datos.pais?.trim() || 'México',
+        activa: datos.activa ?? true,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creando sucursal:', error)
+      return { success: false, error: error.message }
+    }
+    return { success: true, sucursal: data }
+  } catch (error: any) {
+    console.error('Error inesperado creando sucursal:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
 // Obtener todas las sucursales activas desde Supabase
 export async function getSucursalesActivasFromDB(): Promise<Sucursal[]> {
   try {
