@@ -62,16 +62,16 @@ export default function ClientesPage() {
   const [totalClientes, setTotalClientes] = useState(0)
   const [pageSize] = useState(50) // 50 clientes por página
 
-  // Estado del formulario
+  // Estado del formulario (genero y sucursal con valores no vacíos por requisito de Select)
   const [formData, setFormData] = useState({
     nombre: "",
     apellido: "",
     telefono: "",
     email: "",
     fechaNacimiento: "",
-    genero: "",
+    genero: "no-especificar",
     notas: "",
-    sucursalPreferida: "",
+    sucursalPreferida: "sin-sucursal",
   })
 
   // Función para cargar estadísticas
@@ -178,9 +178,9 @@ export default function ClientesPage() {
       // Agregar campos opcionales solo si tienen valor
       if (formData.email) clienteData.email = formData.email
       if (formData.fechaNacimiento) clienteData.fechaNacimiento = formData.fechaNacimiento
-      if (formData.genero) clienteData.genero = formData.genero as 'masculino' | 'femenino' | 'otro'
+      if (formData.genero && formData.genero !== 'no-especificar') clienteData.genero = formData.genero as 'masculino' | 'femenino' | 'otro'
       if (formData.notas) clienteData.notas = formData.notas
-      if (formData.sucursalPreferida) clienteData.sucursalPreferida = formData.sucursalPreferida
+      if (formData.sucursalPreferida && formData.sucursalPreferida !== 'sin-sucursal') clienteData.sucursalPreferida = formData.sucursalPreferida
 
       const result = await createCliente(clienteData)
 
@@ -194,9 +194,9 @@ export default function ClientesPage() {
           telefono: "",
           email: "",
           fechaNacimiento: "",
-          genero: "",
+          genero: "no-especificar",
           notas: "",
-          sucursalPreferida: "",
+          sucursalPreferida: "sin-sucursal",
         })
         // Recargar clientes y estadísticas
         await Promise.all([loadClientes(), loadStats()])
@@ -220,9 +220,9 @@ export default function ClientesPage() {
       telefono: cliente.telefono,
       email: cliente.email || "",
       fechaNacimiento: cliente.fechaNacimiento || "",
-      genero: cliente.genero || "",
+      genero: cliente.genero || "no-especificar",
       notas: cliente.notas || "",
-      sucursalPreferida: cliente.sucursalPreferida || "",
+      sucursalPreferida: cliente.sucursalPreferida || "sin-sucursal",
     })
     setIsEditDialogOpen(true)
   }
@@ -244,9 +244,9 @@ export default function ClientesPage() {
       // Agregar campos opcionales solo si tienen valor
       if (formData.email) clienteData.email = formData.email
       if (formData.fechaNacimiento) clienteData.fechaNacimiento = formData.fechaNacimiento
-      if (formData.genero) clienteData.genero = formData.genero as 'masculino' | 'femenino' | 'otro'
+      if (formData.genero && formData.genero !== 'no-especificar') clienteData.genero = formData.genero as 'masculino' | 'femenino' | 'otro'
       if (formData.notas) clienteData.notas = formData.notas
-      if (formData.sucursalPreferida) clienteData.sucursalPreferida = formData.sucursalPreferida
+      if (formData.sucursalPreferida && formData.sucursalPreferida !== 'sin-sucursal') clienteData.sucursalPreferida = formData.sucursalPreferida
 
       const result = await updateCliente(editingCliente.id, clienteData)
 
@@ -261,9 +261,9 @@ export default function ClientesPage() {
           telefono: "",
           email: "",
           fechaNacimiento: "",
-          genero: "",
+          genero: "no-especificar",
           notas: "",
-          sucursalPreferida: "",
+          sucursalPreferida: "sin-sucursal",
         })
         // Recargar clientes y estadísticas
         await Promise.all([loadClientes(), loadStats()])
@@ -391,7 +391,8 @@ export default function ClientesPage() {
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar" />
                       </SelectTrigger>
-                      <SelectContent>
+<SelectContent>
+                        <SelectItem value="no-especificar">No especificar</SelectItem>
                         <SelectItem value="femenino">Femenino</SelectItem>
                         <SelectItem value="masculino">Masculino</SelectItem>
                         <SelectItem value="otro">Otro</SelectItem>
@@ -406,7 +407,7 @@ export default function ClientesPage() {
                       <SelectValue placeholder="Seleccionar sucursal (opcional)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Sin sucursal preferida</SelectItem>
+                      <SelectItem value="sin-sucursal">Sin sucursal preferida</SelectItem>
                       {sucursales.map((sucursal) => (
                         <SelectItem key={sucursal.id} value={sucursal.id}>
                           {sucursal.nombre}
@@ -718,9 +719,9 @@ export default function ClientesPage() {
             telefono: "",
             email: "",
             fechaNacimiento: "",
-            genero: "",
+            genero: "no-especificar",
             notas: "",
-            sucursalPreferida: "",
+            sucursalPreferida: "sin-sucursal",
           })
         }
       }}>
@@ -791,7 +792,7 @@ export default function ClientesPage() {
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No especificar</SelectItem>
+                    <SelectItem value="no-especificar">No especificar</SelectItem>
                     <SelectItem value="femenino">Femenino</SelectItem>
                     <SelectItem value="masculino">Masculino</SelectItem>
                     <SelectItem value="otro">Otro</SelectItem>
@@ -806,7 +807,7 @@ export default function ClientesPage() {
                   <SelectValue placeholder="Seleccionar sucursal (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin sucursal preferida</SelectItem>
+                  <SelectItem value="sin-sucursal">Sin sucursal preferida</SelectItem>
                   {sucursales.map((sucursal) => (
                     <SelectItem key={sucursal.id} value={sucursal.id}>
                       {sucursal.nombre}
