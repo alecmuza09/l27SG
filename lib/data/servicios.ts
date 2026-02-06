@@ -135,7 +135,27 @@ function transformServicio(servicio: ServicioRow): Servicio {
   }
 }
 
-// Obtener todos los servicios activos desde Supabase
+// Obtener TODOS los servicios desde Supabase (activos e inactivos) — para el catálogo
+export async function getServiciosFromDB(): Promise<Servicio[]> {
+  try {
+    const { data, error } = await supabase
+      .from('servicios')
+      .select('*')
+      .order('nombre')
+
+    if (error) {
+      console.error('Error obteniendo servicios:', error)
+      return []
+    }
+
+    return (data || []).map(transformServicio)
+  } catch (error) {
+    console.error('Error inesperado obteniendo servicios:', error)
+    return []
+  }
+}
+
+// Obtener solo servicios activos — para citas, punto de venta, etc.
 export async function getServiciosActivosFromDB(): Promise<Servicio[]> {
   try {
     const { data, error } = await supabase
@@ -149,7 +169,7 @@ export async function getServiciosActivosFromDB(): Promise<Servicio[]> {
       return []
     }
 
-    return data.map(transformServicio)
+    return (data || []).map(transformServicio)
   } catch (error) {
     console.error('Error inesperado obteniendo servicios:', error)
     return []

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag, Loader2 } from "lucide-react"
-import { getServiciosActivosFromDB, updateServicio, type Servicio } from "@/lib/data/servicios"
+import { getServiciosFromDB, updateServicio, type Servicio } from "@/lib/data/servicios"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -32,7 +32,7 @@ export default function ServiciosPage() {
   const loadServicios = async () => {
     try {
       setIsLoading(true)
-      const serviciosData = await getServiciosActivosFromDB()
+      const serviciosData = await getServiciosFromDB()
       setServicios(serviciosData)
     } catch (err) {
       console.error('Error cargando servicios:', err)
