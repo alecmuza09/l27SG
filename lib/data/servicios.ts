@@ -278,3 +278,23 @@ export async function updateServicio(
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }
+
+// Eliminar un servicio de la base de datos
+export async function deleteServicio(servicioId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('servicios')
+      .delete()
+      .eq('id', servicioId)
+
+    if (error) {
+      console.error('Error eliminando servicio:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado eliminando servicio:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}

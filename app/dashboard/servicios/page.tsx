@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag, Loader2 } from "lucide-react"
-import { getServiciosFromDB, createServicio, updateServicio, type Servicio } from "@/lib/data/servicios"
+import { getServiciosFromDB, createServicio, updateServicio, deleteServicio, type Servicio } from "@/lib/data/servicios"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -19,6 +19,16 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 export default function ServiciosPage() {
   const [servicios, setServicios] = useState<Servicio[]>([])
@@ -29,6 +39,9 @@ export default function ServiciosPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [newServicioCategoria, setNewServicioCategoria] = useState("")
+  const [servicioToDelete, setServicioToDelete] = useState<Servicio | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [editCategoria, setEditCategoria] = useState("")
 
   const loadServicios = async () => {
     try {
@@ -48,6 +61,7 @@ export default function ServiciosPage() {
 
   const handleEdit = (servicio: Servicio) => {
     setEditingServicio(servicio)
+    setEditCategoria(servicio.categoria)
     setIsEditDialogOpen(true)
   }
 
@@ -65,7 +79,7 @@ export default function ServiciosPage() {
         descripcion: formData.get('edit-descripcion') as string || undefined,
         duracion: Number(formData.get('edit-duracion')),
         precio: Number(formData.get('edit-precio')),
-        categoria: formData.get('edit-categoria') as string,
+        categoria: editCategoria || (formData.get('edit-categoria') as string),
         color: formData.get('edit-color') as string || undefined,
       })
 
@@ -122,6 +136,26 @@ export default function ServiciosPage() {
       toast.error('Error inesperado al crear el servicio')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleDeleteServicio = async () => {
+    if (!servicioToDelete) return
+    setIsDeleting(true)
+    try {
+      const result = await deleteServicio(servicioToDelete.id)
+      if (result.success) {
+        toast.success('Servicio eliminado')
+        setServicioToDelete(null)
+        await loadServicios()
+      } else {
+        toast.error(result.error || 'Error al eliminar el servicio')
+      }
+    } catch (err: any) {
+      console.error('Error eliminando servicio:', err)
+      toast.error('Error inesperado al eliminar')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -334,7 +368,12 @@ export default function ServiciosPage() {
                       <Edit className="mr-2 h-4 w-4" />
                       Editar
                     </Button>
-                    <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 bg-transparent"
+                      onClick={() => setServicioToDelete(servicio)}
+                    >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Eliminar
                     </Button>
@@ -381,7 +420,10 @@ export default function ServiciosPage() {
       {editingServicio && (
         <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
           setIsEditDialogOpen(open)
-          if (!open) setEditingServicio(null)
+          if (!open) {
+            setEditingServicio(null)
+            setEditCategoria('')
+          }
         }}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
@@ -412,7 +454,7 @@ export default function ServiciosPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-categoria">Categoría *</Label>
-                  <Select name="edit-categoria" defaultValue={editingServicio.categoria}>
+                  <Select name="edit-categoria" value={editCategoria} onValueChange={setEditCategoria}>
                     <SelectTrigger id="edit-categoria">
                       <SelectValue />
                     </SelectTrigger>
@@ -490,6 +532,38 @@ export default function ServiciosPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      <AlertDialog open={!!servicioToDelete} onOpenChange={(open) => !open && setServicioToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar servicio?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará permanentemente &quot;{servicioToDelete?.nombre}&quot;. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDeleteServicio()
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                'Eliminar'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   )
 }
