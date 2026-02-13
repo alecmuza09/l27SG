@@ -11,7 +11,12 @@ export interface Empleado {
   especialidades: string[]
   horarioInicio: string
   horarioFin: string
+  /** Días que trabaja: 0=Dom, 1=Lun, ..., 6=Sáb. Los no incluidos son días de descanso. */
   diasTrabajo: number[]
+  /** Inicio horario de comida (HH:MM). Opcional. */
+  comidaInicio?: string | null
+  /** Fin horario de comida (HH:MM). Opcional. */
+  comidaFin?: string | null
   activo: boolean
   comision: number
   foto?: string
@@ -114,6 +119,12 @@ type EmpleadoRow = Database['public']['Tables']['empleados']['Row']
 type EmpleadoUpdate = Database['public']['Tables']['empleados']['Update']
 
 // Función helper para transformar datos de la BD al formato de la interfaz
+function normalizarHora(h: string | null | undefined): string | undefined {
+  if (!h) return undefined
+  const s = String(h).trim().substring(0, 5)
+  return s.length >= 4 ? s : undefined
+}
+
 function transformEmpleado(empleado: EmpleadoRow): Empleado {
   return {
     id: empleado.id,
@@ -127,6 +138,8 @@ function transformEmpleado(empleado: EmpleadoRow): Empleado {
     horarioInicio: empleado.horario_inicio,
     horarioFin: empleado.horario_fin,
     diasTrabajo: empleado.dias_trabajo || [],
+    comidaInicio: normalizarHora(empleado.comida_inicio),
+    comidaFin: normalizarHora(empleado.comida_fin),
     activo: empleado.activo,
     comision: Number(empleado.comision),
     foto: empleado.foto || undefined,
@@ -336,6 +349,8 @@ export async function updateEmpleado(
     horario_inicio?: string
     horario_fin?: string
     dias_trabajo?: number[]
+    comida_inicio?: string | null
+    comida_fin?: string | null
     comision?: number
     activo?: boolean
   }
@@ -355,6 +370,8 @@ export async function updateEmpleado(
     if (datos.horario_inicio) updateData.horario_inicio = datos.horario_inicio
     if (datos.horario_fin) updateData.horario_fin = datos.horario_fin
     if (datos.dias_trabajo !== undefined) updateData.dias_trabajo = datos.dias_trabajo
+    if (datos.comida_inicio !== undefined) updateData.comida_inicio = datos.comida_inicio || null
+    if (datos.comida_fin !== undefined) updateData.comida_fin = datos.comida_fin || null
     if (datos.comision !== undefined) updateData.comision = datos.comision
     if (datos.activo !== undefined) updateData.activo = datos.activo
 

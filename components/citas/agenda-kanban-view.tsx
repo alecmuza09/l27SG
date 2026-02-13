@@ -8,12 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
-import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
+import { getEmpleadosBySucursalFromDB, updateEmpleado, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { updateCitaEstado } from "@/lib/data/citas"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -89,6 +93,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isLoadingCitas, setIsLoadingCitas] = useState(false)
   const [editingCita, setEditingCita] = useState<Cita | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isDescansoComidaOpen, setIsDescansoComidaOpen] = useState(false)
+  const [descansoComidaForm, setDescansoComidaForm] = useState<Record<string, { diasTrabajo: number[]; comidaInicio: string; comidaFin: string }>>({})
+  const [isSavingDescansoComida, setIsSavingDescansoComida] = useState(false)
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
@@ -166,13 +173,47 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     )
   }
 
+  const dayOfWeekSelected = useMemo(() => {
+    const [y, m, d] = selectedDate.split("-").map(Number)
+    return new Date(y, m - 1, d).getDay()
+  }, [selectedDate])
+
+  const isEmpleadoEnDescansoHoy = (emp: Empleado) => {
+    const dias = emp.diasTrabajo ?? []
+    return dias.length > 0 && !dias.includes(dayOfWeekSelected)
+  }
+
   const empleadosDeVacacionesHoy = useMemo(() => {
     return empleadosSucursal.filter((emp) => isEmpleadoDeVacaciones(emp.id, selectedDate))
   }, [empleadosSucursal, selectedDate, vacaciones])
 
+  const empleadosEnDescansoHoy = useMemo(() => {
+    return empleadosSucursal.filter(
+      (emp) => !isEmpleadoDeVacaciones(emp.id, selectedDate) && isEmpleadoEnDescansoHoy(emp)
+    )
+  }, [empleadosSucursal, selectedDate, vacaciones, dayOfWeekSelected])
+
   const empleadosDisponibles = useMemo(() => {
-    return empleadosSucursal.filter((emp) => !isEmpleadoDeVacaciones(emp.id, selectedDate))
-  }, [empleadosSucursal, selectedDate, vacaciones])
+    return empleadosSucursal.filter(
+      (emp) =>
+        !isEmpleadoDeVacaciones(emp.id, selectedDate) && !isEmpleadoEnDescansoHoy(emp)
+    )
+  }, [empleadosSucursal, selectedDate, vacaciones, dayOfWeekSelected])
+
+  // Al abrir el diálogo de descanso/comida, rellenar formulario con datos actuales
+  useEffect(() => {
+    if (isDescansoComidaOpen && empleadosSucursal.length > 0) {
+      const initial: Record<string, { diasTrabajo: number[]; comidaInicio: string; comidaFin: string }> = {}
+      empleadosSucursal.forEach((emp) => {
+        initial[emp.id] = {
+          diasTrabajo: [...(emp.diasTrabajo || [])],
+          comidaInicio: emp.comidaInicio || "",
+          comidaFin: emp.comidaFin || "",
+        }
+      })
+      setDescansoComidaForm(initial)
+    }
+  }, [isDescansoComidaOpen, empleadosSucursal])
 
   const citasFiltradas = useMemo(
     () => citas.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
@@ -298,6 +339,68 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     }
   }
 
+  const DIAS_SEMANA = [
+    { d: 0, label: "Dom" },
+    { d: 1, label: "Lun" },
+    { d: 2, label: "Mar" },
+    { d: 3, label: "Mié" },
+    { d: 4, label: "Jue" },
+    { d: 5, label: "Vie" },
+    { d: 6, label: "Sáb" },
+  ]
+
+  const toggleDescanso = (empleadoId: string, dia: number) => {
+    setDescansoComidaForm((prev) => {
+      const curr = prev[empleadoId]?.diasTrabajo ?? []
+      const hasDay = curr.includes(dia)
+      const nextDias = hasDay ? curr.filter((d) => d !== dia) : [...curr, dia].sort((a, b) => a - b)
+      return {
+        ...prev,
+        [empleadoId]: { ...prev[empleadoId], diasTrabajo: nextDias, comidaInicio: prev[empleadoId]?.comidaInicio ?? "", comidaFin: prev[empleadoId]?.comidaFin ?? "" },
+      }
+    })
+  }
+
+  const setComida = (empleadoId: string, field: "comidaInicio" | "comidaFin", value: string) => {
+    setDescansoComidaForm((prev) => ({
+      ...prev,
+      [empleadoId]: {
+        ...prev[empleadoId],
+        diasTrabajo: prev[empleadoId]?.diasTrabajo ?? [],
+        comidaInicio: prev[empleadoId]?.comidaInicio ?? "",
+        comidaFin: prev[empleadoId]?.comidaFin ?? "",
+        [field]: value,
+      },
+    }))
+  }
+
+  const handleGuardarDescansoComida = async () => {
+    setIsSavingDescansoComida(true)
+    try {
+      for (const emp of empleadosSucursal) {
+        const form = descansoComidaForm[emp.id]
+        if (!form) continue
+        const result = await updateEmpleado(emp.id, {
+          dias_trabajo: form.diasTrabajo,
+          comida_inicio: form.comidaInicio || null,
+          comida_fin: form.comidaFin || null,
+        })
+        if (!result.success) {
+          toast.error(`Error al guardar ${emp.nombre}: ${result.error}`)
+        }
+      }
+      toast.success("Descansos y comidas actualizados")
+      setIsDescansoComidaOpen(false)
+      const empleados = await getEmpleadosBySucursalFromDB(selectedSucursal)
+      setEmpleadosSucursal(empleados)
+    } catch (err: any) {
+      console.error(err)
+      toast.error("Error al guardar")
+    } finally {
+      setIsSavingDescansoComida(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header con filtros */}
@@ -325,6 +428,16 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             className="ml-2"
           >
             Hoy
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsDescansoComidaOpen(true)}
+            className="ml-2"
+            title="Días de descanso y horario de comida"
+          >
+            <UtensilsCrossed className="h-4 w-4 mr-2" />
+            Descanso y comidas
           </Button>
         </div>
 
@@ -380,6 +493,11 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     {empleadosDeVacacionesHoy.length} de vacaciones
                   </Badge>
                 )}
+                {empleadosEnDescansoHoy.length > 0 && (
+                  <Badge variant="outline" className="ml-2 text-slate-600 border-slate-300">
+                    {empleadosEnDescansoHoy.length} descanso
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -393,26 +511,33 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
               ) : (
                 <ScrollArea className="h-[600px] relative">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                    {[...empleadosDisponibles, ...empleadosDeVacacionesHoy].map((empleado) => {
+                    {[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].map((empleado) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
+                      const descansoHoy = isEmpleadoEnDescansoHoy(empleado)
+                      const noDisponible = vacacionEmpleado || descansoHoy
 
                     return (
-                      <div key={empleado.id} className={cn("space-y-2", vacacionEmpleado && "opacity-60")}>
+                      <div key={empleado.id} className={cn("space-y-2", noDisponible && "opacity-60")}>
                         <div
                           className={cn(
                             "flex items-center gap-3 pb-2 border-b sticky top-0 bg-background z-10",
                             vacacionEmpleado && "bg-amber-50 rounded-t-lg px-2 pt-2",
+                            descansoHoy && "bg-slate-100 dark:bg-slate-800 rounded-t-lg px-2 pt-2",
                           )}
                         >
                           <div
                             className={cn(
                               "h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0",
-                              vacacionEmpleado ? "bg-amber-200" : "bg-primary/10",
+                              vacacionEmpleado && "bg-amber-200",
+                              descansoHoy && "bg-slate-300 dark:bg-slate-600",
+                              !noDisponible && "bg-primary/10",
                             )}
                           >
                             {vacacionEmpleado ? (
                               <Palmtree className="h-5 w-5 text-amber-600" />
+                            ) : descansoHoy ? (
+                              <UtensilsCrossed className="h-5 w-5 text-slate-500" />
                             ) : (
                               <User className="h-5 w-5 text-primary" />
                             )}
@@ -423,13 +548,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             </p>
                             {vacacionEmpleado ? (
                               <p className="text-xs text-amber-600 font-medium">De vacaciones</p>
+                            ) : descansoHoy ? (
+                              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">Día de descanso</p>
                             ) : (
                               <p className="text-xs text-muted-foreground">
                                 {empleado.horarioInicio} - {empleado.horarioFin}
                               </p>
                             )}
                           </div>
-                          {!vacacionEmpleado && (
+                          {!noDisponible && (
                             <Badge variant="outline" className="flex-shrink-0">
                               {citasEmpleado.length}
                             </Badge>
@@ -447,6 +574,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               </p>
                             </div>
                           </div>
+                        ) : descansoHoy ? (
+                          <div className="flex items-center justify-center h-32 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                            <div className="text-center">
+                              <UtensilsCrossed className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                              <p className="text-sm text-slate-600 dark:text-slate-400">Día de descanso</p>
+                            </div>
+                          </div>
                         ) : (
                           /* Timeline de 30 minutos */
                           <div className="space-y-1 relative">
@@ -454,11 +588,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               const [hour, minutes] = slot.split(":")
                               const slotTime = `${hour}:${minutes}`
                               
-                              // Normalizar formato de hora para comparación
                               const normalizarHora = (hora: string): string => {
                                 if (!hora) return ''
-                                return hora.substring(0, 5) // Toma solo HH:MM
+                                return hora.substring(0, 5)
                               }
+                              const isComida =
+                                empleado.comidaInicio &&
+                                empleado.comidaFin &&
+                                slotTime >= normalizarHora(empleado.comidaInicio) &&
+                                slotTime < normalizarHora(empleado.comidaFin)
                               
                               // Buscar citas que empiecen exactamente en este slot
                               const cita = citasEmpleado.find((c) => {
@@ -473,7 +611,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                 return slotTime >= horaInicio && slotTime < horaFin
                               })
                               
-                              const isInRange = slotTime >= empleado.horarioInicio && slotTime < empleado.horarioFin
+                              const isInRange =
+                                slotTime >= empleado.horarioInicio &&
+                                slotTime < empleado.horarioFin &&
+                                !isComida
                               
                               // Calcular cuántos slots ocupa la cita (cada slot es 30 minutos)
                               const calcularSlotsOcupados = (cita: Cita): number => {
@@ -492,11 +633,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                     className={cn(
                                       "flex-1 border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
                                       !slotTieneCita && "min-h-[40px]",
-                                      !isInRange && "bg-muted/30 cursor-not-allowed",
+                                      (!isInRange || isComida) && "bg-muted/30 cursor-not-allowed",
+                                      isComida && "bg-orange-50 dark:bg-orange-950/20",
                                       (cita || citaQueOcupaEsteSlot) && "cursor-default bg-primary/5",
                                     )}
                                     style={slotTieneCita ? { minHeight: `${alturaCita}px` } : undefined}
-                                    onClick={() => !cita && !citaQueOcupaEsteSlot && handleSlotClick(slotTime, empleado.id, isInRange)}
+                                    onClick={() => !cita && !citaQueOcupaEsteSlot && isInRange && handleSlotClick(slotTime, empleado.id, true)}
                                   >
                                     {mostrarCita && cita ? (
                                       <Card
@@ -580,8 +722,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         </CardContent>
                                       </Card>
                                     ) : citaQueOcupaEsteSlot ? (
-                                      // Slot ocupado pero la cita empezó antes - mostrar fondo pero no contenido
                                       <div className="absolute inset-0 bg-primary/5 z-0" />
+                                    ) : isComida ? (
+                                      <div className="flex items-center justify-center h-full min-h-[40px] text-xs text-orange-600 dark:text-orange-400">
+                                        <UtensilsCrossed className="h-3 w-3 mr-1" />
+                                        Comida
+                                      </div>
                                     ) : (
                                       isInRange && (
                                         <div className="flex items-center justify-center h-full min-h-[40px] opacity-0 hover:opacity-100 transition-opacity">
@@ -640,6 +786,85 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={isDescansoComidaOpen} onOpenChange={setIsDescansoComidaOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Días de descanso y comidas</DialogTitle>
+            <DialogDescription>
+              Marca los días de descanso de cada empleada y el horario de comida. Los slots de comida no se mostrarán disponibles para citas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {empleadosSucursal.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No hay empleadas en esta sucursal.</p>
+            ) : (
+              empleadosSucursal.map((emp) => {
+                const form = descansoComidaForm[emp.id]
+                if (!form) return null
+                return (
+                  <Card key={emp.id} className="p-4">
+                    <div className="space-y-4">
+                      <p className="font-medium">
+                        {emp.nombre} {emp.apellido}
+                      </p>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Días de descanso (marca si NO trabaja)</Label>
+                        <div className="flex flex-wrap gap-4">
+                          {DIAS_SEMANA.map(({ d, label }) => (
+                            <label key={d} className="flex items-center gap-2 cursor-pointer">
+                              <Checkbox
+                                checked={!form.diasTrabajo.includes(d)}
+                                onCheckedChange={() => toggleDescanso(emp.id, d)}
+                              />
+                              <span className="text-sm">{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`comida-inicio-${emp.id}`}>Comida inicio (opcional)</Label>
+                          <Input
+                            id={`comida-inicio-${emp.id}`}
+                            type="time"
+                            value={form.comidaInicio}
+                            onChange={(e) => setComida(emp.id, "comidaInicio", e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`comida-fin-${emp.id}`}>Comida fin (opcional)</Label>
+                          <Input
+                            id={`comida-fin-${emp.id}`}
+                            type="time"
+                            value={form.comidaFin}
+                            onChange={(e) => setComida(emp.id, "comidaFin", e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                )
+              })
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <Button variant="outline" onClick={() => setIsDescansoComidaOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleGuardarDescansoComida} disabled={isSavingDescansoComida}>
+              {isSavingDescansoComida ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                "Guardar"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <NuevaCitaDialog
         open={dialogOpen}

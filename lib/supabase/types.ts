@@ -58,6 +58,8 @@ export type Database = {
           horario_inicio: string
           horario_fin: string
           dias_trabajo: number[] | null
+          comida_inicio: string | null
+          comida_fin: string | null
           comision: number
           foto: string | null
           activo: boolean
@@ -76,6 +78,8 @@ export type Database = {
           horario_inicio: string
           horario_fin: string
           dias_trabajo?: number[] | null
+          comida_inicio?: string | null
+          comida_fin?: string | null
           comision?: number
           foto?: string | null
           activo?: boolean
@@ -94,6 +98,8 @@ export type Database = {
           horario_inicio?: string
           horario_fin?: string
           dias_trabajo?: number[] | null
+          comida_inicio?: string | null
+          comida_fin?: string | null
           comision?: number
           foto?: string | null
           activo?: boolean
