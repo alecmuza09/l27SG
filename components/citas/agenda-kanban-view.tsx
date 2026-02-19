@@ -326,12 +326,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     }
   }
 
-  const handleCambiarEstado = async (citaId: string, nuevoEstado: string) => {
+  const handleCambiarEstado = async (citaId: string, nuevoEstadoUI: string) => {
     try {
-      const result = await updateCitaEstado(citaId, nuevoEstado as any)
+      // Convertir estado de UI a valor aceptado por el CHECK CONSTRAINT de Supabase
+      const estadoDB = mapearEstadoABD(nuevoEstadoUI) as 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
+      const result = await updateCitaEstado(citaId, estadoDB)
       if (result.success) {
-        toast.success(`Estado cambiado a: ${ESTADOS.find(e => e.value === nuevoEstado)?.label}`)
-        await handleCitaCreated() // Recargar citas
+        toast.success(`Estado cambiado a: ${ESTADOS.find(e => e.value === nuevoEstadoUI)?.label}`)
+        await handleCitaCreated()
       } else {
         toast.error(`Error al cambiar estado: ${result.error}`)
       }
