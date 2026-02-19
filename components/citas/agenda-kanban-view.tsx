@@ -328,9 +328,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   const handleCambiarEstado = async (citaId: string, nuevoEstadoUI: string) => {
     try {
-      // Convertir estado de UI a valor aceptado por el CHECK CONSTRAINT de Supabase
       const estadoDB = mapearEstadoABD(nuevoEstadoUI) as 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
-      const result = await updateCitaEstado(citaId, estadoDB)
+      // Usar campo "pagado" para diferenciar "pagado" de "pendiente-por-pagar"
+      const pagado = nuevoEstadoUI === 'pagado' ? true : nuevoEstadoUI === 'pendiente-por-pagar' ? false : undefined
+      const result = await updateCitaEstado(citaId, estadoDB, pagado)
       if (result.success) {
         toast.success(`Estado cambiado a: ${ESTADOS.find(e => e.value === nuevoEstadoUI)?.label}`)
         await handleCitaCreated()
@@ -341,6 +342,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       console.error('Error cambiando estado:', error)
       toast.error('Error al cambiar el estado de la cita')
     }
+  }
+
+  // Determinar el estado UI real de una cita usando tanto "estado" como el campo "pagado"
+  const getEstadoUI = (cita: Cita): string => {
+    if (cita.estado === 'completada') return cita.pagado ? 'pagado' : 'pendiente-por-pagar'
+    return ESTADOS.find(e => e.dbValue === cita.estado)?.value || cita.estado
   }
 
   const saveBloques = (bloques: BloqueAgenda[]) => {
@@ -638,10 +645,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                             <Badge
                                               className={cn(
                                                 "text-[10px] px-1.5 py-0.5 shrink-0",
-                                                ESTADOS.find((e) => e.dbValue === cita.estado)?.color || "bg-gray-500",
+                                                ESTADOS.find((e) => e.value === getEstadoUI(cita))?.color || "bg-gray-500",
                                               )}
                                             >
-                                              {ESTADOS.find((e) => e.dbValue === cita.estado)?.label || cita.estado}
+                                              {ESTADOS.find((e) => e.value === getEstadoUI(cita))?.label || cita.estado}
                                             </Badge>
                                             <DropdownMenu>
                                               <DropdownMenuTrigger asChild>
@@ -669,8 +676,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                   Cambiar Estado:
                                                 </div>
                                                 {ESTADOS.map((estado) => {
-                                                  const estadoActual = ESTADOS.find((e) => e.dbValue === cita.estado)
-                                                  const isCurrentState = estadoActual?.value === estado.value
+                                                  const isCurrentState = getEstadoUI(cita) === estado.value
                                                   return (
                                                     <DropdownMenuItem
                                                       key={estado.value}

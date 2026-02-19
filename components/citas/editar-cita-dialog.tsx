@@ -12,6 +12,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Textarea } from "@/components/ui/textarea"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { updateCita, type Cita } from "@/lib/data/citas"
 import { Loader2, ChevronsUpDown } from "lucide-react"
 import { toast } from "sonner"
@@ -33,6 +34,7 @@ export function EditarCitaDialog({
 }: EditarCitaDialogProps) {
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingServicios, setIsLoadingServicios] = useState(false)
   const [isLoadingEmpleados, setIsLoadingEmpleados] = useState(false)
@@ -41,6 +43,7 @@ export function EditarCitaDialog({
   const [citaForm, setCitaForm] = useState({
     servicioId: "",
     empleadoId: "",
+    sucursalId: "",
     fecha: "",
     horaInicio: "",
     notas: "",
@@ -51,39 +54,51 @@ export function EditarCitaDialog({
       setCitaForm({
         servicioId: cita.servicioId,
         empleadoId: cita.empleadoId,
+        sucursalId: cita.sucursalId || sucursalId,
         fecha: cita.fecha,
         horaInicio: cita.horaInicio,
         notas: cita.notas || "",
       })
     }
-  }, [cita, open])
+  }, [cita, open, sucursalId])
 
   useEffect(() => {
     async function loadData() {
       if (!open) return
-      
       try {
         setIsLoadingServicios(true)
-        setIsLoadingEmpleados(true)
-        
-        const [serviciosData, empleadosData] = await Promise.all([
+        const [serviciosData, sucursalesData] = await Promise.all([
           getServiciosActivosFromDB(),
-          getEmpleadosBySucursalFromDB(sucursalId),
+          getSucursalesActivasFromDB(),
         ])
-        
         setServicios(serviciosData)
-        setEmpleados(empleadosData)
+        setSucursales(sucursalesData)
       } catch (error) {
         console.error("Error cargando datos:", error)
         toast.error("Error al cargar los datos")
       } finally {
         setIsLoadingServicios(false)
+      }
+    }
+    loadData()
+  }, [open])
+
+  // Recargar empleadas cuando cambia la sucursal
+  useEffect(() => {
+    async function loadEmpleados() {
+      if (!citaForm.sucursalId) return
+      try {
+        setIsLoadingEmpleados(true)
+        const empleadosData = await getEmpleadosBySucursalFromDB(citaForm.sucursalId)
+        setEmpleados(empleadosData)
+      } catch (error) {
+        console.error("Error cargando empleadas:", error)
+      } finally {
         setIsLoadingEmpleados(false)
       }
     }
-    
-    loadData()
-  }, [open, sucursalId])
+    loadEmpleados()
+  }, [citaForm.sucursalId])
 
   const servicioSeleccionado = servicios.find((s) => s.id === citaForm.servicioId)
 
@@ -109,6 +124,7 @@ export function EditarCitaDialog({
       const result = await updateCita(cita.id, {
         servicio_id: citaForm.servicioId,
         empleado_id: citaForm.empleadoId,
+        sucursal_id: citaForm.sucursalId || undefined,
         fecha: citaForm.fecha,
         hora_inicio: citaForm.horaInicio,
         duracion: servicioSeleccionado.duracion,
@@ -231,31 +247,56 @@ export function EditarCitaDialog({
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="empleado">Empleada *</Label>
-                  {isLoadingEmpleados ? (
-                    <div className="flex items-center gap-2 p-3 border rounded-md">
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Cargando empleadas...</span>
-                    </div>
-                  ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="sucursal">Sucursal *</Label>
                     <Select
-                      value={citaForm.empleadoId}
-                      onValueChange={(value) => setCitaForm({ ...citaForm, empleadoId: value })}
+                      value={citaForm.sucursalId}
+                      onValueChange={(value) =>
+                        setCitaForm({ ...citaForm, sucursalId: value, empleadoId: "" })
+                      }
                       required
                     >
-                      <SelectTrigger id="empleado">
-                        <SelectValue placeholder="Seleccionar empleada" />
+                      <SelectTrigger id="sucursal">
+                        <SelectValue placeholder="Seleccionar sucursal" />
                       </SelectTrigger>
                       <SelectContent>
-                        {empleados.map((empleado) => (
-                          <SelectItem key={empleado.id} value={empleado.id}>
-                            {empleado.nombre} {empleado.apellido}
+                        {sucursales.map((suc) => (
+                          <SelectItem key={suc.id} value={suc.id}>
+                            {suc.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="empleado">Empleada *</Label>
+                    {isLoadingEmpleados ? (
+                      <div className="flex items-center gap-2 p-3 border rounded-md">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Cargando...</span>
+                      </div>
+                    ) : (
+                      <Select
+                        value={citaForm.empleadoId}
+                        onValueChange={(value) => setCitaForm({ ...citaForm, empleadoId: value })}
+                        required
+                        disabled={!citaForm.sucursalId}
+                      >
+                        <SelectTrigger id="empleado">
+                          <SelectValue placeholder={citaForm.sucursalId ? "Seleccionar empleada" : "Elige sucursal primero"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {empleados.map((empleado) => (
+                            <SelectItem key={empleado.id} value={empleado.id}>
+                              {empleado.nombre} {empleado.apellido}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-2">

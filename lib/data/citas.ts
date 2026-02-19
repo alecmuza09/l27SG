@@ -347,17 +347,22 @@ export async function getCitasByClienteIdFromDB(clienteId: string): Promise<Cita
 }
 
 // Actualizar estado de una cita (usa estados de la BD: pendiente, confirmada, en-progreso, completada, cancelada, no-asistio)
+// pagado: true cuando el estado UI es "pagado" (completada + pagado=true), false para "pendiente-por-pagar"
 export async function updateCitaEstado(
   citaId: string,
-  nuevoEstado: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
+  nuevoEstado: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio',
+  pagado?: boolean
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const updateData: any = { 
+      estado: nuevoEstado,
+      updated_at: new Date().toISOString()
+    }
+    if (pagado !== undefined) updateData.pagado = pagado
+
     const { error } = await supabase
       .from('citas')
-      .update({ 
-        estado: nuevoEstado,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', citaId)
 
     if (error) {
@@ -381,9 +386,10 @@ export async function updateCita(
     duracion?: number
     servicio_id?: string
     empleado_id?: string
+    sucursal_id?: string
     precio?: number
     notas?: string
-    estado?: 'pendiente' | 'confirmada' | 'en-espera' | 'en-atencion' | 'pendiente-por-pagar' | 'pagado' | 'cancelada'
+    estado?: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
   }
 ): Promise<{ success: boolean; cita?: CitaRow; error?: string }> {
   try {
@@ -401,6 +407,7 @@ export async function updateCita(
     if (datos.duracion) updateData.duracion = datos.duracion
     if (datos.servicio_id) updateData.servicio_id = datos.servicio_id
     if (datos.empleado_id) updateData.empleado_id = datos.empleado_id
+    if (datos.sucursal_id) updateData.sucursal_id = datos.sucursal_id
     if (datos.precio !== undefined) updateData.precio = datos.precio
     if (datos.notas !== undefined) updateData.notas = datos.notas || null
     if (datos.estado) updateData.estado = datos.estado
