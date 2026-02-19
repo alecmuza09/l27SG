@@ -493,7 +493,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     {[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].map((empleado) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
-                      const descansoHoy = isEmpleadoEnDescansoHoy(empleado)
+                      const descansoHoy = bloquesAgenda.some((b) => b.empleadoId === empleado.id && b.tipo === 'descanso')
                       const noDisponible = vacacionEmpleado || descansoHoy
 
                     return (
