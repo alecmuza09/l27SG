@@ -8,16 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
-import { getEmpleadosBySucursalFromDB, updateEmpleado, type Empleado } from "@/lib/data/empleados"
+import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Checkbox } from "@/components/ui/checkbox"
 import { updateCitaEstado } from "@/lib/data/citas"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -71,6 +70,15 @@ function mapearEstadoABD(estadoUI: string): string {
   return ESTADOS_DB[estadoUI as keyof typeof ESTADOS_DB] || estadoUI
 }
 
+// Bloque manual de comida o descanso en la agenda (se guarda en localStorage por fecha)
+interface BloqueAgenda {
+  id: string
+  empleadoId: string
+  tipo: 'comida' | 'descanso'
+  horaInicio?: string  // solo para tipo 'comida'
+  horaFin?: string     // solo para tipo 'comida'
+}
+
 const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
   const hour = Math.floor(i / 2) + 9
   const minutes = i % 2 === 0 ? "00" : "30"
@@ -93,9 +101,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isLoadingCitas, setIsLoadingCitas] = useState(false)
   const [editingCita, setEditingCita] = useState<Cita | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isDescansoComidaOpen, setIsDescansoComidaOpen] = useState(false)
-  const [descansoComidaForm, setDescansoComidaForm] = useState<Record<string, { diasTrabajo: number[]; comidaInicio: string; comidaFin: string }>>({})
-  const [isSavingDescansoComida, setIsSavingDescansoComida] = useState(false)
+  // Bloques manuales (comida / descanso) — guardados en localStorage por fecha
+  const [bloquesAgenda, setBloquesAgenda] = useState<BloqueAgenda[]>([])
+  const [isBloquesOpen, setIsBloquesOpen] = useState(false)
+  const [nuevoBloque, setNuevoBloque] = useState<{ empleadoId: string; tipo: 'comida' | 'descanso'; horaInicio: string; horaFin: string }>({
+    empleadoId: '',
+    tipo: 'comida',
+    horaInicio: '13:00',
+    horaFin: '14:00',
+  })
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
@@ -173,47 +187,35 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     )
   }
 
-  const dayOfWeekSelected = useMemo(() => {
-    const [y, m, d] = selectedDate.split("-").map(Number)
-    return new Date(y, m - 1, d).getDay()
-  }, [selectedDate])
-
-  const isEmpleadoEnDescansoHoy = (emp: Empleado) => {
-    const dias = emp.diasTrabajo ?? []
-    return dias.length > 0 && !dias.includes(dayOfWeekSelected)
-  }
-
   const empleadosDeVacacionesHoy = useMemo(() => {
     return empleadosSucursal.filter((emp) => isEmpleadoDeVacaciones(emp.id, selectedDate))
   }, [empleadosSucursal, selectedDate, vacaciones])
 
   const empleadosEnDescansoHoy = useMemo(() => {
     return empleadosSucursal.filter(
-      (emp) => !isEmpleadoDeVacaciones(emp.id, selectedDate) && isEmpleadoEnDescansoHoy(emp)
+      (emp) =>
+        !isEmpleadoDeVacaciones(emp.id, selectedDate) &&
+        bloquesAgenda.some((b) => b.empleadoId === emp.id && b.tipo === 'descanso')
     )
-  }, [empleadosSucursal, selectedDate, vacaciones, dayOfWeekSelected])
+  }, [empleadosSucursal, selectedDate, vacaciones, bloquesAgenda])
 
   const empleadosDisponibles = useMemo(() => {
     return empleadosSucursal.filter(
       (emp) =>
-        !isEmpleadoDeVacaciones(emp.id, selectedDate) && !isEmpleadoEnDescansoHoy(emp)
+        !isEmpleadoDeVacaciones(emp.id, selectedDate) &&
+        !bloquesAgenda.some((b) => b.empleadoId === emp.id && b.tipo === 'descanso')
     )
-  }, [empleadosSucursal, selectedDate, vacaciones, dayOfWeekSelected])
+  }, [empleadosSucursal, selectedDate, vacaciones, bloquesAgenda])
 
-  // Al abrir el diálogo de descanso/comida, rellenar formulario con datos actuales
+  // Cargar bloques del día desde localStorage cuando cambia la fecha
   useEffect(() => {
-    if (isDescansoComidaOpen && empleadosSucursal.length > 0) {
-      const initial: Record<string, { diasTrabajo: number[]; comidaInicio: string; comidaFin: string }> = {}
-      empleadosSucursal.forEach((emp) => {
-        initial[emp.id] = {
-          diasTrabajo: [...(emp.diasTrabajo || [])],
-          comidaInicio: emp.comidaInicio || "",
-          comidaFin: emp.comidaFin || "",
-        }
-      })
-      setDescansoComidaForm(initial)
+    try {
+      const stored = localStorage.getItem(`bloques_agenda_${selectedDate}`)
+      setBloquesAgenda(stored ? JSON.parse(stored) : [])
+    } catch {
+      setBloquesAgenda([])
     }
-  }, [isDescansoComidaOpen, empleadosSucursal])
+  }, [selectedDate])
 
   const citasFiltradas = useMemo(
     () => citas.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
@@ -339,66 +341,36 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     }
   }
 
-  const DIAS_SEMANA = [
-    { d: 0, label: "Dom" },
-    { d: 1, label: "Lun" },
-    { d: 2, label: "Mar" },
-    { d: 3, label: "Mié" },
-    { d: 4, label: "Jue" },
-    { d: 5, label: "Vie" },
-    { d: 6, label: "Sáb" },
-  ]
-
-  const toggleDescanso = (empleadoId: string, dia: number) => {
-    setDescansoComidaForm((prev) => {
-      const curr = prev[empleadoId]?.diasTrabajo ?? []
-      const hasDay = curr.includes(dia)
-      const nextDias = hasDay ? curr.filter((d) => d !== dia) : [...curr, dia].sort((a, b) => a - b)
-      return {
-        ...prev,
-        [empleadoId]: { ...prev[empleadoId], diasTrabajo: nextDias, comidaInicio: prev[empleadoId]?.comidaInicio ?? "", comidaFin: prev[empleadoId]?.comidaFin ?? "" },
-      }
-    })
-  }
-
-  const setComida = (empleadoId: string, field: "comidaInicio" | "comidaFin", value: string) => {
-    setDescansoComidaForm((prev) => ({
-      ...prev,
-      [empleadoId]: {
-        ...prev[empleadoId],
-        diasTrabajo: prev[empleadoId]?.diasTrabajo ?? [],
-        comidaInicio: prev[empleadoId]?.comidaInicio ?? "",
-        comidaFin: prev[empleadoId]?.comidaFin ?? "",
-        [field]: value,
-      },
-    }))
-  }
-
-  const handleGuardarDescansoComida = async () => {
-    setIsSavingDescansoComida(true)
+  const saveBloques = (bloques: BloqueAgenda[]) => {
+    setBloquesAgenda(bloques)
     try {
-      for (const emp of empleadosSucursal) {
-        const form = descansoComidaForm[emp.id]
-        if (!form) continue
-        const result = await updateEmpleado(emp.id, {
-          dias_trabajo: form.diasTrabajo,
-          comida_inicio: form.comidaInicio || null,
-          comida_fin: form.comidaFin || null,
-        })
-        if (!result.success) {
-          toast.error(`Error al guardar ${emp.nombre}: ${result.error}`)
-        }
-      }
-      toast.success("Descansos y comidas actualizados")
-      setIsDescansoComidaOpen(false)
-      const empleados = await getEmpleadosBySucursalFromDB(selectedSucursal)
-      setEmpleadosSucursal(empleados)
-    } catch (err: any) {
-      console.error(err)
-      toast.error("Error al guardar")
-    } finally {
-      setIsSavingDescansoComida(false)
+      localStorage.setItem(`bloques_agenda_${selectedDate}`, JSON.stringify(bloques))
+    } catch { /* localStorage lleno o no disponible */ }
+  }
+
+  const handleAgregarBloque = () => {
+    if (!nuevoBloque.empleadoId) { toast.error('Selecciona una empleada'); return }
+    if (nuevoBloque.tipo === 'comida' && (!nuevoBloque.horaInicio || !nuevoBloque.horaFin)) {
+      toast.error('Indica la hora de inicio y fin de la comida'); return
     }
+    if (nuevoBloque.tipo === 'comida' && nuevoBloque.horaFin <= nuevoBloque.horaInicio) {
+      toast.error('La hora de fin debe ser después de la de inicio'); return
+    }
+    const bloque: BloqueAgenda = {
+      id: Math.random().toString(36).slice(2),
+      empleadoId: nuevoBloque.empleadoId,
+      tipo: nuevoBloque.tipo,
+      horaInicio: nuevoBloque.tipo === 'comida' ? nuevoBloque.horaInicio : undefined,
+      horaFin: nuevoBloque.tipo === 'comida' ? nuevoBloque.horaFin : undefined,
+    }
+    saveBloques([...bloquesAgenda, bloque])
+    toast.success(nuevoBloque.tipo === 'comida' ? 'Hora de comida marcada' : 'Día de descanso marcado')
+    // Resetear selección de empleada para facilitar agregar otro bloque
+    setNuevoBloque((prev) => ({ ...prev, empleadoId: '' }))
+  }
+
+  const handleEliminarBloque = (id: string) => {
+    saveBloques(bloquesAgenda.filter((b) => b.id !== id))
   }
 
   return (
@@ -432,12 +404,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setIsDescansoComidaOpen(true)}
+            onClick={() => setIsBloquesOpen(true)}
             className="ml-2"
-            title="Días de descanso y horario de comida"
+            title="Marcar comidas y descansos del día"
           >
             <UtensilsCrossed className="h-4 w-4 mr-2" />
-            Descanso y comidas
+            Comidas y descansos
+            {bloquesAgenda.length > 0 && (
+              <Badge className="ml-2 h-5 min-w-5 px-1 text-xs" variant="secondary">
+                {bloquesAgenda.length}
+              </Badge>
+            )}
           </Button>
         </div>
 
@@ -592,11 +569,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                 if (!hora) return ''
                                 return hora.substring(0, 5)
                               }
-                              const isComida =
-                                empleado.comidaInicio &&
-                                empleado.comidaFin &&
-                                slotTime >= normalizarHora(empleado.comidaInicio) &&
-                                slotTime < normalizarHora(empleado.comidaFin)
+                              // Buscar si algún bloque de comida de esta empleada cubre este slot
+                              const bloqueComida = bloquesAgenda.find(
+                                (b) =>
+                                  b.empleadoId === empleado.id &&
+                                  b.tipo === 'comida' &&
+                                  b.horaInicio &&
+                                  b.horaFin &&
+                                  slotTime >= b.horaInicio.substring(0, 5) &&
+                                  slotTime < b.horaFin.substring(0, 5)
+                              )
+                              const isComida = !!bloqueComida
                               
                               // Buscar citas que empiecen exactamente en este slot
                               const cita = citasEmpleado.find((c) => {
@@ -787,80 +770,136 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         </Card>
       </div>
 
-      <Dialog open={isDescansoComidaOpen} onOpenChange={setIsDescansoComidaOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={isBloquesOpen} onOpenChange={setIsBloquesOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Días de descanso y comidas</DialogTitle>
+            <DialogTitle>Comidas y descansos — {selectedDate.split('-').reverse().join('/')}</DialogTitle>
             <DialogDescription>
-              Marca los días de descanso de cada empleada y el horario de comida. Los slots de comida no se mostrarán disponibles para citas.
+              Agrega manualmente los bloques de comida o descanso para el día. Se guardan automáticamente y puedes quitarlos cuando quieras.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-4">
-            {empleadosSucursal.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No hay empleadas en esta sucursal.</p>
-            ) : (
-              empleadosSucursal.map((emp) => {
-                const form = descansoComidaForm[emp.id]
-                if (!form) return null
-                return (
-                  <Card key={emp.id} className="p-4">
-                    <div className="space-y-4">
-                      <p className="font-medium">
-                        {emp.nombre} {emp.apellido}
-                      </p>
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">Días de descanso (marca si NO trabaja)</Label>
-                        <div className="flex flex-wrap gap-4">
-                          {DIAS_SEMANA.map(({ d, label }) => (
-                            <label key={d} className="flex items-center gap-2 cursor-pointer">
-                              <Checkbox
-                                checked={!form.diasTrabajo.includes(d)}
-                                onCheckedChange={() => toggleDescanso(emp.id, d)}
-                              />
-                              <span className="text-sm">{label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`comida-inicio-${emp.id}`}>Comida inicio (opcional)</Label>
-                          <Input
-                            id={`comida-inicio-${emp.id}`}
-                            type="time"
-                            value={form.comidaInicio}
-                            onChange={(e) => setComida(emp.id, "comidaInicio", e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`comida-fin-${emp.id}`}>Comida fin (opcional)</Label>
-                          <Input
-                            id={`comida-fin-${emp.id}`}
-                            type="time"
-                            value={form.comidaFin}
-                            onChange={(e) => setComida(emp.id, "comidaFin", e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                )
-              })
+
+          {/* Formulario para agregar nuevo bloque */}
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Empleada</Label>
+              <Select
+                value={nuevoBloque.empleadoId}
+                onValueChange={(v) => setNuevoBloque((prev) => ({ ...prev, empleadoId: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar empleada" />
+                </SelectTrigger>
+                <SelectContent>
+                  {empleadosSucursal.map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {emp.nombre} {emp.apellido}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tipo de bloque</Label>
+              <Select
+                value={nuevoBloque.tipo}
+                onValueChange={(v: 'comida' | 'descanso') => setNuevoBloque((prev) => ({ ...prev, tipo: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="comida">
+                    <span className="flex items-center gap-2"><UtensilsCrossed className="h-4 w-4 text-orange-500" /> Comida (rango de horas)</span>
+                  </SelectItem>
+                  <SelectItem value="descanso">
+                    <span className="flex items-center gap-2"><BedDouble className="h-4 w-4 text-slate-500" /> Día de descanso (todo el día)</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {nuevoBloque.tipo === 'comida' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="comida-inicio">Inicio</Label>
+                  <Input
+                    id="comida-inicio"
+                    type="time"
+                    value={nuevoBloque.horaInicio}
+                    onChange={(e) => setNuevoBloque((prev) => ({ ...prev, horaInicio: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="comida-fin">Fin</Label>
+                  <Input
+                    id="comida-fin"
+                    type="time"
+                    value={nuevoBloque.horaFin}
+                    onChange={(e) => setNuevoBloque((prev) => ({ ...prev, horaFin: e.target.value }))}
+                  />
+                </div>
+              </div>
             )}
-          </div>
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <Button variant="outline" onClick={() => setIsDescansoComidaOpen(false)}>
-              Cancelar
+
+            <Button className="w-full" onClick={handleAgregarBloque}>
+              <Plus className="mr-2 h-4 w-4" />
+              Agregar bloque
             </Button>
-            <Button onClick={handleGuardarDescansoComida} disabled={isSavingDescansoComida}>
-              {isSavingDescansoComida ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Guardando...
-                </>
-              ) : (
-                "Guardar"
-              )}
+          </div>
+
+          {/* Lista de bloques activos para este día */}
+          {bloquesAgenda.length > 0 && (
+            <div className="space-y-2 border-t pt-4">
+              <p className="text-sm font-medium text-muted-foreground">Bloques activos hoy</p>
+              <div className="space-y-2">
+                {bloquesAgenda.map((bloque) => {
+                  const emp = empleadosSucursal.find((e) => e.id === bloque.empleadoId)
+                  if (!emp) return null
+                  return (
+                    <div
+                      key={bloque.id}
+                      className={cn(
+                        "flex items-center justify-between rounded-md border px-3 py-2",
+                        bloque.tipo === 'comida'
+                          ? "bg-orange-50 border-orange-200 dark:bg-orange-950/20"
+                          : "bg-slate-50 border-slate-200 dark:bg-slate-800/50",
+                      )}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {bloque.tipo === 'comida' ? (
+                          <UtensilsCrossed className="h-4 w-4 text-orange-500 shrink-0" />
+                        ) : (
+                          <BedDouble className="h-4 w-4 text-slate-500 shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{emp.nombre} {emp.apellido}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {bloque.tipo === 'comida'
+                              ? `Comida: ${bloque.horaInicio} – ${bloque.horaFin}`
+                              : 'Día de descanso'}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => handleEliminarBloque(bloque.id)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2 border-t">
+            <Button variant="outline" onClick={() => setIsBloquesOpen(false)}>
+              Cerrar
             </Button>
           </div>
         </DialogContent>
