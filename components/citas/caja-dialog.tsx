@@ -129,11 +129,9 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
     }
   }, [open])
 
-  if (!cita) return null
+  // ─── Cálculos (seguros aunque cita sea null antes del render) ──────────
 
-  // ─── Cálculos ──────────────────────────────────────────────────────────
-
-  const subtotal = cita.precio
+  const subtotal = cita?.precio ?? 0
   const descuento = descuentoAplicado?.monto ?? 0
   const propina = parseFloat(propinaInput) || 0
   const total = Math.max(0, subtotal - descuento) + propina
@@ -242,6 +240,8 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
       }
     }
 
+    if (!cita) return
+
     setIsCobrando(true)
 
     // Determinar tipo/código de descuento para persistir
@@ -319,6 +319,9 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
     { label: "15%", valor: subtotal * 0.15 },
     { label: "20%", valor: subtotal * 0.2 },
   ]
+
+  // El guard se pone AQUÍ, después de todos los hooks (regla de hooks)
+  if (!cita) return null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
