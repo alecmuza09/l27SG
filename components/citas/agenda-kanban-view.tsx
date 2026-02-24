@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -22,6 +22,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
 import { EditarCitaDialog } from "./editar-cita-dialog"
+import { CajaDialog } from "./caja-dialog"
 import { getVacaciones } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
 import { getCurrentUser, type User } from "@/lib/auth"
@@ -101,6 +102,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isLoadingCitas, setIsLoadingCitas] = useState(false)
   const [editingCita, setEditingCita] = useState<Cita | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [cajaCita, setCajaCita] = useState<Cita | null>(null)
+  const [isCajaOpen, setIsCajaOpen] = useState(false)
   // Bloques manuales (comida / descanso) — guardados en localStorage por fecha
   const [bloquesAgenda, setBloquesAgenda] = useState<BloqueAgenda[]>([])
   const [isBloquesOpen, setIsBloquesOpen] = useState(false)
@@ -671,6 +674,16 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                   <Edit className="h-4 w-4 mr-2" />
                                                   Editar Cita
                                                 </DropdownMenuItem>
+                                                <DropdownMenuItem
+                                                  onSelect={() => {
+                                                    setCajaCita(cita)
+                                                    setIsCajaOpen(true)
+                                                  }}
+                                                  className="text-emerald-700 focus:text-emerald-700 focus:bg-emerald-50"
+                                                >
+                                                  <ShoppingBag className="h-4 w-4 mr-2" />
+                                                  Ir a Caja
+                                                </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
                                                   Cambiar Estado:
@@ -938,6 +951,16 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         cita={editingCita}
         sucursalId={selectedSucursal}
         onCitaUpdated={handleCitaCreated}
+      />
+
+      <CajaDialog
+        open={isCajaOpen}
+        onOpenChange={(open) => {
+          setIsCajaOpen(open)
+          if (!open) setCajaCita(null)
+        }}
+        cita={cajaCita}
+        onPagoCobrado={handleCitaCreated}
       />
     </div>
   )
