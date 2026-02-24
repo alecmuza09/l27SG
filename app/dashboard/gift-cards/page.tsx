@@ -13,11 +13,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Plus,
   Search,
@@ -30,202 +41,222 @@ import {
   RefreshCw,
   CheckCircle,
   Loader2,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  XCircle,
+  Sparkles,
 } from "lucide-react"
+import { toast } from "sonner"
 import { getClientes, type Cliente } from "@/lib/data/clientes"
 import {
-  getGiftCards,
-  saveGiftCards,
+  getGiftCardsFromDB,
+  getGiftCardTransaccionesFromDB,
   generarCodigoGiftCard,
-  getGiftCardTransacciones,
-  addTransaccion,
+  crearGiftCard,
+  activarGiftCard,
+  canjearGiftCard,
+  recargarGiftCard,
+  cancelarGiftCard,
 } from "@/lib/data/gift-cards"
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
-
-const estadoColors: Record<GiftCard["estado"], string> = {
-  pendiente: "bg-yellow-100 text-yellow-800",
-  activa: "bg-green-100 text-green-800",
-  agotada: "bg-gray-100 text-gray-800",
-  cancelada: "bg-red-100 text-red-800",
-  expirada: "bg-orange-100 text-orange-800",
-}
-
-const estadoLabels: Record<GiftCard["estado"], string> = {
-  pendiente: "Pendiente",
-  activa: "Activa",
-  agotada: "Agotada",
-  cancelada: "Cancelada",
-  expirada: "Expirada",
-}
-
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 
-export default function GiftCardsPage() {
-  const [giftCards, setGiftCards] = useState<GiftCard[]>([])
-  const [clientes, setClientes] = useState<Cliente[]>([])
-  const [sucursales, setSucursales] = useState<Sucursal[]>([])
-  const [searchTerm, setSearchTerm] = useState("")
-  const [filterEstado, setFilterEstado] = useState<string>("todos")
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  const [isActivateDialogOpen, setIsActivateDialogOpen] = useState(false)
-  const [isRedeemDialogOpen, setIsRedeemDialogOpen] = useState(false)
-  const [isRechargeDialogOpen, setIsRechargeDialogOpen] = useState(false)
-  const [selectedCard, setSelectedCard] = useState<GiftCard | null>(null)
-  const [transacciones, setTransacciones] = useState<GiftCardTransaccion[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+// ─── Configuración de estados ─────────────────────────────────────────────
 
-  // Form states
-  const [newCardAmount, setNewCardAmount] = useState("")
-  const [newCardExpiration, setNewCardExpiration] = useState("")
-  const [newCardClient, setNewCardClient] = useState("")
-  const [newCardSucursal, setNewCardSucursal] = useState("")
-  const [redeemAmount, setRedeemAmount] = useState("")
-  const [redeemNotes, setRedeemNotes] = useState("")
-  const [rechargeAmount, setRechargeAmount] = useState("")
-  const [rechargeNotes, setRechargeNotes] = useState("")
+const estadoConfig: Record<GiftCard["estado"], { label: string; className: string }> = {
+  pendiente: { label: "Pendiente",  className: "bg-yellow-100 text-yellow-800 border-yellow-200" },
+  activa:    { label: "Activa",     className: "bg-green-100 text-green-800 border-green-200"   },
+  agotada:   { label: "Agotada",    className: "bg-gray-100 text-gray-700 border-gray-200"      },
+  cancelada: { label: "Cancelada",  className: "bg-red-100 text-red-800 border-red-200"         },
+  expirada:  { label: "Expirada",   className: "bg-orange-100 text-orange-800 border-orange-200"},
+}
+
+const tipoTransaccionConfig: Record<string, { label: string; signo: string; color: string }> = {
+  emision:     { label: "Emisión",     signo: "+", color: "text-blue-600" },
+  activacion:  { label: "Activación",  signo: "—", color: "text-green-600" },
+  canje:       { label: "Canje",       signo: "−", color: "text-red-600" },
+  recarga:     { label: "Recarga",     signo: "+", color: "text-emerald-600" },
+  cancelacion: { label: "Cancelación", signo: "—", color: "text-red-600" },
+  compra:      { label: "Compra",      signo: "+", color: "text-blue-600" },
+  uso:         { label: "Uso",         signo: "−", color: "text-red-600" },
+  reembolso:   { label: "Reembolso",   signo: "+", color: "text-emerald-600" },
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+const fmtMXN = (n: number) =>
+  new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
+
+const fmtDate = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" }) : "—"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Página
+// ═══════════════════════════════════════════════════════════════════════════
+
+export default function GiftCardsPage() {
+  // ── Datos ──────────────────────────────────────────────────────────────
+  const [giftCards, setGiftCards]     = useState<GiftCard[]>([])
+  const [clientes, setClientes]       = useState<Cliente[]>([])
+  const [sucursales, setSucursales]   = useState<Sucursal[]>([])
+  const [transacciones, setTransacciones] = useState<GiftCardTransaccion[]>([])
+  const [isLoading, setIsLoading]     = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // ── Búsqueda / filtros ─────────────────────────────────────────────────
+  const [searchTerm, setSearchTerm]   = useState("")
+  const [filterEstado, setFilterEstado] = useState<string>("todos")
+
+  // ── Modales ────────────────────────────────────────────────────────────
+  const [isCreateOpen,   setIsCreateOpen]   = useState(false)
+  const [isViewOpen,     setIsViewOpen]     = useState(false)
+  const [isActivateOpen, setIsActivateOpen] = useState(false)
+  const [isRedeemOpen,   setIsRedeemOpen]   = useState(false)
+  const [isRechargeOpen, setIsRechargeOpen] = useState(false)
+  const [isCancelOpen,   setIsCancelOpen]   = useState(false)
+  const [selectedCard,   setSelectedCard]   = useState<GiftCard | null>(null)
+
+  // ── Formulario Crear ───────────────────────────────────────────────────
+  const [newMonto,       setNewMonto]      = useState("")
+  const [newExpiracion,  setNewExpiracion] = useState("")
+  const [newClienteId,   setNewClienteId]  = useState("sin-cliente")
+  const [newSucursalId,  setNewSucursalId] = useState("")
+
+  // ── Formulario Canjear ─────────────────────────────────────────────────
+  const [redeemMonto, setRedeemMonto] = useState("")
+  const [redeemNotas, setRedeemNotas] = useState("")
+
+  // ── Formulario Recargar ────────────────────────────────────────────────
+  const [rechargeMonto, setRechargeMonto] = useState("")
+  const [rechargeNotas, setRechargeNotas] = useState("")
+
+  // ── Cargar datos ───────────────────────────────────────────────────────
+  const reload = async () => {
+    const data = await getGiftCardsFromDB()
+    setGiftCards(data)
+  }
 
   useEffect(() => {
-    async function loadData() {
+    async function loadAll() {
+      setIsLoading(true)
       try {
-        setIsLoading(true)
-        const [giftCardsData, clientesData, sucursalesData] = await Promise.all([
+        const [gcs, cls, sucs] = await Promise.all([
           getGiftCardsFromDB(),
           getClientes(),
-          getSucursalesActivasFromDB()
+          getSucursalesActivasFromDB(),
         ])
-        setGiftCards(giftCardsData)
-        setClientes(clientesData)
-        setSucursales(sucursalesData)
+        setGiftCards(gcs)
+        setClientes(cls)
+        setSucursales(sucs)
       } catch (err) {
-        console.error('Error cargando datos:', err)
+        console.error("Error cargando datos:", err)
+        toast.error("Error al cargar los datos")
       } finally {
         setIsLoading(false)
       }
     }
-    loadData()
+    loadAll()
   }, [])
 
-  const filteredCards = giftCards.filter((card) => {
-    const matchesSearch =
-      card.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      card.clienteNombre?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesEstado = filterEstado === "todos" || card.estado === filterEstado
-    return matchesSearch && matchesEstado
+  // ── Filtrado ───────────────────────────────────────────────────────────
+  const filtered = giftCards.filter((c) => {
+    const matchSearch =
+      c.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (c.clienteNombre ?? "").toLowerCase().includes(searchTerm.toLowerCase())
+    const matchEstado = filterEstado === "todos" || c.estado === filterEstado
+    return matchSearch && matchEstado
   })
 
-  // Estadísticas
-  const totalActivas = giftCards.filter((c) => c.estado === "activa").length
-  const totalSaldo = giftCards.filter((c) => c.estado === "activa").reduce((sum, c) => sum + c.saldoActual, 0)
-  const totalEmitidas = giftCards.length
+  // ── KPIs ───────────────────────────────────────────────────────────────
+  const totalEmitidas  = giftCards.length
+  const totalActivas   = giftCards.filter((c) => c.estado === "activa").length
   const totalPendientes = giftCards.filter((c) => c.estado === "pendiente").length
+  const saldoTotal     = giftCards
+    .filter((c) => c.estado === "activa")
+    .reduce((s, c) => s + c.saldoActual, 0)
 
-  const handleCreateCard = async () => {
-    if (!newCardAmount || !newCardSucursal) return
+  // ─────────────────────────────────────────────────────────────────────
+  // Handlers
+  // ─────────────────────────────────────────────────────────────────────
 
-    // TODO: Implementar creación de gift card en Supabase
-    // Por ahora solo actualizamos el estado local
-    const sucursal = sucursales.find((s) => s.id === newCardSucursal)
-    const cliente = clientes.find((c) => c.id === newCardClient)
-
-    const newCard: GiftCard = {
-      id: `gc-${Date.now()}`,
-      codigo: generarCodigoGiftCard(),
-      saldoInicial: Number.parseFloat(newCardAmount),
-      saldoActual: Number.parseFloat(newCardAmount),
-      estado: "pendiente",
-      fechaEmision: new Date().toISOString(),
-      fechaActivacion: null,
-      fechaExpiracion: newCardExpiration || null,
-      clienteId: newCardClient || null,
-      clienteNombre: cliente ? `${cliente.nombre} ${cliente.apellido}` : null,
-      sucursalId: newCardSucursal,
-      sucursalNombre: sucursal?.nombre || "",
-      empleadoEmisorId: "",
-      empleadoEmisorNombre: "",
-    }
-
-    // Recargar datos desde BD después de crear
-    const updatedCards = await getGiftCardsFromDB()
-    setGiftCards(updatedCards)
-
-    // Reset form
-    setNewCardAmount("")
-    setNewCardExpiration("")
-    setNewCardClient("")
-    setNewCardSucursal("")
-    setIsCreateDialogOpen(false)
-  }
-
-  const handleActivateCard = async () => {
-    if (!selectedCard) return
-
-    // TODO: Implementar activación de gift card en Supabase
-    // Por ahora recargamos desde BD
-    const updatedCards = await getGiftCardsFromDB()
-    setGiftCards(updatedCards)
-
-    setIsActivateDialogOpen(false)
-    setSelectedCard(null)
-  }
-
-  const handleRedeemCard = async () => {
-    if (!selectedCard || !redeemAmount) return
-
-    const amount = Number.parseFloat(redeemAmount)
-    if (amount > selectedCard.saldoActual) return
-
-    // TODO: Implementar canje de gift card en Supabase
-    // Por ahora recargamos desde BD
-    const updatedCards = await getGiftCardsFromDB()
-    setGiftCards(updatedCards)
-
-    setRedeemAmount("")
-    setRedeemNotes("")
-    setIsRedeemDialogOpen(false)
-    setSelectedCard(null)
-  }
-
-  const handleRechargeCard = async () => {
-    if (!selectedCard || !rechargeAmount) return
-
-    // TODO: Implementar recarga de gift card en Supabase
-    // Por ahora recargamos desde BD
-    const updatedCards = await getGiftCardsFromDB()
-    setGiftCards(updatedCards)
-
-    setRechargeAmount("")
-    setRechargeNotes("")
-    setIsRechargeDialogOpen(false)
-    setSelectedCard(null)
-  }
-
-  const handleCancelCard = async (card: GiftCard) => {
-    // TODO: Implementar cancelación de gift card en Supabase
-    // Por ahora recargamos desde BD
-    const updatedCards = await getGiftCardsFromDB()
-    setGiftCards(updatedCards)
-  }
-
-  const handleViewCard = async (card: GiftCard) => {
-    setSelectedCard(card)
-    const transaccionesData = await getGiftCardTransaccionesFromDB(card.id)
-    setTransacciones(transaccionesData)
-    setIsViewDialogOpen(true)
-  }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount)
-  }
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "-"
-    return new Date(dateString).toLocaleDateString("es-MX", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+  const handleCreate = async () => {
+    if (!newMonto || !newSucursalId) return
+    setIsSubmitting(true)
+    const res = await crearGiftCard({
+      montoInicial: parseFloat(newMonto),
+      sucursalId: newSucursalId,
+      clienteId: newClienteId === "sin-cliente" ? null : newClienteId,
+      fechaVencimiento: newExpiracion || null,
     })
+    setIsSubmitting(false)
+    if (!res.success) {
+      toast.error(`Error al crear: ${res.error}`)
+      return
+    }
+    toast.success(`Gift card creada: ${res.gc?.codigo}`)
+    setNewMonto(""); setNewExpiracion(""); setNewClienteId("sin-cliente"); setNewSucursalId("")
+    setIsCreateOpen(false)
+    await reload()
   }
 
+  const handleActivar = async () => {
+    if (!selectedCard) return
+    setIsSubmitting(true)
+    const res = await activarGiftCard(selectedCard.id)
+    setIsSubmitting(false)
+    if (!res.success) { toast.error(`Error: ${res.error}`); return }
+    toast.success(`Gift card ${selectedCard.codigo} activada`)
+    setIsActivateOpen(false); setSelectedCard(null)
+    await reload()
+  }
+
+  const handleCanjear = async () => {
+    if (!selectedCard || !redeemMonto) return
+    const monto = parseFloat(redeemMonto)
+    if (monto <= 0 || monto > selectedCard.saldoActual) return
+    setIsSubmitting(true)
+    const res = await canjearGiftCard(selectedCard.id, monto, redeemNotas || undefined)
+    setIsSubmitting(false)
+    if (!res.success) { toast.error(`Error: ${res.error}`); return }
+    toast.success(`Canjeados ${fmtMXN(monto)}. Saldo restante: ${fmtMXN(res.saldoNuevo ?? 0)}`)
+    setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(false); setSelectedCard(null)
+    await reload()
+  }
+
+  const handleRecargar = async () => {
+    if (!selectedCard || !rechargeMonto) return
+    const monto = parseFloat(rechargeMonto)
+    if (monto <= 0) return
+    setIsSubmitting(true)
+    const res = await recargarGiftCard(selectedCard.id, monto, rechargeNotas || undefined)
+    setIsSubmitting(false)
+    if (!res.success) { toast.error(`Error: ${res.error}`); return }
+    toast.success(`Recargados ${fmtMXN(monto)}. Nuevo saldo: ${fmtMXN(res.saldoNuevo ?? 0)}`)
+    setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(false); setSelectedCard(null)
+    await reload()
+  }
+
+  const handleCancelar = async () => {
+    if (!selectedCard) return
+    setIsSubmitting(true)
+    const res = await cancelarGiftCard(selectedCard.id)
+    setIsSubmitting(false)
+    if (!res.success) { toast.error(`Error: ${res.error}`); return }
+    toast.success(`Gift card ${selectedCard.codigo} cancelada`)
+    setIsCancelOpen(false); setSelectedCard(null)
+    await reload()
+  }
+
+  const handleVerDetalles = async (card: GiftCard) => {
+    setSelectedCard(card)
+    const txns = await getGiftCardTransaccionesFromDB(card.id)
+    setTransacciones(txns)
+    setIsViewOpen(true)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Loading skeleton
+  // ─────────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -237,20 +268,24 @@ export default function GiftCardsPage() {
     )
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Gift Cards</h1>
           <p className="text-muted-foreground">Gestiona tarjetas de regalo para tus clientes</p>
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
+        <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Nueva Gift Card
         </Button>
       </div>
 
-      {/* Estadísticas */}
+      {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -288,19 +323,20 @@ export default function GiftCardsPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totalSaldo)}</div>
+            <div className="text-2xl font-bold">{fmtMXN(saldoTotal)}</div>
             <p className="text-xs text-muted-foreground">en tarjetas activas</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filtros */}
+      {/* Tabla */}
       <Card>
         <CardHeader>
           <CardTitle>Lista de Gift Cards</CardTitle>
           <CardDescription>Administra todas las tarjetas de regalo</CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Filtros */}
           <div className="flex gap-4 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -340,86 +376,98 @@ export default function GiftCardsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredCards.map((card) => (
-                <TableRow key={card.id}>
-                  <TableCell className="font-mono font-medium">{card.codigo}</TableCell>
-                  <TableCell>{card.clienteNombre || "-"}</TableCell>
-                  <TableCell>
-                    <div>
-                      <span className="font-medium">{formatCurrency(card.saldoActual)}</span>
+              {filtered.map((card) => {
+                const cfg = estadoConfig[card.estado]
+                return (
+                  <TableRow key={card.id}>
+                    <TableCell className="font-mono font-semibold text-sm">{card.codigo}</TableCell>
+                    <TableCell className="text-sm">{card.clienteNombre || <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell>
+                      <span className="font-semibold">{fmtMXN(card.saldoActual)}</span>
                       {card.saldoActual !== card.saldoInicial && (
-                        <span className="text-xs text-muted-foreground ml-1">
-                          / {formatCurrency(card.saldoInicial)}
-                        </span>
+                        <span className="text-xs text-muted-foreground ml-1">/ {fmtMXN(card.saldoInicial)}</span>
                       )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={estadoColors[card.estado]}>{estadoLabels[card.estado]}</Badge>
-                  </TableCell>
-                  <TableCell>{card.sucursalNombre}</TableCell>
-                  <TableCell>{formatDate(card.fechaEmision)}</TableCell>
-                  <TableCell>{formatDate(card.fechaExpiracion)}</TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewCard(card)}>
-                          <Eye className="mr-2 h-4 w-4" />
-                          Ver Detalles
-                        </DropdownMenuItem>
-                        {card.estado === "pendiente" && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedCard(card)
-                              setIsActivateDialogOpen(true)
-                            }}
-                          >
-                            <CheckCircle className="mr-2 h-4 w-4" />
-                            Activar
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={`${cfg.className} border text-xs`}>{cfg.label}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm">{card.sucursalNombre}</TableCell>
+                    <TableCell className="text-sm">{fmtDate(card.fechaEmision)}</TableCell>
+                    <TableCell className="text-sm">{fmtDate(card.fechaExpiracion)}</TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleVerDetalles(card)}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            Ver Detalles
                           </DropdownMenuItem>
-                        )}
-                        {card.estado === "activa" && (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedCard(card)
-                                setIsRedeemDialogOpen(true)
-                              }}
-                            >
-                              <DollarSign className="mr-2 h-4 w-4" />
-                              Canjear
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedCard(card)
-                                setIsRechargeDialogOpen(true)
-                              }}
-                            >
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Recargar
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        {(card.estado === "activa" || card.estado === "pendiente") && (
-                          <DropdownMenuItem onClick={() => handleCancelCard(card)} className="text-red-600">
-                            <Ban className="mr-2 h-4 w-4" />
-                            Cancelar
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {filteredCards.length === 0 && (
+
+                          {card.estado === "pendiente" && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => { setSelectedCard(card); setIsActivateOpen(true) }}
+                                className="text-green-700 focus:text-green-700 focus:bg-green-50"
+                              >
+                                <Sparkles className="mr-2 h-4 w-4" />
+                                Activar
+                              </DropdownMenuItem>
+                            </>
+                          )}
+
+                          {card.estado === "activa" && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => { setSelectedCard(card); setIsRedeemOpen(true) }}>
+                                <ArrowDownCircle className="mr-2 h-4 w-4" />
+                                Canjear saldo
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { setSelectedCard(card); setIsRechargeOpen(true) }}>
+                                <ArrowUpCircle className="mr-2 h-4 w-4" />
+                                Recargar saldo
+                              </DropdownMenuItem>
+                            </>
+                          )}
+
+                          {card.estado === "agotada" && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => { setSelectedCard(card); setIsRechargeOpen(true) }}>
+                                <ArrowUpCircle className="mr-2 h-4 w-4" />
+                                Recargar saldo
+                              </DropdownMenuItem>
+                            </>
+                          )}
+
+                          {(card.estado === "activa" || card.estado === "pendiente") && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => { setSelectedCard(card); setIsCancelOpen(true) }}
+                                className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                              >
+                                <XCircle className="mr-2 h-4 w-4" />
+                                Cancelar tarjeta
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No se encontraron gift cards
+                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                    {searchTerm || filterEstado !== "todos"
+                      ? "No se encontraron resultados para los filtros aplicados"
+                      : "Aún no hay gift cards. ¡Crea la primera!"}
                   </TableCell>
                 </TableRow>
               )}
@@ -428,269 +476,324 @@ export default function GiftCardsPage() {
         </CardContent>
       </Card>
 
-      {/* Dialog: Crear Gift Card */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+      {/* ══════════════════════════════════════════════════════
+          DIALOGS
+      ══════════════════════════════════════════════════════ */}
+
+      {/* Crear */}
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Nueva Gift Card</DialogTitle>
-            <DialogDescription>Crea una nueva tarjeta de regalo</DialogDescription>
+            <DialogDescription>Se generará un código único automáticamente</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="amount">Monto Inicial *</Label>
-              <Input
-                id="amount"
-                type="number"
-                placeholder="0.00"
-                value={newCardAmount}
-                onChange={(e) => setNewCardAmount(e.target.value)}
-              />
+              <Label>Monto Inicial *</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                <Input
+                  type="number"
+                  min="1"
+                  step="any"
+                  placeholder="500.00"
+                  value={newMonto}
+                  onChange={(e) => setNewMonto(e.target.value)}
+                  className="pl-7"
+                />
+              </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="sucursal">Sucursal *</Label>
-              <Select value={newCardSucursal} onValueChange={setNewCardSucursal}>
+              <Label>Sucursal *</Label>
+              <Select value={newSucursalId} onValueChange={setNewSucursalId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar sucursal" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sucursales.map((sucursal) => (
-                    <SelectItem key={sucursal.id} value={sucursal.id}>
-                      {sucursal.nombre}
-                    </SelectItem>
+                  {sucursales.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="client">Cliente (Opcional)</Label>
-              <Select value={newCardClient} onValueChange={setNewCardClient}>
+              <Label>Cliente (Opcional)</Label>
+              <Select value={newClienteId} onValueChange={setNewClienteId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sin asignar" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sin asignar</SelectItem>
-                  {clientes.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id}>
-                      {cliente.nombre} {cliente.apellido}
-                    </SelectItem>
+                  <SelectItem value="sin-cliente">Sin asignar</SelectItem>
+                  {clientes.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.nombre} {c.apellido}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="expiration">Fecha de Expiración (Opcional)</Label>
+              <Label>Fecha de Expiración (Opcional)</Label>
               <Input
-                id="expiration"
                 type="date"
-                value={newCardExpiration}
-                onChange={(e) => setNewCardExpiration(e.target.value)}
+                value={newExpiracion}
+                onChange={(e) => setNewExpiracion(e.target.value)}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button onClick={handleCreateCard} disabled={!newCardAmount || !newCardSucursal}>
-              Crear Gift Card
+            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId}>
+              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Activar Gift Card */}
-      <Dialog open={isActivateDialogOpen} onOpenChange={setIsActivateDialogOpen}>
+      {/* Activar */}
+      <Dialog open={isActivateOpen} onOpenChange={setIsActivateOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Activar Gift Card</DialogTitle>
-            <DialogDescription>¿Confirmas la activación de la tarjeta {selectedCard?.codigo}?</DialogDescription>
+            <DialogDescription>
+              ¿Confirmas la activación de <strong>{selectedCard?.codigo}</strong>?
+            </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              Una vez activada, el cliente podrá usar el saldo de{" "}
-              <strong>{selectedCard && formatCurrency(selectedCard.saldoActual)}</strong> para pagar servicios.
-            </p>
-          </div>
+          <p className="text-sm text-muted-foreground py-2">
+            Una vez activada, la tarjeta tendrá un saldo disponible de{" "}
+            <strong>{selectedCard && fmtMXN(selectedCard.saldoActual)}</strong> que el cliente podrá utilizar para pagar servicios.
+          </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsActivateDialogOpen(false)}>
-              Cancelar
+            <Button variant="outline" onClick={() => setIsActivateOpen(false)} disabled={isSubmitting}>Cancelar</Button>
+            <Button onClick={handleActivar} disabled={isSubmitting} className="bg-green-600 hover:bg-green-700">
+              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Activando...</> : <><Sparkles className="h-4 w-4 mr-2" />Activar</>}
             </Button>
-            <Button onClick={handleActivateCard}>Activar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Canjear */}
-      <Dialog open={isRedeemDialogOpen} onOpenChange={setIsRedeemDialogOpen}>
+      {/* Canjear */}
+      <Dialog open={isRedeemOpen} onOpenChange={setIsRedeemOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Canjear Gift Card</DialogTitle>
+            <DialogTitle>Canjear Saldo</DialogTitle>
             <DialogDescription>
-              Tarjeta: {selectedCard?.codigo} - Saldo disponible:{" "}
-              {selectedCard && formatCurrency(selectedCard.saldoActual)}
+              {selectedCard?.codigo} · Saldo disponible: <strong>{selectedCard && fmtMXN(selectedCard.saldoActual)}</strong>
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="redeemAmount">Monto a Canjear *</Label>
-              <Input
-                id="redeemAmount"
-                type="number"
-                placeholder="0.00"
-                max={selectedCard?.saldoActual}
-                value={redeemAmount}
-                onChange={(e) => setRedeemAmount(e.target.value)}
-              />
+              <Label>Monto a Canjear *</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="any"
+                  max={selectedCard?.saldoActual}
+                  placeholder="0.00"
+                  value={redeemMonto}
+                  onChange={(e) => setRedeemMonto(e.target.value)}
+                  className="pl-7"
+                />
+              </div>
+              {redeemMonto && parseFloat(redeemMonto) > (selectedCard?.saldoActual ?? 0) && (
+                <p className="text-xs text-red-500">El monto supera el saldo disponible</p>
+              )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="redeemNotes">Notas</Label>
+              <Label>Notas (Opcional)</Label>
               <Textarea
-                id="redeemNotes"
                 placeholder="Descripción del canje..."
-                value={redeemNotes}
-                onChange={(e) => setRedeemNotes(e.target.value)}
+                value={redeemNotas}
+                onChange={(e) => setRedeemNotas(e.target.value)}
+                rows={2}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRedeemDialogOpen(false)}>
-              Cancelar
-            </Button>
+            <Button variant="outline" onClick={() => setIsRedeemOpen(false)} disabled={isSubmitting}>Cancelar</Button>
             <Button
-              onClick={handleRedeemCard}
+              onClick={handleCanjear}
               disabled={
-                !redeemAmount ||
-                Number.parseFloat(redeemAmount) <= 0 ||
-                Number.parseFloat(redeemAmount) > (selectedCard?.saldoActual || 0)
+                isSubmitting ||
+                !redeemMonto ||
+                parseFloat(redeemMonto) <= 0 ||
+                parseFloat(redeemMonto) > (selectedCard?.saldoActual ?? 0)
               }
             >
-              Canjear
+              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Canjeando...</> : <><ArrowDownCircle className="h-4 w-4 mr-2" />Canjear</>}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Recargar */}
-      <Dialog open={isRechargeDialogOpen} onOpenChange={setIsRechargeDialogOpen}>
+      {/* Recargar */}
+      <Dialog open={isRechargeOpen} onOpenChange={setIsRechargeOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Recargar Gift Card</DialogTitle>
+            <DialogTitle>Recargar Saldo</DialogTitle>
             <DialogDescription>
-              Tarjeta: {selectedCard?.codigo} - Saldo actual: {selectedCard && formatCurrency(selectedCard.saldoActual)}
+              {selectedCard?.codigo} · Saldo actual: <strong>{selectedCard && fmtMXN(selectedCard.saldoActual)}</strong>
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="rechargeAmount">Monto a Recargar *</Label>
-              <Input
-                id="rechargeAmount"
-                type="number"
-                placeholder="0.00"
-                value={rechargeAmount}
-                onChange={(e) => setRechargeAmount(e.target.value)}
-              />
+              <Label>Monto a Recargar *</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="any"
+                  placeholder="0.00"
+                  value={rechargeMonto}
+                  onChange={(e) => setRechargeMonto(e.target.value)}
+                  className="pl-7"
+                />
+              </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="rechargeNotes">Notas</Label>
+              <Label>Notas (Opcional)</Label>
               <Textarea
-                id="rechargeNotes"
                 placeholder="Motivo de la recarga..."
-                value={rechargeNotes}
-                onChange={(e) => setRechargeNotes(e.target.value)}
+                value={rechargeNotas}
+                onChange={(e) => setRechargeNotas(e.target.value)}
+                rows={2}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRechargeDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleRechargeCard} disabled={!rechargeAmount || Number.parseFloat(rechargeAmount) <= 0}>
-              Recargar
+            <Button variant="outline" onClick={() => setIsRechargeOpen(false)} disabled={isSubmitting}>Cancelar</Button>
+            <Button
+              onClick={handleRecargar}
+              disabled={isSubmitting || !rechargeMonto || parseFloat(rechargeMonto) <= 0}
+            >
+              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Recargando...</> : <><ArrowUpCircle className="h-4 w-4 mr-2" />Recargar</>}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Ver Detalles */}
-      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Detalles de Gift Card</DialogTitle>
-            <DialogDescription>Código: {selectedCard?.codigo}</DialogDescription>
-          </DialogHeader>
-          {selectedCard && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Estado</p>
-                  <Badge className={estadoColors[selectedCard.estado]}>{estadoLabels[selectedCard.estado]}</Badge>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Saldo Actual</p>
-                  <p className="font-bold text-lg">{formatCurrency(selectedCard.saldoActual)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Saldo Inicial</p>
-                  <p className="font-medium">{formatCurrency(selectedCard.saldoInicial)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Cliente</p>
-                  <p className="font-medium">{selectedCard.clienteNombre || "Sin asignar"}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Sucursal</p>
-                  <p className="font-medium">{selectedCard.sucursalNombre}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Emisor</p>
-                  <p className="font-medium">{selectedCard.empleadoEmisorNombre}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Fecha de Emisión</p>
-                  <p className="font-medium">{formatDate(selectedCard.fechaEmision)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Fecha de Expiración</p>
-                  <p className="font-medium">{formatDate(selectedCard.fechaExpiracion)}</p>
-                </div>
-              </div>
+      {/* Cancelar (AlertDialog) */}
+      <AlertDialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar esta gift card?</AlertDialogTitle>
+            <AlertDialogDescription>
+              La tarjeta <strong>{selectedCard?.codigo}</strong> quedará cancelada de forma permanente y no podrá ser utilizada. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSubmitting}>No, conservar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelar}
+              disabled={isSubmitting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Cancelando...</> : "Sí, cancelar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
+      {/* Ver Detalles */}
+      <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-primary/10 rounded-lg">
+                <Gift className="h-5 w-5 text-primary" />
+              </div>
               <div>
-                <h4 className="font-semibold mb-2">Historial de Transacciones</h4>
-                <div className="border rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Fecha</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Monto</TableHead>
-                        <TableHead>Saldo</TableHead>
-                        <TableHead>Empleado</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transacciones.map((t) => (
-                        <TableRow key={t.id}>
-                          <TableCell>{formatDate(t.fecha)}</TableCell>
-                          <TableCell className="capitalize">{t.tipo}</TableCell>
-                          <TableCell>
-                            {t.tipo === "canje" ? "-" : "+"}
-                            {formatCurrency(t.monto)}
-                          </TableCell>
-                          <TableCell>{formatCurrency(t.saldoNuevo)}</TableCell>
-                          <TableCell>{t.empleadoNombre}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                <DialogTitle className="font-mono text-lg">{selectedCard?.codigo}</DialogTitle>
+                {selectedCard && (
+                  <Badge className={`${estadoConfig[selectedCard.estado].className} border text-xs mt-1`}>
+                    {estadoConfig[selectedCard.estado].label}
+                  </Badge>
+                )}
               </div>
             </div>
+          </DialogHeader>
+
+          {selectedCard && (
+            <ScrollArea className="flex-1">
+              <div className="px-6 py-5 space-y-6">
+                {/* Saldo destacado */}
+                <div className="grid grid-cols-2 gap-4 p-4 bg-muted/40 rounded-xl">
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Saldo Actual</p>
+                    <p className="text-2xl font-bold text-emerald-600">{fmtMXN(selectedCard.saldoActual)}</p>
+                  </div>
+                  <div className="text-center border-l">
+                    <p className="text-xs text-muted-foreground mb-1">Saldo Inicial</p>
+                    <p className="text-2xl font-bold">{fmtMXN(selectedCard.saldoInicial)}</p>
+                  </div>
+                </div>
+
+                {/* Detalles */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  {[
+                    { label: "Cliente",       value: selectedCard.clienteNombre || "Sin asignar" },
+                    { label: "Sucursal",      value: selectedCard.sucursalNombre },
+                    { label: "Emisor",        value: selectedCard.empleadoEmisorNombre || "—" },
+                    { label: "Fecha Emisión", value: fmtDate(selectedCard.fechaEmision) },
+                    { label: "Activación",    value: fmtDate(selectedCard.fechaActivacion) },
+                    { label: "Expiración",    value: fmtDate(selectedCard.fechaExpiracion) },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="space-y-0.5">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="font-medium">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Historial de transacciones */}
+                <div>
+                  <h4 className="font-semibold text-sm mb-3">Historial de Movimientos</h4>
+                  {transacciones.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4 border rounded-lg">
+                      Sin movimientos registrados
+                    </p>
+                  ) : (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Fecha</TableHead>
+                            <TableHead>Tipo</TableHead>
+                            <TableHead>Monto</TableHead>
+                            <TableHead>Saldo resultante</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {transacciones.map((t) => {
+                            const cfg = tipoTransaccionConfig[t.tipo] ?? { label: t.tipo, signo: "·", color: "" }
+                            return (
+                              <TableRow key={t.id}>
+                                <TableCell className="text-sm">{fmtDate(t.fecha)}</TableCell>
+                                <TableCell>
+                                  <span className="text-sm">{cfg.label}</span>
+                                  {t.notas && <p className="text-xs text-muted-foreground">{t.notas}</p>}
+                                </TableCell>
+                                <TableCell className={`text-sm font-semibold ${cfg.color}`}>
+                                  {cfg.signo !== "—" ? `${cfg.signo}${fmtMXN(t.monto)}` : "—"}
+                                </TableCell>
+                                <TableCell className="text-sm font-medium">{fmtMXN(t.saldoNuevo)}</TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </ScrollArea>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
-              Cerrar
-            </Button>
+
+          <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
+            <Button variant="outline" onClick={() => setIsViewOpen(false)}>Cerrar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -285,3 +285,243 @@ export function addTransaccion(transaccion: GiftCardTransaccion): void {
   transactions.push(transaccion)
   saveGiftCardTransacciones(transactions)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operaciones CRUD contra Supabase
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Crea una nueva gift card en BD y registra la transacción de emisión */
+export async function crearGiftCard(datos: {
+  montoInicial: number
+  sucursalId: string
+  clienteId?: string | null
+  fechaVencimiento?: string | null
+  empleadoEmisorId?: string | null
+}): Promise<{ success: boolean; gc?: GiftCard; error?: string }> {
+  try {
+    const codigo = generarCodigoGiftCard()
+    const hoy = new Date().toISOString().split('T')[0]
+
+    const { data: gcData, error: gcError } = await supabase
+      .from('gift_cards')
+      .insert({
+        codigo,
+        monto_inicial: datos.montoInicial,
+        saldo_actual: datos.montoInicial,
+        estado: 'pendiente',
+        sucursal_id: datos.sucursalId,
+        cliente_id: datos.clienteId || null,
+        empleado_emisor_id: datos.empleadoEmisorId || null,
+        fecha_emision: hoy,
+        fecha_vencimiento: datos.fechaVencimiento || null,
+      })
+      .select(`*, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre), empleado:empleados(nombre, apellido)`)
+      .single()
+
+    if (gcError || !gcData) {
+      return { success: false, error: gcError?.message || 'Error creando gift card' }
+    }
+
+    // Registrar transacción de emisión
+    await supabase.from('gift_card_transacciones').insert({
+      gift_card_id: gcData.id,
+      tipo: 'emision',
+      monto: datos.montoInicial,
+      saldo_anterior: 0,
+      saldo_nuevo: datos.montoInicial,
+      empleado_id: datos.empleadoEmisorId || null,
+      fecha: hoy,
+      notas: 'Emisión de gift card',
+    })
+
+    const gc: GiftCard = {
+      id: gcData.id,
+      codigo: gcData.codigo,
+      saldoInicial: Number(gcData.monto_inicial),
+      saldoActual: Number(gcData.saldo_actual),
+      estado: gcData.estado,
+      fechaEmision: gcData.fecha_emision,
+      fechaActivacion: gcData.fecha_activacion || null,
+      fechaExpiracion: gcData.fecha_vencimiento || null,
+      clienteId: gcData.cliente_id || null,
+      clienteNombre: gcData.cliente ? `${gcData.cliente.nombre} ${gcData.cliente.apellido}` : null,
+      sucursalId: gcData.sucursal_id,
+      sucursalNombre: gcData.sucursal?.nombre || '',
+      empleadoEmisorId: gcData.empleado_emisor_id || '',
+      empleadoEmisorNombre: gcData.empleado ? `${gcData.empleado.nombre} ${gcData.empleado.apellido}` : '',
+    }
+
+    return { success: true, gc }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Error inesperado' }
+  }
+}
+
+/** Activa una gift card (cambia de pendiente → activa) */
+export async function activarGiftCard(
+  giftCardId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const hoy = new Date().toISOString().split('T')[0]
+
+    const { data: gc, error: fetchError } = await supabase
+      .from('gift_cards')
+      .select('saldo_actual, estado')
+      .eq('id', giftCardId)
+      .single()
+
+    if (fetchError || !gc) return { success: false, error: 'Gift card no encontrada' }
+    if (gc.estado !== 'pendiente') return { success: false, error: 'Solo se pueden activar tarjetas en estado Pendiente' }
+
+    const { error } = await supabase
+      .from('gift_cards')
+      .update({ estado: 'activa', fecha_activacion: hoy, updated_at: new Date().toISOString() })
+      .eq('id', giftCardId)
+
+    if (error) return { success: false, error: error.message }
+
+    await supabase.from('gift_card_transacciones').insert({
+      gift_card_id: giftCardId,
+      tipo: 'activacion',
+      monto: 0,
+      saldo_anterior: Number(gc.saldo_actual),
+      saldo_nuevo: Number(gc.saldo_actual),
+      fecha: hoy,
+      notas: 'Activación de gift card',
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Error inesperado' }
+  }
+}
+
+/** Canjea (descuenta) saldo de una gift card */
+export async function canjearGiftCard(
+  giftCardId: string,
+  monto: number,
+  notas?: string,
+  empleadoId?: string | null
+): Promise<{ success: boolean; saldoNuevo?: number; error?: string }> {
+  try {
+    const { data: gc, error: fetchError } = await supabase
+      .from('gift_cards')
+      .select('saldo_actual, estado')
+      .eq('id', giftCardId)
+      .single()
+
+    if (fetchError || !gc) return { success: false, error: 'Gift card no encontrada' }
+    if (gc.estado !== 'activa') return { success: false, error: 'La tarjeta no está activa' }
+    if (Number(gc.saldo_actual) < monto) return { success: false, error: 'Saldo insuficiente' }
+
+    const saldoAnterior = Number(gc.saldo_actual)
+    const saldoNuevo = saldoAnterior - monto
+    const nuevoEstado = saldoNuevo <= 0 ? 'agotada' : 'activa'
+
+    const { error } = await supabase
+      .from('gift_cards')
+      .update({ saldo_actual: saldoNuevo, estado: nuevoEstado, updated_at: new Date().toISOString() })
+      .eq('id', giftCardId)
+
+    if (error) return { success: false, error: error.message }
+
+    await supabase.from('gift_card_transacciones').insert({
+      gift_card_id: giftCardId,
+      tipo: 'canje',
+      monto,
+      saldo_anterior: saldoAnterior,
+      saldo_nuevo: saldoNuevo,
+      empleado_id: empleadoId || null,
+      fecha: new Date().toISOString().split('T')[0],
+      notas: notas || 'Canje de saldo',
+    })
+
+    return { success: true, saldoNuevo }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Error inesperado' }
+  }
+}
+
+/** Recarga saldo a una gift card */
+export async function recargarGiftCard(
+  giftCardId: string,
+  monto: number,
+  notas?: string,
+  empleadoId?: string | null
+): Promise<{ success: boolean; saldoNuevo?: number; error?: string }> {
+  try {
+    const { data: gc, error: fetchError } = await supabase
+      .from('gift_cards')
+      .select('saldo_actual, estado')
+      .eq('id', giftCardId)
+      .single()
+
+    if (fetchError || !gc) return { success: false, error: 'Gift card no encontrada' }
+    if (gc.estado === 'cancelada' || gc.estado === 'expirada') {
+      return { success: false, error: 'No se puede recargar una tarjeta cancelada o expirada' }
+    }
+
+    const saldoAnterior = Number(gc.saldo_actual)
+    const saldoNuevo = saldoAnterior + monto
+    const nuevoEstado = gc.estado === 'agotada' ? 'activa' : gc.estado
+
+    const { error } = await supabase
+      .from('gift_cards')
+      .update({ saldo_actual: saldoNuevo, estado: nuevoEstado, updated_at: new Date().toISOString() })
+      .eq('id', giftCardId)
+
+    if (error) return { success: false, error: error.message }
+
+    await supabase.from('gift_card_transacciones').insert({
+      gift_card_id: giftCardId,
+      tipo: 'recarga',
+      monto,
+      saldo_anterior: saldoAnterior,
+      saldo_nuevo: saldoNuevo,
+      empleado_id: empleadoId || null,
+      fecha: new Date().toISOString().split('T')[0],
+      notas: notas || 'Recarga de saldo',
+    })
+
+    return { success: true, saldoNuevo }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Error inesperado' }
+  }
+}
+
+/** Cancela una gift card */
+export async function cancelarGiftCard(
+  giftCardId: string,
+  motivo?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data: gc, error: fetchError } = await supabase
+      .from('gift_cards')
+      .select('saldo_actual, estado')
+      .eq('id', giftCardId)
+      .single()
+
+    if (fetchError || !gc) return { success: false, error: 'Gift card no encontrada' }
+
+    const { error } = await supabase
+      .from('gift_cards')
+      .update({ estado: 'cancelada', updated_at: new Date().toISOString() })
+      .eq('id', giftCardId)
+
+    if (error) return { success: false, error: error.message }
+
+    await supabase.from('gift_card_transacciones').insert({
+      gift_card_id: giftCardId,
+      tipo: 'cancelacion',
+      monto: Number(gc.saldo_actual),
+      saldo_anterior: Number(gc.saldo_actual),
+      saldo_nuevo: 0,
+      fecha: new Date().toISOString().split('T')[0],
+      notas: motivo || 'Cancelación de gift card',
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Error inesperado' }
+  }
+}
