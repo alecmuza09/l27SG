@@ -498,8 +498,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   </div>
                 </div>
               ) : (
-                <ScrollArea className="h-[600px] relative">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+                <div className="h-[620px] overflow-y-auto overflow-x-auto relative">
+                  <div
+                    className="grid gap-1.5"
+                    style={{
+                      gridTemplateColumns: `repeat(${[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].length || 1}, minmax(155px, 1fr))`,
+                      minWidth: `${[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].length * 155}px`,
+                    }}
+                  >
                     {[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].map((empleado) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
@@ -507,72 +513,73 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       const noDisponible = vacacionEmpleado || descansoHoy
 
                     return (
-                      <div key={empleado.id} className={cn("space-y-2", noDisponible && "opacity-60")}>
+                      <div key={empleado.id} className={cn("space-y-1", noDisponible && "opacity-60")}>
+                        {/* Encabezado compacto de empleada */}
                         <div
                           className={cn(
-                            "flex items-center gap-3 pb-2 border-b sticky top-0 bg-background z-10",
-                            vacacionEmpleado && "bg-amber-50 rounded-t-lg px-2 pt-2",
-                            descansoHoy && "bg-slate-100 dark:bg-slate-800 rounded-t-lg px-2 pt-2",
+                            "flex items-center gap-1.5 pb-1.5 border-b sticky top-0 bg-background z-10",
+                            vacacionEmpleado && "bg-amber-50 rounded-t-md px-1.5 pt-1.5",
+                            descansoHoy && "bg-slate-100 dark:bg-slate-800 rounded-t-md px-1.5 pt-1.5",
                           )}
                         >
                           <div
                             className={cn(
-                              "h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0",
+                              "h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0",
                               vacacionEmpleado && "bg-amber-200",
                               descansoHoy && "bg-slate-300 dark:bg-slate-600",
                               !noDisponible && "bg-primary/10",
                             )}
                           >
                             {vacacionEmpleado ? (
-                              <Palmtree className="h-5 w-5 text-amber-600" />
+                              <Palmtree className="h-3.5 w-3.5 text-amber-600" />
                             ) : descansoHoy ? (
-                              <UtensilsCrossed className="h-5 w-5 text-slate-500" />
+                              <UtensilsCrossed className="h-3.5 w-3.5 text-slate-500" />
                             ) : (
-                              <User className="h-5 w-5 text-primary" />
+                              <User className="h-3.5 w-3.5 text-primary" />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">
+                            <p className="font-semibold text-xs truncate leading-tight">
                               {empleado.nombre} {empleado.apellido}
                             </p>
                             {vacacionEmpleado ? (
-                              <p className="text-xs text-amber-600 font-medium">De vacaciones</p>
+                              <p className="text-[10px] text-amber-600 font-medium leading-tight">Vacaciones</p>
                             ) : descansoHoy ? (
-                              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">Día de descanso</p>
+                              <p className="text-[10px] text-slate-500 leading-tight">Descanso</p>
                             ) : (
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-[10px] text-muted-foreground leading-tight">
                                 {empleado.horarioInicio} - {empleado.horarioFin}
                               </p>
                             )}
                           </div>
                           {!noDisponible && (
-                            <Badge variant="outline" className="flex-shrink-0">
+                            <Badge variant="outline" className="flex-shrink-0 text-[10px] px-1 py-0 h-4">
                               {citasEmpleado.length}
                             </Badge>
                           )}
                         </div>
 
                         {vacacionEmpleado ? (
-                          <div className="flex items-center justify-center h-32 bg-amber-50 rounded-lg border border-amber-200">
+                          <div className="flex items-center justify-center h-24 bg-amber-50 rounded-lg border border-amber-200">
                             <div className="text-center">
-                              <Palmtree className="h-8 w-8 text-amber-400 mx-auto mb-2" />
-                              <p className="text-sm text-amber-600">De vacaciones</p>
-                              <p className="text-xs text-amber-500">
-                                {new Date(vacacionEmpleado.fechaInicio).toLocaleDateString("es-MX")} -{" "}
+                              <Palmtree className="h-6 w-6 text-amber-400 mx-auto mb-1" />
+                              <p className="text-xs text-amber-600 font-medium">De vacaciones</p>
+                              <p className="text-[10px] text-amber-500">
+                                {new Date(vacacionEmpleado.fechaInicio).toLocaleDateString("es-MX")} –{" "}
                                 {new Date(vacacionEmpleado.fechaFin).toLocaleDateString("es-MX")}
                               </p>
                             </div>
                           </div>
                         ) : descansoHoy ? (
-                          <div className="flex items-center justify-center h-32 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                          <div className="flex items-center justify-center h-24 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
                             <div className="text-center">
-                              <UtensilsCrossed className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-                              <p className="text-sm text-slate-600 dark:text-slate-400">Día de descanso</p>
+                              <UtensilsCrossed className="h-6 w-6 text-slate-400 mx-auto mb-1" />
+                              <p className="text-xs text-slate-600 dark:text-slate-400">Día de descanso</p>
                             </div>
                           </div>
                         ) : (
                           /* Timeline de 30 minutos */
-                          <div className="space-y-1 relative">
+                          <div className="space-y-0.5 relative">
                             {TIME_SLOTS.map((slot, slotIndex) => {
                               const [hour, minutes] = slot.split(":")
                               const slotTime = `${hour}:${minutes}`
@@ -620,14 +627,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               const mostrarCita = cita && normalizarHora(cita.horaInicio) === slotTime
 
                               const slotTieneCita = mostrarCita && !!cita
-                              const alturaCita = slotTieneCita ? Math.max(calcularSlotsOcupados(cita!) * 40 + (calcularSlotsOcupados(cita!) - 1) * 4, 100) : 40
+                              const alturaCita = slotTieneCita ? Math.max(calcularSlotsOcupados(cita!) * 32 + (calcularSlotsOcupados(cita!) - 1) * 2, 76) : 32
                               return (
-                                <div key={slot} className="flex gap-2 relative">
-                                  <div className="text-xs text-muted-foreground py-2 w-12 flex-shrink-0">{slot}</div>
+                                <div key={slot} className="flex gap-1 relative">
+                                  <div className="text-[10px] text-muted-foreground py-1 w-9 flex-shrink-0 leading-tight">{slot}</div>
                                   <div
                                     className={cn(
-                                      "flex-1 border-l-2 border-border pl-2 py-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
-                                      !slotTieneCita && "min-h-[40px]",
+                                      "flex-1 border-l border-border pl-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
+                                      !slotTieneCita && "min-h-[32px]",
                                       (!isInRange || isComida) && "bg-muted/30 cursor-not-allowed",
                                       isComida && "bg-orange-50 dark:bg-orange-950/20",
                                       (cita || citaQueOcupaEsteSlot) && "cursor-default bg-primary/5",
@@ -643,11 +650,11 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         onClick={(e) => e.stopPropagation()}
                                         style={{ minHeight: `${alturaCita}px` }}
                                       >
-                                        <CardContent className="p-2 h-full flex flex-col gap-1 min-h-0 overflow-visible">
-                                          <div className="flex items-center justify-between gap-1 shrink-0">
+                                        <CardContent className="p-1.5 h-full flex flex-col gap-0.5 min-h-0 overflow-visible">
+                                          <div className="flex items-center justify-between gap-0.5 shrink-0">
                                             <Badge
                                               className={cn(
-                                                "text-[10px] px-1.5 py-0.5 shrink-0",
+                                                "text-[9px] px-1 py-0 shrink-0 leading-tight",
                                                 ESTADOS.find((e) => e.value === getEstadoUI(cita))?.color || "bg-gray-500",
                                               )}
                                             >
@@ -658,10 +665,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                 <Button
                                                   variant="ghost"
                                                   size="icon"
-                                                  className="h-6 w-6 shrink-0"
+                                                  className="h-5 w-5 shrink-0"
                                                   onClick={(e) => e.stopPropagation()}
                                                 >
-                                                  <MoreVertical className="h-3 w-3" />
+                                                  <MoreVertical className="h-2.5 w-2.5" />
                                                 </Button>
                                               </DropdownMenuTrigger>
                                               <DropdownMenuContent align="end" className="z-50" onClick={(e) => e.stopPropagation()}>
@@ -708,18 +715,18 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                 </DropdownMenuContent>
                                               </DropdownMenu>
                                           </div>
-                                          <div className="flex-1 min-h-[2.75rem] flex flex-col justify-center gap-0.5 min-w-0">
-                                            <p className="font-semibold text-sm text-foreground leading-snug truncate" title={cita.clienteNombre}>
+                                          <div className="flex-1 min-h-[2rem] flex flex-col justify-center gap-0 min-w-0">
+                                            <p className="font-semibold text-[11px] text-foreground leading-snug truncate" title={cita.clienteNombre}>
                                               {cita.clienteNombre}
                                             </p>
-                                            <p className="text-xs text-muted-foreground leading-snug truncate" title={cita.servicioNombre}>
+                                            <p className="text-[10px] text-muted-foreground leading-snug truncate" title={cita.servicioNombre}>
                                               {cita.servicioNombre}
                                             </p>
                                           </div>
-                                          <div className="flex items-center justify-between text-[11px] text-muted-foreground shrink-0 pt-1 border-t border-border/80">
+                                          <div className="flex items-center justify-between text-[10px] text-muted-foreground shrink-0 pt-0.5 border-t border-border/60">
                                             <span className="flex items-center gap-0.5">
-                                              <Clock className="h-3 w-3 shrink-0" />
-                                              {cita.horaInicio} – {cita.horaFin}
+                                              <Clock className="h-2.5 w-2.5 shrink-0" />
+                                              {cita.horaInicio}–{cita.horaFin}
                                             </span>
                                             <span className="font-medium text-foreground">${cita.precio}</span>
                                           </div>
@@ -728,14 +735,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                     ) : citaQueOcupaEsteSlot ? (
                                       <div className="absolute inset-0 bg-primary/5 z-0" />
                                     ) : isComida ? (
-                                      <div className="flex items-center justify-center h-full min-h-[40px] text-xs text-orange-600 dark:text-orange-400">
-                                        <UtensilsCrossed className="h-3 w-3 mr-1" />
+                                      <div className="flex items-center justify-center h-full min-h-[32px] text-[10px] text-orange-600 dark:text-orange-400">
+                                        <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5" />
                                         Comida
                                       </div>
                                     ) : (
                                       isInRange && (
-                                        <div className="flex items-center justify-center h-full min-h-[40px] opacity-0 hover:opacity-100 transition-opacity">
-                                          <Plus className="h-4 w-4 text-muted-foreground" />
+                                        <div className="flex items-center justify-center h-full min-h-[32px] opacity-0 hover:opacity-100 transition-opacity">
+                                          <Plus className="h-3 w-3 text-muted-foreground" />
                                         </div>
                                       )
                                     )}
@@ -749,7 +756,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     )
                   })}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
