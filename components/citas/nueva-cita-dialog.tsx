@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -273,11 +273,11 @@ export function NuevaCitaDialog({
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl w-[95vw] h-[92vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
-          <DialogTitle className="text-xl">Nueva Cita</DialogTitle>
-        </DialogHeader>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-[580px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden">
+        <SheetHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
+          <SheetTitle className="text-xl">Nueva Cita</SheetTitle>
+        </SheetHeader>
 
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden min-h-0">
           <div className="flex-1 overflow-y-auto overscroll-contain">
@@ -624,7 +624,7 @@ export function NuevaCitaDialog({
           </div>{/* /overflow-y-auto */}
 
           {/* ── FOOTER ──────────────────────────────────────────────────────── */}
-          <DialogFooter className="px-6 py-4 border-t bg-background flex-shrink-0 flex items-center justify-between">
+          <div className="px-6 py-4 border-t bg-background flex-shrink-0 flex items-center justify-between">
             <div className="text-xs text-muted-foreground">
               {serviciosItems.length} servicio{serviciosItems.length > 1 ? "s" : ""} · ${totalPrecio}
             </div>
@@ -642,9 +642,9 @@ export function NuevaCitaDialog({
                 )}
               </Button>
             </div>
-          </DialogFooter>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   )
 }

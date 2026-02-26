@@ -263,8 +263,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       if (selectedSucursal && selectedDate) {
         setIsLoadingCitas(true)
         try {
-          const citasData = await getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal)
+          const [citasData, ausenciasData] = await Promise.all([
+            getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal),
+            getAusenciasFromDB({ fechaDesde: selectedDate, fechaHasta: selectedDate }),
+          ])
           setCitas(citasData)
+          // Enriquecer ausencias con nombres de empleados
+          const conNombres = ausenciasData.map((a: Ausencia) => {
+            const emp = empleadosSucursal.find(e => e.id === a.empleadoId)
+            return { ...a, empleadoNombre: emp ? `${emp.nombre} ${emp.apellido}` : a.empleadoNombre }
+          })
+          setAusencias(conNombres)
         } catch (error) {
           console.error('Error cargando citas:', error)
           toast.error('Error al cargar las citas')
@@ -274,7 +283,32 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       }
     }
     loadCitas()
-  }, [selectedSucursal, selectedDate, refreshCitasKey])
+  }, [selectedSucursal, selectedDate, refreshCitasKey, empleadosSucursal])
+
+  // Devuelve ausencias aprobadas/pendientes del día para un empleado
+  const getAusenciasEmpleadoHoy = (empleadoId: string): Ausencia[] =>
+    ausencias.filter(a =>
+      a.empleadoId === empleadoId &&
+      (a.estatus === 'aprobada' || a.estatus === 'pendiente')
+    )
+
+  // Devuelve true si el slot (HH:MM) cae dentro de una ausencia parcial
+  const isSlotBloqueadoPorAusencia = (slot: string, ausenciasEmp: Ausencia[]): Ausencia | null => {
+    for (const a of ausenciasEmp) {
+      if (a.tipo === 'falta') continue // día completo, se maneja a nivel columna
+      if (!a.duracionHoras) continue
+      // Intentar extraer hora de inicio de fecha_inicio
+      const fechaInicio = a.fechaInicio ? new Date(a.fechaInicio) : null
+      const horaInicioAus = fechaInicio
+        ? `${String(fechaInicio.getHours()).padStart(2, '0')}:${String(fechaInicio.getMinutes()).padStart(2, '0')}`
+        : '10:00'
+      const minInicio = horaToMins(horaInicioAus)
+      const minFin = minInicio + (a.duracionHoras * 60)
+      const minSlot = horaToMins(slot)
+      if (minSlot >= minInicio && minSlot < minFin) return a
+    }
+    return null
+  }
 
   const isEmpleadoDeVacaciones = (empleadoId: string, fecha: string): Vacacion | null => {
     const fechaDate = new Date(fecha)
@@ -709,7 +743,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
                       const descansoHoy = bloquesAgenda.some((b) => b.empleadoId === empleado.id && b.tipo === 'descanso')
-                      const noDisponible = vacacionEmpleado || descansoHoy
+                      const ausenciasEmp = getAusenciasEmpleadoHoy(empleado.id)
+                      const ausenciaDiaCompleto = ausenciasEmp.find(a => a.tipo === 'falta')
+                      const noDisponible = !!(vacacionEmpleado || descansoHoy || ausenciaDiaCompleto)
 
                     return (
                       <div key={empleado.id} className={cn("space-y-1", noDisponible && "opacity-60")}>
@@ -719,6 +755,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             "flex items-center gap-1.5 pb-1.5 border-b sticky top-0 bg-background z-10",
                             vacacionEmpleado && "bg-amber-50 rounded-t-md px-1.5 pt-1.5",
                             descansoHoy && "bg-slate-100 dark:bg-slate-800 rounded-t-md px-1.5 pt-1.5",
+                            ausenciaDiaCompleto && "bg-red-50 rounded-t-md px-1.5 pt-1.5",
                           )}
                         >
                           <div
@@ -726,6 +763,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               "h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0",
                               vacacionEmpleado && "bg-amber-200",
                               descansoHoy && "bg-slate-300 dark:bg-slate-600",
+                              ausenciaDiaCompleto && "bg-red-200",
                               !noDisponible && "bg-primary/10",
                             )}
                           >
@@ -733,6 +771,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               <Palmtree className="h-3.5 w-3.5 text-amber-600" />
                             ) : descansoHoy ? (
                               <UtensilsCrossed className="h-3.5 w-3.5 text-slate-500" />
+                            ) : ausenciaDiaCompleto ? (
+                              <UserX className="h-3.5 w-3.5 text-red-600" />
                             ) : (
                               <User className="h-3.5 w-3.5 text-primary" />
                             )}
@@ -745,6 +785,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               <p className="text-[10px] text-amber-600 font-medium leading-tight">Vacaciones</p>
                             ) : descansoHoy ? (
                               <p className="text-[10px] text-slate-500 leading-tight">Descanso</p>
+                            ) : ausenciaDiaCompleto ? (
+                              <p className="text-[10px] text-red-600 font-medium leading-tight capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]} · {ausenciaDiaCompleto.estatus}</p>
                             ) : (
                               <p className="text-[10px] text-muted-foreground leading-tight">
                                 {empleado.horarioInicio} - {empleado.horarioFin}
@@ -767,6 +809,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                 {new Date(vacacionEmpleado.fechaInicio).toLocaleDateString("es-MX")} –{" "}
                                 {new Date(vacacionEmpleado.fechaFin).toLocaleDateString("es-MX")}
                               </p>
+                            </div>
+                          </div>
+                        ) : ausenciaDiaCompleto ? (
+                          <div className="flex items-center justify-center h-24 bg-red-50 rounded-lg border border-red-200">
+                            <div className="text-center">
+                              <UserX className="h-6 w-6 text-red-400 mx-auto mb-1" />
+                              <p className="text-xs text-red-700 font-medium capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]}</p>
+                              {ausenciaDiaCompleto.motivo && (
+                                <p className="text-[10px] text-red-500 max-w-[120px] mx-auto truncate">{ausenciaDiaCompleto.motivo}</p>
+                              )}
+                              <p className="text-[10px] text-red-400 capitalize">{ausenciaDiaCompleto.estatus}</p>
                             </div>
                           </div>
                         ) : descansoHoy ? (
@@ -796,24 +849,28 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                       slot < b.horaFin.substring(0, 5)
                                   )
                                   const isComida = !!bloqueComida
+                                  const ausenciaSlot = isSlotBloqueadoPorAusencia(slot, ausenciasEmp)
+                                  const isAusenciaParcial = !!ausenciaSlot
                                   const isOcupado = citasEmpleado.some((c) => {
                                     const ni = c.horaInicio.substring(0, 5)
                                     const nf = c.horaFin.substring(0, 5)
                                     return slot >= ni && slot < nf
                                   })
+                                  const bloqueado = isComida || isAusenciaParcial
                                   return (
                                     <div
                                       key={slot}
                                       className={cn(
                                         "absolute flex gap-1 group",
-                                        (!isInRange || isComida) && "bg-muted/30",
+                                        (!isInRange || bloqueado) && "bg-muted/30",
                                         isComida && "bg-orange-50 dark:bg-orange-950/20",
-                                        isInRange && !isOcupado && !isComida && "hover:bg-accent/40 cursor-pointer",
-                                        isOcupado && "cursor-default",
+                                        isAusenciaParcial && "bg-red-50 dark:bg-red-950/20",
+                                        isInRange && !isOcupado && !bloqueado && "hover:bg-accent/40 cursor-pointer",
+                                        (isOcupado || bloqueado) && "cursor-default",
                                       )}
                                       style={{ top: `${idx * SLOT_H}px`, height: `${SLOT_H - 2}px`, left: 0, right: 0 }}
                                       onClick={() => {
-                                        if (!isComida && isInRange && !isOcupado)
+                                        if (!bloqueado && isInRange && !isOcupado)
                                           handleSlotClick(slot, empleado.id, true)
                                       }}
                                     >
@@ -826,7 +883,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                             <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5" /> Comida
                                           </span>
                                         )}
-                                        {isInRange && !isOcupado && !isComida && (
+                                        {isAusenciaParcial && !isComida && (
+                                          <span className="absolute inset-0 flex items-center pl-1 text-[10px] text-red-600 dark:text-red-400 pointer-events-none">
+                                            <UserX className="h-2.5 w-2.5 mr-0.5" />
+                                            <span className="capitalize truncate">{TIPO_AUSENCIA_LABELS[ausenciaSlot.tipo]}</span>
+                                          </span>
+                                        )}
+                                        {isInRange && !isOcupado && !bloqueado && (
                                           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                             <Plus className="h-3 w-3 text-muted-foreground" />
                                           </div>
