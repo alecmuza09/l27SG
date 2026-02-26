@@ -27,6 +27,7 @@ import {
   getHistorialClienteFromDB, getGiftCardActivaClienteFromDB, getSaldoPendienteClienteFromDB,
   type HistorialCliente, type GiftCardValidada,
 } from "@/lib/data/pagos"
+import { updateCitaEstado } from "@/lib/data/citas"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 
 // ─── Tipos internos ────────────────────────────────────────────────────────
@@ -39,6 +40,7 @@ interface CartItem {
   cantidad: number
   categoriaServicio?: string   // para auto-sugerencias
   empleadoId?: string          // empleado que realizó el servicio
+  citaId?: string              // id de la cita original para marcarla como pagada
 }
 
 interface DescuentoAplicado {
@@ -197,6 +199,7 @@ export function CajaDialog({
         precio: c.precio,
         cantidad: 1,
         empleadoId: c.empleadoId,
+        citaId: c.id,
       }))
       setCart(itemsIniciales)
       // Si hay un solo cliente en las citas, pre-seleccionarlo
@@ -408,6 +411,14 @@ export function CajaDialog({
     setIsCobrando(false)
 
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
+
+    // Marcar todas las citas del carrito como completadas y pagadas
+    const citasIds = cart
+      .filter(i => i.tipo === "servicio" && i.citaId)
+      .map(i => i.citaId!)
+    await Promise.all(
+      citasIds.map(id => updateCitaEstado(id, "completada", true))
+    )
 
     toast.success("¡Cobro registrado!", {
       description: `Total ${fmtMXN(total)}${cambio > 0 ? ` · Cambio: ${fmtMXN(cambio)}` : ""}`,
