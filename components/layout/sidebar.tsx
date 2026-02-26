@@ -24,8 +24,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { logout } from "@/lib/auth"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
-import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: BarChart3 },
@@ -55,7 +53,6 @@ interface SidebarProps {
 export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const [cajaOpen, setCajaOpen] = useState(false)
 
   const handleLogout = async () => {
     await logout()
@@ -83,18 +80,20 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
 
       {/* Botón Caja destacado */}
       <div className="px-3 py-3 border-b border-border">
-        <button
-          onClick={() => setCajaOpen(true)}
+        <Link
+          href="/dashboard/caja"
           title={isCollapsed ? "Caja" : undefined}
           className={cn(
             "flex items-center gap-2.5 w-full rounded-lg px-3 py-2.5 text-sm font-semibold transition-all",
-            "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm",
+            pathname === "/dashboard/caja"
+              ? "bg-emerald-700 text-white shadow-sm"
+              : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm",
             isCollapsed && "justify-center px-2"
           )}
         >
           <Receipt className="h-5 w-5 flex-shrink-0" />
           {!isCollapsed && <span>Caja</span>}
-        </button>
+        </Link>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
@@ -188,11 +187,6 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
         </Button>
       </div>
 
-      <CajaDialog
-        open={cajaOpen}
-        onOpenChange={setCajaOpen}
-        onPagoCompletado={() => {}}
-      />
     </div>
   )
 }
