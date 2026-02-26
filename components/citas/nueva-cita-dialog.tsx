@@ -21,7 +21,7 @@ import {
   Plus, Search, User, Loader2, ChevronsUpDown, Trash2,
   Clock, DollarSign, ChevronDown, CheckCircle2, AlertCircle,
 } from "lucide-react"
-import { ScrollArea } from "@/components/ui/scroll-area"
+// ScrollArea removed — using native overflow-y-auto for reliable flex scroll
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -274,14 +274,14 @@ export function NuevaCitaDialog({
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl w-[95vw] h-[92vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-3 flex-shrink-0">
+      <DialogContent className="max-w-3xl w-[95vw] h-[92vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
           <DialogTitle className="text-xl">Nueva Cita</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <ScrollArea className="flex-1">
-            <div className="px-6 pb-6 space-y-6">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <div className="flex-1 overflow-y-auto overscroll-contain">
+            <div className="px-6 py-6 space-y-6">
 
               {/* ── CLIENTE ─────────────────────────────────────────────────── */}
               <section className="space-y-3">
@@ -621,7 +621,7 @@ export function NuevaCitaDialog({
               )}
 
             </div>
-          </ScrollArea>
+          </div>{/* /overflow-y-auto */}
 
           {/* ── FOOTER ──────────────────────────────────────────────────────── */}
           <DialogFooter className="px-6 py-4 border-t bg-background flex-shrink-0 flex items-center justify-between">
