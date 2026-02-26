@@ -60,6 +60,22 @@ const ESTADOS = [
   { value: "cancelado", label: "Cancelado", color: "bg-red-500", dbValue: "cancelada" },
 ]
 
+// Estilos de tarjeta por estado
+const ESTADO_CARD: Record<string, { bg: string; border: string; bar: string; text: string }> = {
+  pendiente:            { bg: "bg-yellow-50 dark:bg-yellow-950/30",  border: "border-yellow-300 dark:border-yellow-700",  bar: "bg-yellow-400",  text: "text-yellow-800 dark:text-yellow-300" },
+  confirmado:           { bg: "bg-blue-50 dark:bg-blue-950/30",      border: "border-blue-300 dark:border-blue-700",      bar: "bg-blue-400",    text: "text-blue-800 dark:text-blue-300" },
+  "en-espera":          { bg: "bg-orange-50 dark:bg-orange-950/30",  border: "border-orange-300 dark:border-orange-700",  bar: "bg-orange-400",  text: "text-orange-800 dark:text-orange-300" },
+  "en-atencion":        { bg: "bg-purple-50 dark:bg-purple-950/30",  border: "border-purple-300 dark:border-purple-700",  bar: "bg-purple-400",  text: "text-purple-800 dark:text-purple-300" },
+  "pendiente-por-pagar":{ bg: "bg-amber-50 dark:bg-amber-950/30",    border: "border-amber-300 dark:border-amber-700",    bar: "bg-amber-400",   text: "text-amber-800 dark:text-amber-300" },
+  pagado:               { bg: "bg-green-50 dark:bg-green-950/30",    border: "border-green-300 dark:border-green-700",    bar: "bg-green-500",   text: "text-green-800 dark:text-green-300" },
+  cancelado:            { bg: "bg-red-50 dark:bg-red-950/30",        border: "border-red-200 dark:border-red-800",        bar: "bg-red-400",     text: "text-red-700 dark:text-red-300" },
+}
+
+// Iniciales del nombre (máx. 2 letras)
+function getInitials(name: string): string {
+  return name.split(" ").slice(0, 2).map((n) => n[0] ?? "").join("").toUpperCase()
+}
+
 // Función para mapear estado de UI a estado de BD
 function mapearEstadoAUI(estadoDB: string): string {
   const estado = ESTADOS.find(e => e.dbValue === estadoDB)
@@ -730,18 +746,22 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                   const { col, totalCols } = overlapMap.get(cita.id) ?? { col: 0, totalCols: 1 }
                                   const topPx = horaToPx(cita.horaInicio)
                                   const heightPx = duracionToPx(cita.duracion)
-                                  const LEFT_OFFSET = 36 // ancho etiqueta hora
+                                  const LEFT_OFFSET = 36
                                   const widthFrac = 1 / totalCols
+                                  const estadoUI = getEstadoUI(cita)
+                                  const cardStyle = ESTADO_CARD[estadoUI] ?? ESTADO_CARD["pendiente"]
+                                  const initials = getInitials(cita.clienteNombre)
+                                  // Modo compacto cuando la tarjeta es muy estrecha (solapamiento 3+)
+                                  const isCompact = totalCols >= 3
 
                                   return (
-                                    <Card
+                                    <div
                                       key={cita.id}
                                       className={cn(
-                                        "absolute z-10 border border-border bg-card shadow-sm rounded-md overflow-hidden cursor-move hover:shadow-md transition-shadow",
-                                        totalCols > 1 && "border-l-2",
-                                        col === 0 && totalCols > 1 && "border-l-blue-400",
-                                        col === 1 && totalCols > 1 && "border-l-purple-400",
-                                        col === 2 && totalCols > 1 && "border-l-pink-400",
+                                        "absolute z-10 rounded-md border shadow-sm cursor-default select-none",
+                                        "hover:shadow-md hover:z-20 transition-all",
+                                        cardStyle.bg,
+                                        cardStyle.border,
                                       )}
                                       draggable
                                       onDragStart={() => handleDragStart(cita)}
@@ -751,30 +771,59 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         left: `calc(${LEFT_OFFSET}px + ${col * widthFrac} * (100% - ${LEFT_OFFSET}px))`,
                                         width: `calc(${widthFrac} * (100% - ${LEFT_OFFSET}px))`,
                                         height: `${heightPx}px`,
+                                        overflow: "visible",
                                       }}
                                     >
-                                      <CardContent className="p-1.5 h-full flex flex-col gap-0.5 min-h-0">
-                                        <div className="flex items-center justify-between gap-0.5 shrink-0">
-                                          <Badge
-                                            className={cn(
-                                              "text-[9px] px-1 py-0 shrink-0 leading-tight",
-                                              ESTADOS.find((e) => e.value === getEstadoUI(cita))?.color || "bg-gray-500",
-                                            )}
-                                          >
-                                            {ESTADOS.find((e) => e.value === getEstadoUI(cita))?.label || cita.estado}
-                                          </Badge>
+                                      {/* Barra de color superior por estado */}
+                                      <div className={cn("h-1 w-full rounded-t-md shrink-0", cardStyle.bar)} />
+
+                                      {/* Contenido */}
+                                      <div className="px-1.5 pt-0.5 pb-1 h-[calc(100%-4px)] flex flex-col gap-0.5 overflow-hidden">
+
+                                        {/* Fila superior: iniciales + nombre + botón menú */}
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          {/* Avatar iniciales */}
+                                          <div className={cn(
+                                            "rounded-full flex items-center justify-center font-bold shrink-0",
+                                            cardStyle.bar,
+                                            isCompact ? "h-4 w-4 text-[7px]" : "h-5 w-5 text-[8px]",
+                                            "text-white"
+                                          )}>
+                                            {initials}
+                                          </div>
+
+                                          {/* Nombre cliente */}
+                                          {!isCompact && (
+                                            <p className="flex-1 font-semibold text-[11px] text-foreground leading-tight truncate min-w-0" title={cita.clienteNombre}>
+                                              {cita.clienteNombre}
+                                            </p>
+                                          )}
+
+                                          {/* Menú de acciones — siempre visible */}
                                           <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-5 w-5 shrink-0"
+                                              <button
+                                                className={cn(
+                                                  "shrink-0 rounded flex items-center justify-center",
+                                                  "hover:bg-black/10 transition-colors",
+                                                  isCompact ? "h-4 w-4" : "h-5 w-5",
+                                                )}
                                                 onClick={(e) => e.stopPropagation()}
                                               >
-                                                <MoreVertical className="h-2.5 w-2.5" />
-                                              </Button>
+                                                <MoreVertical className={isCompact ? "h-2 w-2" : "h-3 w-3"} />
+                                              </button>
                                             </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end" className="z-50" onClick={(e) => e.stopPropagation()}>
+                                            <DropdownMenuContent
+                                              align="end"
+                                              side="bottom"
+                                              className="z-[200]"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              {/* Info del cliente en cabecera del menú */}
+                                              <div className="px-2 py-1.5 border-b mb-1">
+                                                <p className="text-xs font-semibold truncate max-w-[180px]">{cita.clienteNombre}</p>
+                                                <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">{cita.servicioNombre}</p>
+                                              </div>
                                               <DropdownMenuItem
                                                 onSelect={() => {
                                                   setEditingCita(cita)
@@ -805,11 +854,11 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                 Ir a Caja
                                               </DropdownMenuItem>
                                               <DropdownMenuSeparator />
-                                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                              <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
                                                 Cambiar Estado:
                                               </div>
                                               {ESTADOS.map((estado) => {
-                                                const isCurrentState = getEstadoUI(cita) === estado.value
+                                                const isCurrentState = estadoUI === estado.value
                                                 return (
                                                   <DropdownMenuItem
                                                     key={estado.value}
@@ -820,7 +869,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                                     disabled={isCurrentState}
                                                     className={isCurrentState ? "bg-accent" : ""}
                                                   >
-                                                    <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
+                                                    <div className={cn("h-2 w-2 rounded-full mr-2 shrink-0", estado.color)} />
                                                     {estado.label}
                                                   </DropdownMenuItem>
                                                 )
@@ -828,26 +877,39 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                             </DropdownMenuContent>
                                           </DropdownMenu>
                                         </div>
-                                        <div className="flex-1 flex flex-col justify-center gap-0 min-w-0 overflow-hidden">
-                                          <p className="font-semibold text-[11px] text-foreground leading-snug truncate" title={cita.clienteNombre}>
+
+                                        {/* Nombre en modo compacto */}
+                                        {isCompact && (
+                                          <p className="text-[9px] font-medium text-foreground leading-tight truncate">
                                             {cita.clienteNombre}
                                           </p>
-                                          <p className="text-[10px] text-muted-foreground leading-snug truncate" title={cita.servicioNombre}>
-                                            {cita.servicioNombre}
-                                          </p>
-                                        </div>
-                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground shrink-0 pt-0.5 border-t border-border/60">
-                                          <span className="flex items-center gap-0.5">
-                                            <Clock className="h-2.5 w-2.5 shrink-0" />
-                                            {cita.horaInicio.substring(0,5)}–{cita.horaFin.substring(0,5)}
-                                            {totalCols > 1 && (
-                                              <span className="ml-1 text-[9px] text-muted-foreground/70">{cita.duracion}m</span>
-                                            )}
+                                        )}
+
+                                        {/* Servicio */}
+                                        <p className={cn(
+                                          "text-muted-foreground leading-tight truncate shrink-0",
+                                          isCompact ? "text-[9px]" : "text-[10px]"
+                                        )} title={cita.servicioNombre}>
+                                          {cita.servicioNombre}
+                                        </p>
+
+                                        {/* Footer: hora + precio */}
+                                        <div className={cn(
+                                          "flex items-center justify-between mt-auto shrink-0",
+                                          cardStyle.text,
+                                          isCompact ? "text-[8px]" : "text-[10px]"
+                                        )}>
+                                          <span className="flex items-center gap-0.5 font-medium">
+                                            <Clock className={isCompact ? "h-2 w-2 shrink-0" : "h-2.5 w-2.5 shrink-0"} />
+                                            {cita.horaInicio.substring(0, 5)}
+                                            {!isCompact && <>–{cita.horaFin.substring(0, 5)}</>}
                                           </span>
-                                          <span className="font-medium text-foreground">${cita.precio}</span>
+                                          {!isCompact && (
+                                            <span className="font-semibold">${cita.precio}</span>
+                                          )}
                                         </div>
-                                      </CardContent>
-                                    </Card>
+                                      </div>
+                                    </div>
                                   )
                                 })}
                               </div>
