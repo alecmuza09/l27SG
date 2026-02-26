@@ -9,9 +9,12 @@ import { Label } from "@/components/ui/label"
 import {
   CreditCard, Banknote, ArrowLeftRight, Plus, ShoppingBag,
   RefreshCw, Receipt, Search, Gift, Loader2, Wallet,
+  Eye, Pencil, X, Check, Star,
 } from "lucide-react"
+import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
 import {
-  getPagosFromDB, getResumenCajaDiarioFromDB,
+  getPagosFromDB, getResumenCajaDiarioFromDB, updatePago,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { getCitasByDateAndSucursalFromDB, type Cita } from "@/lib/data/citas"
@@ -74,6 +77,12 @@ export default function PagosPage() {
   const [nuevoGasto, setNuevoGasto]             = useState({ descripcion: "", monto: "", categoria: "operativo" })
   const [busqueda, setBusqueda]                 = useState("")
   const [busquedaCitas, setBusquedaCitas]       = useState("")
+  const [pagoDetalle, setPagoDetalle]           = useState<Pago | null>(null)
+  const [editando, setEditando]                 = useState(false)
+  const [editPropina, setEditPropina]           = useState("")
+  const [editNotas, setEditNotas]               = useState("")
+  const [editReferencia, setEditReferencia]     = useState("")
+  const [isSavingPago, setIsSavingPago]         = useState(false)
 
   // ── carga de datos ──────────────────────────────────────────────────────────
   const cargarDatos = useCallback(async () => {
@@ -159,6 +168,32 @@ export default function PagosPage() {
   const abrirCajaConSeleccion = () => {
     if (citasSeleccionadas.size === 0) return
     setCajaOpen(true)
+  }
+
+  const abrirDetallePago = (pago: Pago) => {
+    setPagoDetalle(pago)
+    setEditando(false)
+    setEditPropina(String(pago.propina ?? 0))
+    setEditNotas(pago.notas ?? "")
+    setEditReferencia(pago.referencia ?? "")
+  }
+
+  const handleGuardarEdicion = async () => {
+    if (!pagoDetalle) return
+    setIsSavingPago(true)
+    const res = await updatePago(pagoDetalle.id, {
+      propina: Number(editPropina) || 0,
+      notas: editNotas.trim() || undefined,
+      referencia: editReferencia.trim() || undefined,
+    })
+    setIsSavingPago(false)
+    if (!res.success) { alert(`Error: ${res.error}`); return }
+    setPagos(prev => prev.map(p => p.id === pagoDetalle.id
+      ? { ...p, propina: Number(editPropina) || 0, notas: editNotas.trim() || undefined, referencia: editReferencia.trim() || undefined }
+      : p
+    ))
+    setPagoDetalle(prev => prev ? { ...prev, propina: Number(editPropina) || 0, notas: editNotas.trim() || undefined, referencia: editReferencia.trim() || undefined } : null)
+    setEditando(false)
   }
 
   // ── acciones ────────────────────────────────────────────────────────────────
@@ -506,12 +541,13 @@ export default function PagosPage() {
                       <TableHead className="text-xs">Método</TableHead>
                       <TableHead className="text-xs">Propina</TableHead>
                       <TableHead className="text-xs text-right">Total</TableHead>
+                      <TableHead className="text-xs w-[60px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {pagosFiltrados.map(pago => (
                       <TableRow key={pago.id} className="hover:bg-muted/30">
-                        <TableCell className="text-xs text-muted-foreground tabular-nums">{pago.hora}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground tabular-nums">{pago.hora?.slice(0, 5)}</TableCell>
                         <TableCell className="text-sm font-medium">{pago.clienteNombre}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{pago.empleadoNombre}</TableCell>
                         <TableCell className="text-xs max-w-[180px] truncate">{pago.servicios.join(", ")}</TableCell>
@@ -523,10 +559,17 @@ export default function PagosPage() {
                             {pago.metodoPago}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs text-amber-600 font-medium">
-                          {pago.propina ? `+${fmtMXN(pago.propina)}` : "—"}
+                        <TableCell className="text-xs font-medium">
+                          {(pago.propina ?? 0) > 0
+                            ? <span className="text-amber-600">+{fmtMXN(pago.propina!)}</span>
+                            : <span className="text-muted-foreground">—</span>}
                         </TableCell>
                         <TableCell className="text-right font-semibold text-sm">{fmtMXN(pago.monto)}</TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-violet-600" onClick={() => abrirDetallePago(pago)}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -707,6 +750,134 @@ export default function PagosPage() {
           setCitasSeleccionadas(new Set())
         }}
       />
+
+      {/* ════ DIALOG DETALLE / EDICIÓN DE PAGO ════════════════════════════════ */}
+      <Dialog open={!!pagoDetalle} onOpenChange={v => { if (!v) { setPagoDetalle(null); setEditando(false) } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-violet-600" />
+              {editando ? "Editar cobro" : "Detalle del cobro"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {pagoDetalle && (
+            <div className="space-y-4 text-sm">
+              {/* Info principal */}
+              <div className="grid grid-cols-2 gap-3 bg-muted/40 rounded-lg p-3">
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Cliente</p>
+                  <p className="font-medium">{pagoDetalle.clienteNombre}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Empleada</p>
+                  <p className="font-medium">{pagoDetalle.empleadoNombre}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Fecha y hora</p>
+                  <p className="font-medium tabular-nums">{pagoDetalle.fecha} · {pagoDetalle.hora?.slice(0, 5)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Método de pago</p>
+                  <span className="inline-flex items-center gap-1 text-xs border rounded px-1.5 py-0.5 capitalize bg-background">
+                    {pagoDetalle.metodoPago === "efectivo"      && <Banknote className="h-3 w-3 text-emerald-500" />}
+                    {pagoDetalle.metodoPago === "tarjeta"       && <CreditCard className="h-3 w-3 text-blue-500" />}
+                    {pagoDetalle.metodoPago === "transferencia" && <ArrowLeftRight className="h-3 w-3 text-indigo-500" />}
+                    {pagoDetalle.metodoPago}
+                  </span>
+                </div>
+              </div>
+
+              {/* Servicios */}
+              <div>
+                <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Servicios / Productos</p>
+                <p className="text-sm">{pagoDetalle.servicios.join(", ")}</p>
+              </div>
+
+              <Separator />
+
+              {/* Montos */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span>{fmtMXN(pagoDetalle.subtotal ?? pagoDetalle.monto)}</span>
+                </div>
+                {(pagoDetalle.descuentoMonto ?? 0) > 0 && (
+                  <div className="flex justify-between text-violet-600">
+                    <span>Descuento {pagoDetalle.descuentoCodigo ? `(${pagoDetalle.descuentoCodigo})` : ""}</span>
+                    <span>−{fmtMXN(pagoDetalle.descuentoMonto!)}</span>
+                  </div>
+                )}
+
+                {/* Propina — editable */}
+                <div className="flex justify-between items-center text-amber-600">
+                  <span className="flex items-center gap-1"><Star className="h-3.5 w-3.5" /> Propina</span>
+                  {editando ? (
+                    <div className="relative w-28">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
+                      <Input type="number" min="0" step="any" value={editPropina} onChange={e => setEditPropina(e.target.value)} className="h-7 text-xs pl-5 text-right" />
+                    </div>
+                  ) : (
+                    <span className="font-medium">{(pagoDetalle.propina ?? 0) > 0 ? `+${fmtMXN(pagoDetalle.propina!)}` : "—"}</span>
+                  )}
+                </div>
+
+                <Separator />
+                <div className="flex justify-between font-bold text-base">
+                  <span>Total</span>
+                  <span className="text-emerald-700">{fmtMXN(pagoDetalle.monto)}</span>
+                </div>
+              </div>
+
+              {/* Referencia — editable */}
+              {(pagoDetalle.metodoPago === "transferencia" || editando) && (
+                <div>
+                  <Label className="text-[10px] uppercase text-muted-foreground font-semibold">Referencia</Label>
+                  {editando ? (
+                    <Input value={editReferencia} onChange={e => setEditReferencia(e.target.value)} className="mt-1 h-8 text-sm" placeholder="Número de referencia…" />
+                  ) : (
+                    <p className="mt-0.5 text-sm">{pagoDetalle.referencia || "—"}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Notas — editable */}
+              <div>
+                <Label className="text-[10px] uppercase text-muted-foreground font-semibold">Notas</Label>
+                {editando ? (
+                  <Textarea value={editNotas} onChange={e => setEditNotas(e.target.value)} className="mt-1 text-sm resize-none" rows={2} placeholder="Notas adicionales…" />
+                ) : (
+                  <p className="mt-0.5 text-sm text-muted-foreground">{pagoDetalle.notas || "—"}</p>
+                )}
+              </div>
+
+              {/* Botones */}
+              <div className="flex gap-2 pt-1">
+                {editando ? (
+                  <>
+                    <Button variant="outline" className="flex-1" onClick={() => setEditando(false)} disabled={isSavingPago}>
+                      <X className="h-4 w-4 mr-1.5" /> Cancelar
+                    </Button>
+                    <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleGuardarEdicion} disabled={isSavingPago}>
+                      {isSavingPago ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Check className="h-4 w-4 mr-1.5" />}
+                      Guardar
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="outline" className="flex-1" onClick={() => setPagoDetalle(null)}>
+                      Cerrar
+                    </Button>
+                    <Button className="flex-1 bg-violet-600 hover:bg-violet-700 text-white" onClick={() => setEditando(true)}>
+                      <Pencil className="h-4 w-4 mr-1.5" /> Editar
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

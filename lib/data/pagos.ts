@@ -228,6 +228,13 @@ export async function getPagosFromDB(sucursalId?: string): Promise<Pago[]> {
       servicios: pago.servicios || [],
       notas: pago.notas || undefined,
       referencia: pago.referencia || undefined,
+      subtotal: Number(pago.subtotal) || 0,
+      descuentoMonto: Number(pago.descuento_monto) || 0,
+      descuentoTipo: pago.descuento_tipo || undefined,
+      descuentoCodigo: pago.descuento_codigo || undefined,
+      propina: Number(pago.propina) || 0,
+      montoEfectivo: Number(pago.monto_efectivo) || 0,
+      montoTarjeta: Number(pago.monto_tarjeta) || 0,
     }))
   } catch (error) {
     console.error('Error inesperado obteniendo pagos:', error)
@@ -604,5 +611,29 @@ export async function getResumenCajaAyerFromDB(
     }
   } catch {
     return { totalVentas: 0, cantidadTransacciones: 0, ticketPromedio: 0 }
+  }
+}
+
+// ─── Actualizar un pago existente ──────────────────────────────────────────
+export async function updatePago(
+  pagoId: string,
+  datos: {
+    propina?: number
+    notas?: string
+    referencia?: string
+    metodo_pago?: string
+    monto_efectivo?: number
+    monto_tarjeta?: number
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('pagos')
+      .update({ ...datos, updated_at: new Date().toISOString() })
+      .eq('id', pagoId)
+    if (error) return { success: false, error: error.message }
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Error desconocido' }
   }
 }
