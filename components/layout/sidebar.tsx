@@ -80,24 +80,6 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
         </Button>
       </div>
 
-      {/* Botón Caja destacado */}
-      <div className="px-3 py-3 border-b border-border">
-        <Link
-          href="/dashboard/caja"
-          title={isCollapsed ? "Caja" : undefined}
-          className={cn(
-            "flex items-center gap-2.5 w-full rounded-lg px-3 py-2.5 text-sm font-semibold transition-all",
-            pathname === "/dashboard/caja"
-              ? "bg-emerald-700 text-white shadow-sm"
-              : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm",
-            isCollapsed && "justify-center px-2"
-          )}
-        >
-          <Receipt className="h-5 w-5 flex-shrink-0" />
-          {!isCollapsed && <span>Caja</span>}
-        </Link>
-      </div>
-
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {navigation.map((item) => {
           const isActive = pathname === item.href

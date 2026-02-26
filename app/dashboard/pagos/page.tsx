@@ -76,6 +76,7 @@ export default function PagosPage() {
   const [nuevoGasto, setNuevoGasto]             = useState({ descripcion: "", monto: "", categoria: "operativo" })
   const [busqueda, setBusqueda]                 = useState("")
   const [busquedaCitas, setBusquedaCitas]       = useState("")
+  const [citaDetalle, setCitaDetalle]           = useState<Cita | null>(null)
   const [pagoDetalle, setPagoDetalle]           = useState<Pago | null>(null)
   const [editando, setEditando]                 = useState(false)
   const [editPropina, setEditPropina]           = useState("")
@@ -467,6 +468,15 @@ export default function PagosPage() {
                         <div className="flex-shrink-0 text-right">
                           <p className="text-sm font-bold tabular-nums">{fmtMXN(cita.precio)}</p>
                         </div>
+
+                        {/* Botón ver detalle */}
+                        <button
+                          onClick={e => { e.stopPropagation(); setCitaDetalle(cita) }}
+                          className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-violet-600 hover:bg-violet-50 transition-colors"
+                          title="Ver detalle"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
                       </div>
                     )
                   })}
@@ -749,6 +759,73 @@ export default function PagosPage() {
           setCitasSeleccionadas(new Set())
         }}
       />
+
+      {/* ════ DIALOG DETALLE DE CITA (Servicios por cobrar) ═════════════════════ */}
+      <Dialog open={!!citaDetalle} onOpenChange={v => { if (!v) setCitaDetalle(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-emerald-600" />
+              Detalle del servicio
+            </DialogTitle>
+          </DialogHeader>
+          {citaDetalle && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3 bg-muted/40 rounded-lg p-3">
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Cliente</p>
+                  <p className="font-medium">{citaDetalle.clienteNombre}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Empleada</p>
+                  <p className="font-medium">{citaDetalle.empleadoNombre}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Servicio</p>
+                  <p className="font-medium">{citaDetalle.servicioNombre}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Horario</p>
+                  <p className="font-medium tabular-nums">{citaDetalle.horaInicio} – {citaDetalle.horaFin}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Fecha</p>
+                  <p className="font-medium">{citaDetalle.fecha}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Estado</p>
+                  <span className={cn("text-[10px] border rounded-full px-2 py-0.5 font-medium inline-block", estadoColor(citaDetalle.estado))}>
+                    {citaDetalle.estado.replace("-", " ")}
+                  </span>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-between font-bold text-base">
+                <span>Total a cobrar</span>
+                <span className="text-emerald-700">{fmtMXN(citaDetalle.precio)}</span>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" className="flex-1" onClick={() => setCitaDetalle(null)}>
+                  Cerrar
+                </Button>
+                <Button
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => {
+                    setCitaDetalle(null)
+                    setCitasSeleccionadas(new Set([citaDetalle.id]))
+                    setCajaOpen(true)
+                  }}
+                >
+                  <Wallet className="h-4 w-4 mr-1.5" /> Cobrar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ════ DIALOG DETALLE / EDICIÓN DE PAGO ════════════════════════════════ */}
       <Dialog open={!!pagoDetalle} onOpenChange={v => { if (!v) { setPagoDetalle(null); setEditando(false) } }}>
