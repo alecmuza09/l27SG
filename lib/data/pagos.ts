@@ -45,7 +45,7 @@ export interface GiftCardValidada {
 }
 
 export interface RegistrarPagoParams {
-  citaId: string
+  citaId: string | null   // null = venta directa sin cita (punto de venta)
   clienteId: string
   empleadoId: string
   sucursalId: string
@@ -322,7 +322,7 @@ export async function registrarPago(
     const { data: pagoData, error: pagoError } = await supabase
       .from('pagos')
       .insert({
-        cita_id: params.citaId,
+        cita_id: params.citaId || null,
         cliente_id: params.clienteId,
         empleado_id: params.empleadoId,
         sucursal_id: params.sucursalId,
@@ -349,20 +349,21 @@ export async function registrarPago(
       return { success: false, error: pagoError.message }
     }
 
-    // 2. Marcar cita como pagada y completada
-    const { error: citaError } = await supabase
-      .from('citas')
-      .update({
-        pagado: true,
-        estado: 'completada',
-        metodo_pago: params.metodoPago,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.citaId)
+    // 2. Marcar cita como pagada y completada (solo si hay citaId)
+    if (params.citaId) {
+      const { error: citaError } = await supabase
+        .from('citas')
+        .update({
+          pagado: true,
+          estado: 'completada',
+          metodo_pago: params.metodoPago,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', params.citaId)
 
-    if (citaError) {
-      console.error('Error actualizando cita tras cobro:', citaError)
-      // No fallamos: el pago ya se registró
+      if (citaError) {
+        console.error('Error actualizando cita tras cobro:', citaError)
+      }
     }
 
     // 3. Incrementar usos del cupón (si aplica)
