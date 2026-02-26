@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react"
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog"
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -430,18 +430,21 @@ export function CajaDialog({
 
   // ════════════════════════════════════════════════════════════════════════
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[1300px] w-[96vw] max-h-[96vh] p-0 flex flex-col gap-0 overflow-hidden">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-[95vw] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden"
+      >
         {/* Header ──────────────────────────────────────────────────────── */}
-        <DialogHeader className="px-5 pt-4 pb-3 flex-shrink-0 border-b bg-gradient-to-r from-violet-50 to-indigo-50">
+        <SheetHeader className="px-5 pt-4 pb-3 flex-shrink-0 border-b bg-gradient-to-r from-violet-50 to-indigo-50">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-violet-100">
               <Receipt className="h-5 w-5 text-violet-700" />
             </div>
-            <DialogTitle className="text-lg font-semibold text-violet-900">Centro de Cobro</DialogTitle>
-            <Badge variant="secondary" className="ml-auto text-xs">Nueva Venta</Badge>
+            <SheetTitle className="text-lg font-semibold text-violet-900">Centro de Cobro</SheetTitle>
+            <Badge variant="secondary" className="ml-auto mr-8 text-xs">Nueva Venta</Badge>
           </div>
-        </DialogHeader>
+        </SheetHeader>
 
         {isLoadingData ? (
           <div className="flex-1 flex items-center justify-center py-20">
@@ -449,7 +452,7 @@ export function CajaDialog({
           </div>
         ) : (
           /* Layout 3 columnas ─────────────────────────────────────────── */
-          <div className="flex-1 overflow-hidden grid grid-cols-[1fr_minmax(280px,320px)_minmax(260px,300px)] min-h-0">
+          <div className="flex-1 overflow-hidden grid grid-cols-[1fr_360px_320px] min-h-0">
 
             {/* ═══ COL 1: Items ════════════════════════════════════════ */}
             <div className="border-r flex flex-col overflow-hidden">
@@ -908,7 +911,7 @@ export function CajaDialog({
 
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   )
 }
