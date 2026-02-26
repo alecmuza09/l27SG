@@ -381,7 +381,7 @@ export function CajaDialog({
     const res = await registrarPago({
       citaId: null,
       clienteId,
-      empleadoId: "",
+      empleadoId: null as any,
       sucursalId,
       servicioNombre: cart.map(i => `${i.nombre} x${i.cantidad}`).join(", "),
       subtotal,
@@ -449,7 +449,7 @@ export function CajaDialog({
           </div>
         ) : (
           /* Layout 3 columnas ─────────────────────────────────────────── */
-          <div className="flex-1 overflow-hidden grid grid-cols-[1fr_300px_280px] min-h-0">
+          <div className="flex-1 overflow-hidden grid grid-cols-[1fr_minmax(280px,320px)_minmax(260px,300px)] min-h-0">
 
             {/* ═══ COL 1: Items ════════════════════════════════════════ */}
             <div className="border-r flex flex-col overflow-hidden">

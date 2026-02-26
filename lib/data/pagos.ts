@@ -359,7 +359,7 @@ export async function registrarPago(
       .insert({
         cita_id: params.citaId || null,
         cliente_id: params.clienteId,
-        empleado_id: params.empleadoId,
+        empleado_id: params.empleadoId || null,
         sucursal_id: params.sucursalId,
         monto: params.total,
         metodo_pago: params.metodoPago,
