@@ -16,7 +16,7 @@ import {
   getPagosFromDB, getResumenCajaDiarioFromDB, updatePago,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
-import { getCitasByDateAndSucursalFromDB, type Cita } from "@/lib/data/citas"
+import { getCitasByDateAndSucursalFromDB, updateCita, updateCitaEstado, type Cita } from "@/lib/data/citas"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -77,6 +77,11 @@ export default function PagosPage() {
   const [busqueda, setBusqueda]                 = useState("")
   const [busquedaCitas, setBusquedaCitas]       = useState("")
   const [citaDetalle, setCitaDetalle]           = useState<Cita | null>(null)
+  const [editandoCita, setEditandoCita]         = useState(false)
+  const [editCitaPrecio, setEditCitaPrecio]     = useState("")
+  const [editCitaNotas, setEditCitaNotas]       = useState("")
+  const [editCitaEstado, setEditCitaEstado]     = useState("")
+  const [isSavingCita, setIsSavingCita]         = useState(false)
   const [pagoDetalle, setPagoDetalle]           = useState<Pago | null>(null)
   const [editando, setEditando]                 = useState(false)
   const [editPropina, setEditPropina]           = useState("")
@@ -168,6 +173,41 @@ export default function PagosPage() {
   const abrirCajaConSeleccion = () => {
     if (citasSeleccionadas.size === 0) return
     setCajaOpen(true)
+  }
+
+  const abrirDetalleCita = (cita: Cita) => {
+    setCitaDetalle(cita)
+    setEditandoCita(false)
+    setEditCitaPrecio(String(cita.precio))
+    setEditCitaNotas(cita.notas ?? "")
+    setEditCitaEstado(cita.estado)
+  }
+
+  const handleGuardarCita = async () => {
+    if (!citaDetalle) return
+    setIsSavingCita(true)
+    const res = await updateCita(citaDetalle.id, {
+      precio: Number(editCitaPrecio) || citaDetalle.precio,
+      notas: editCitaNotas.trim() || undefined,
+      estado: editCitaEstado as any,
+    })
+    setIsSavingCita(false)
+    if (!res.success) { alert(`Error: ${res.error}`); return }
+    const updated = { ...citaDetalle, precio: Number(editCitaPrecio) || citaDetalle.precio, notas: editCitaNotas.trim() || undefined, estado: editCitaEstado }
+    setCitas(prev => prev.map(c => c.id === citaDetalle.id ? updated as Cita : c))
+    setCitaDetalle(updated as Cita)
+    setEditandoCita(false)
+  }
+
+  const handleCancelarCita = async () => {
+    if (!citaDetalle) return
+    if (!confirm("¿Cancelar esta cita? Esta acción no se puede deshacer fácilmente.")) return
+    setIsSavingCita(true)
+    const res = await updateCitaEstado(citaDetalle.id, "cancelada")
+    setIsSavingCita(false)
+    if (!res.success) { alert(`Error: ${res.error}`); return }
+    setCitas(prev => prev.map(c => c.id === citaDetalle.id ? { ...c, estado: "cancelada" } as Cita : c))
+    setCitaDetalle(null)
   }
 
   const abrirDetallePago = (pago: Pago) => {
@@ -469,14 +509,23 @@ export default function PagosPage() {
                           <p className="text-sm font-bold tabular-nums">{fmtMXN(cita.precio)}</p>
                         </div>
 
-                        {/* Botón ver detalle */}
-                        <button
-                          onClick={e => { e.stopPropagation(); setCitaDetalle(cita) }}
-                          className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-violet-600 hover:bg-violet-50 transition-colors"
-                          title="Ver detalle"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
+                        {/* Botones de acción */}
+                        <div className="flex-shrink-0 flex gap-0.5">
+                          <button
+                            onClick={e => { e.stopPropagation(); abrirDetalleCita(cita) }}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-violet-600 hover:bg-violet-50 transition-colors"
+                            title="Ver detalle"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); abrirDetalleCita(cita); setEditandoCita(true) }}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            title="Editar"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     )
                   })}
@@ -760,17 +809,18 @@ export default function PagosPage() {
         }}
       />
 
-      {/* ════ DIALOG DETALLE DE CITA (Servicios por cobrar) ═════════════════════ */}
-      <Dialog open={!!citaDetalle} onOpenChange={v => { if (!v) setCitaDetalle(null) }}>
+      {/* ════ DIALOG DETALLE / EDICIÓN DE CITA ══════════════════════════════════ */}
+      <Dialog open={!!citaDetalle} onOpenChange={v => { if (!v) { setCitaDetalle(null); setEditandoCita(false) } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-emerald-600" />
-              Detalle del servicio
+              {editandoCita ? "Editar servicio" : "Detalle del servicio"}
             </DialogTitle>
           </DialogHeader>
           {citaDetalle && (
             <div className="space-y-4 text-sm">
+              {/* Info fija */}
               <div className="grid grid-cols-2 gap-3 bg-muted/40 rounded-lg p-3">
                 <div>
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Cliente</p>
@@ -788,40 +838,86 @@ export default function PagosPage() {
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Horario</p>
                   <p className="font-medium tabular-nums">{citaDetalle.horaInicio} – {citaDetalle.horaFin}</p>
                 </div>
-                <div>
-                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Fecha</p>
-                  <p className="font-medium">{citaDetalle.fecha}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Estado</p>
-                  <span className={cn("text-[10px] border rounded-full px-2 py-0.5 font-medium inline-block", estadoColor(citaDetalle.estado))}>
+              </div>
+
+              {/* Estado — editable */}
+              <div>
+                <Label className="text-[10px] uppercase text-muted-foreground font-semibold">Estado</Label>
+                {editandoCita ? (
+                  <select
+                    value={editCitaEstado}
+                    onChange={e => setEditCitaEstado(e.target.value)}
+                    className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="pendiente">Pendiente</option>
+                    <option value="confirmada">Confirmada</option>
+                    <option value="en-progreso">En progreso</option>
+                    <option value="completada">Completada</option>
+                  </select>
+                ) : (
+                  <span className={cn("mt-1 text-[10px] border rounded-full px-2 py-0.5 font-medium inline-block", estadoColor(citaDetalle.estado))}>
                     {citaDetalle.estado.replace("-", " ")}
                   </span>
-                </div>
+                )}
               </div>
 
               <Separator />
 
-              <div className="flex justify-between font-bold text-base">
+              {/* Precio — editable */}
+              <div className="flex justify-between items-center font-bold text-base">
                 <span>Total a cobrar</span>
-                <span className="text-emerald-700">{fmtMXN(citaDetalle.precio)}</span>
+                {editandoCita ? (
+                  <div className="relative w-32">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input type="number" min="0" step="any" value={editCitaPrecio} onChange={e => setEditCitaPrecio(e.target.value)} className="h-8 text-sm pl-6 text-right font-bold" />
+                  </div>
+                ) : (
+                  <span className="text-emerald-700">{fmtMXN(citaDetalle.precio)}</span>
+                )}
               </div>
 
-              <div className="flex gap-2 pt-1">
-                <Button variant="outline" className="flex-1" onClick={() => setCitaDetalle(null)}>
-                  Cerrar
-                </Button>
-                <Button
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => {
-                    setCitaDetalle(null)
-                    setCitasSeleccionadas(new Set([citaDetalle.id]))
-                    setCajaOpen(true)
-                  }}
-                >
-                  <Wallet className="h-4 w-4 mr-1.5" /> Cobrar
-                </Button>
+              {/* Notas — editable */}
+              <div>
+                <Label className="text-[10px] uppercase text-muted-foreground font-semibold">Notas</Label>
+                {editandoCita ? (
+                  <Textarea value={editCitaNotas} onChange={e => setEditCitaNotas(e.target.value)} className="mt-1 text-sm resize-none" rows={2} placeholder="Instrucciones, recordatorios…" />
+                ) : (
+                  <p className="mt-0.5 text-sm text-muted-foreground">{citaDetalle.notas || "—"}</p>
+                )}
               </div>
+
+              {/* Botones */}
+              {editandoCita ? (
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" className="flex-1" onClick={() => setEditandoCita(false)} disabled={isSavingCita}>
+                    <X className="h-4 w-4 mr-1.5" /> Cancelar
+                  </Button>
+                  <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleGuardarCita} disabled={isSavingCita}>
+                    {isSavingCita ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Check className="h-4 w-4 mr-1.5" />}
+                    Guardar
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50 border-red-200" onClick={handleCancelarCita} disabled={isSavingCita}>
+                    <X className="h-3.5 w-3.5 mr-1" /> Cancelar cita
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-blue-600 hover:bg-blue-50 border-blue-200" onClick={() => setEditandoCita(true)}>
+                    <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => {
+                      setCitaDetalle(null)
+                      setCitasSeleccionadas(new Set([citaDetalle.id]))
+                      setCajaOpen(true)
+                    }}
+                  >
+                    <Wallet className="h-3.5 w-3.5 mr-1" /> Cobrar
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
