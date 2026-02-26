@@ -21,7 +21,7 @@ import {
   Plus, Search, User, Loader2, ChevronsUpDown, Trash2,
   Clock, DollarSign, ChevronDown, CheckCircle2, AlertCircle,
 } from "lucide-react"
-// ScrollArea removed — using native overflow-y-auto for reliable flex scroll
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
