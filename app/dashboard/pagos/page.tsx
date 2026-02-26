@@ -11,7 +11,6 @@ import {
   RefreshCw, Receipt, Search, Gift, Loader2, Wallet,
   Eye, Pencil, X, Check, Star,
 } from "lucide-react"
-import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import {
   getPagosFromDB, getResumenCajaDiarioFromDB, updatePago,
