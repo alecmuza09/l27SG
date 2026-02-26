@@ -592,7 +592,7 @@ export default function ClientesPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button variant="ghost" size="icon" asChild>
-                          <Link href={`/dashboard/clientes/${cliente.id}`}>
+                          <Link href={`/dashboard/clientes/detail?id=${cliente.id}`}>
                             <Eye className="h-4 w-4" />
                           </Link>
                         </Button>

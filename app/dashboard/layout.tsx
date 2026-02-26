@@ -1,18 +1,46 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
-import { Menu, X } from "lucide-react"
+import { Menu, X, Loader2 } from "lucide-react"
+import { getCurrentUser, refreshSession } from "@/lib/auth"
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen]   = useState(true)
+  const [authChecked, setAuthChecked]   = useState(false)
+  const router = useRouter()
+
+  useEffect(() => {
+    async function checkAuth() {
+      // Primero revisar localStorage (rápido)
+      const localUser = getCurrentUser()
+      if (localUser) { setAuthChecked(true); return }
+      // Si no hay local, verificar sesión Supabase activa
+      const sessionUser = await refreshSession()
+      if (!sessionUser) {
+        router.replace("/")
+        return
+      }
+      setAuthChecked(true)
+    }
+    checkAuth()
+  }, [router])
+
+  if (!authChecked) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
 
   return (
     <div className="h-screen flex overflow-hidden">

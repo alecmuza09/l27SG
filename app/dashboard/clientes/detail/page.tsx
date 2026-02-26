@@ -1,6 +1,7 @@
 "use client"
 
-import { use, useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -24,36 +25,37 @@ import { getCitasByClienteIdFromDB, type Cita } from "@/lib/data/citas"
 import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
 
-export default function ClienteDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+function ClienteDetailContent() {
+  const searchParams = useSearchParams()
+  const id = searchParams.get("id") || ""
   const [cliente, setCliente] = useState<Cliente | null>(null)
   const [historialCitas, setHistorialCitas] = useState<Cita[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!id) { setError("ID de cliente no especificado"); setIsLoading(false); return }
     async function loadCliente() {
       try {
         setIsLoading(true)
         setError(null)
         const [clienteData, citasData] = await Promise.all([
           getClienteById(id),
-          getCitasByClienteIdFromDB(id)
+          getCitasByClienteIdFromDB(id),
         ])
         if (!clienteData) {
-          setError('Cliente no encontrado')
+          setError("Cliente no encontrado")
         } else {
           setCliente(clienteData)
           setHistorialCitas(citasData)
         }
       } catch (err) {
-        console.error('Error cargando cliente:', err)
-        setError('Error al cargar el cliente')
+        console.error("Error cargando cliente:", err)
+        setError("Error al cargar el cliente")
       } finally {
         setIsLoading(false)
       }
     }
-
     loadCliente()
   }, [id])
 
@@ -74,7 +76,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Cliente no encontrado</CardTitle>
-            <CardDescription>{error || 'El cliente que buscas no existe'}</CardDescription>
+            <CardDescription>{error || "El cliente que buscas no existe"}</CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild>
@@ -225,9 +227,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                     Última: {new Date(cliente.ultimaVisita).toLocaleDateString("es-MX")}
                   </p>
                 ) : (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Sin visitas registradas
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Sin visitas registradas</p>
                 )}
               </CardContent>
             </Card>
@@ -244,11 +244,6 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                 {cliente.totalVisitas > 0 && cliente.totalGastado > 0 && (
                   <p className="text-xs text-muted-foreground mt-1">
                     Promedio: ${Math.round(cliente.totalGastado / cliente.totalVisitas).toLocaleString()}
-                  </p>
-                )}
-                {cliente.totalVisitas === 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Sin gastos registrados
                   </p>
                 )}
               </CardContent>
@@ -269,9 +264,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                     Canjear puntos
                   </Button>
                 ) : (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Sin puntos acumulados
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Sin puntos acumulados</p>
                 )}
               </CardContent>
             </Card>
@@ -334,23 +327,25 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <p className="font-medium">{cita.servicioNombre}</p>
-                          <Badge 
+                          <Badge
                             variant={
-                              cita.estado === 'completada' ? 'default' :
-                              cita.estado === 'cancelada' || cita.estado === 'no-asistio' ? 'destructive' :
-                              'secondary'
+                              cita.estado === "completada"
+                                ? "default"
+                                : cita.estado === "cancelada" || cita.estado === "no-asistio"
+                                  ? "destructive"
+                                  : "secondary"
                             }
                           >
-                            {cita.estado.replace('-', ' ').toUpperCase()}
+                            {cita.estado.replace("-", " ").toUpperCase()}
                           </Badge>
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
                             {new Date(cita.fecha).toLocaleDateString("es-MX", {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric'
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
                             })}
                           </span>
                           <span>{cita.horaInicio}</span>
@@ -360,9 +355,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                       </div>
                       <div className="text-right">
                         <p className="font-semibold">${cita.precio.toLocaleString()}</p>
-                        {cita.pagado && (
-                          <p className="text-xs text-muted-foreground mt-1">Pagado</p>
-                        )}
+                        {cita.pagado && <p className="text-xs text-muted-foreground mt-1">Pagado</p>}
                       </div>
                     </div>
                   ))}
@@ -373,5 +366,19 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ClienteDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <ClienteDetailContent />
+    </Suspense>
   )
 }

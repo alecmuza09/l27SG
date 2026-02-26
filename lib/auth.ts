@@ -1,4 +1,6 @@
-// Authentication system with HTTP-only cookies
+// Authentication system — fully client-side via Supabase Auth
+
+import { supabase } from "@/lib/supabase/client"
 
 export interface User {
   id: string
@@ -13,58 +15,61 @@ export interface AuthState {
   isAuthenticated: boolean
 }
 
+const USER_KEY = "luna27_user"
+
 export async function login(email: string, password: string): Promise<User> {
-  const response = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ email, password }),
-  })
+  // 1. Autenticar con Supabase Auth
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
-  const data = await response.json()
-
-  if (!response.ok) {
-    throw new Error(data.error || "Credenciales inválidas")
+  if (authError || !authData.user) {
+    throw new Error(authError?.message || "Credenciales inválidas")
   }
 
-  // Also store in localStorage for client-side access
+  // 2. Obtener datos del usuario desde la tabla usuarios
+  const { data: usuarioData } = await supabase
+    .from("usuarios")
+    .select("*")
+    .eq("email", email)
+    .eq("activo", true)
+    .maybeSingle()
+
+  const user: User = usuarioData
+    ? {
+        id: usuarioData.id,
+        email: usuarioData.email,
+        name: usuarioData.nombre,
+        role: (usuarioData.rol as User["role"]) || "staff",
+        sucursalId: usuarioData.sucursal_id || undefined,
+      }
+    : {
+        id: authData.user.id,
+        email: authData.user.email!,
+        name: authData.user.user_metadata?.nombre || authData.user.email!.split("@")[0],
+        role: (authData.user.user_metadata?.rol || "admin") as User["role"],
+      }
+
   if (typeof window !== "undefined") {
-    localStorage.setItem("luna27_user", JSON.stringify(data.user))
+    localStorage.setItem(USER_KEY, JSON.stringify(user))
   }
 
-  return data.user
+  return user
 }
 
 export async function logout(): Promise<void> {
-  await fetch("/api/auth/logout", {
-    method: "POST",
-  })
-
+  await supabase.auth.signOut()
   if (typeof window !== "undefined") {
-    localStorage.removeItem("luna27_user")
+    localStorage.removeItem(USER_KEY)
   }
 }
 
 export async function getCurrentUserFromServer(): Promise<User | null> {
-  try {
-    const response = await fetch("/api/auth/me")
-    if (!response.ok) return null
-
-    const data = await response.json()
-    return data.user
-  } catch {
-    return null
-  }
+  return getCurrentUser()
 }
 
-// Keep client-side function for immediate access
 export function getCurrentUser(): User | null {
   if (typeof window === "undefined") return null
-
-  const stored = localStorage.getItem("luna27_user")
+  const stored = localStorage.getItem(USER_KEY)
   if (!stored) return null
-
   try {
     return JSON.parse(stored)
   } catch {
@@ -72,9 +77,18 @@ export function getCurrentUser(): User | null {
   }
 }
 
+// Verifica sesión activa con Supabase (útil al recargar página)
+export async function refreshSession(): Promise<User | null> {
+  const { data } = await supabase.auth.getSession()
+  if (!data.session) {
+    if (typeof window !== "undefined") localStorage.removeItem(USER_KEY)
+    return null
+  }
+  return getCurrentUser()
+}
+
 export function checkPermission(user: User | null, requiredRole: User["role"]): boolean {
   if (!user) return false
-
   const roleHierarchy = { admin: 3, manager: 2, staff: 1 }
   return roleHierarchy[user.role] >= roleHierarchy[requiredRole]
 }
