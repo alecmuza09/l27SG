@@ -100,7 +100,7 @@ FROM (VALUES
   ('079',  'Certificado Mother Days Mani + Pedi Spa',         679.00,  0, 'PROMOS')
 ) AS v(prod_id, nombre, precio, stock, categoria_orig)
 CROSS JOIN (
-  SELECT id, nombre FROM sucursales WHERE activo = true
+  SELECT id, nombre FROM sucursales WHERE activa = true
 ) s
 ON CONFLICT (sku) DO UPDATE SET
   precio_venta   = EXCLUDED.precio_venta,
