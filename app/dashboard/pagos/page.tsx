@@ -699,6 +699,7 @@ export default function PagosPage() {
           clienteNombre: c.clienteNombre,
           servicioNombre: c.servicioNombre,
           precio: c.precio,
+          empleadoId: c.empleadoId,
         }))}
         onPagoCompletado={() => {
           cargarDatos()

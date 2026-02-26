@@ -47,7 +47,7 @@ export interface GiftCardValidada {
 export interface RegistrarPagoParams {
   citaId: string | null   // null = venta directa sin cita (punto de venta)
   clienteId: string
-  empleadoId: string
+  empleadoId: string | null  // null = venta directa sin empleado asignado
   sucursalId: string
   servicioNombre: string
   subtotal: number

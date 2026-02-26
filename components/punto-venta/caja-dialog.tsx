@@ -38,6 +38,7 @@ interface CartItem {
   precio: number
   cantidad: number
   categoriaServicio?: string   // para auto-sugerencias
+  empleadoId?: string          // empleado que realizó el servicio
 }
 
 interface DescuentoAplicado {
@@ -92,6 +93,7 @@ interface CitaInicial {
   clienteNombre: string
   servicioNombre: string
   precio: number
+  empleadoId?: string
 }
 
 interface CajaDialogProps {
@@ -194,6 +196,7 @@ export function CajaDialog({
         nombre: c.servicioNombre,
         precio: c.precio,
         cantidad: 1,
+        empleadoId: c.empleadoId,
       }))
       setCart(itemsIniciales)
       // Si hay un solo cliente en las citas, pre-seleccionarlo
@@ -378,10 +381,13 @@ export function CajaDialog({
     const mayor = montos.sort((a, b) => b.monto - a.monto)[0]
     if (mayor.monto > 0) metodoPrincipal = mayor.metodo
 
+    // Tomar el empleado principal del primer servicio del carrito
+    const empleadoPrincipal = cart.find(i => i.tipo === "servicio" && i.empleadoId)?.empleadoId ?? null
+
     const res = await registrarPago({
       citaId: null,
       clienteId,
-      empleadoId: null as any,
+      empleadoId: empleadoPrincipal as any,
       sucursalId,
       servicioNombre: cart.map(i => `${i.nombre} x${i.cantidad}`).join(", "),
       subtotal,
