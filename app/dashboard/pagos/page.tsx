@@ -64,9 +64,8 @@ export default function PagosPage() {
     transferencia: pagosCompletados.filter((p) => p.metodoPago === "transferencia").length,
   }
 
-  const handlePagoCompletado = (total: number, ajustes: any[]) => {
-    console.log("Pago completado:", { total, ajustes })
-    // Recargar pagos después de completar uno
+  const handlePagoCompletado = (total: number) => {
+    console.log("Pago completado. Total:", total)
     async function reloadPagos() {
       const [pagosData, pendientesData] = await Promise.all([
         getPagosFromDB(),
