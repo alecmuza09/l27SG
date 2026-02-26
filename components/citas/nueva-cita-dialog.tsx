@@ -523,9 +523,29 @@ export function NuevaCitaDialog({
                             {/* Hora */}
                             <div className="space-y-1">
                               <Label className="text-xs text-muted-foreground">Hora *</Label>
-                              <Input type="time" value={item.horaInicio}
-                                onChange={(e) => updateItem(idx, { horaInicio: e.target.value })}
-                                className="h-9 w-28 text-sm" required />
+                              <Select
+                                value={item.horaInicio}
+                                onValueChange={(v) => updateItem(idx, { horaInicio: v })}
+                              >
+                                <SelectTrigger className="h-9 w-28 text-sm">
+                                  <SelectValue placeholder="--:--" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-60">
+                                  {Array.from({ length: 21 }, (_, i) => {
+                                    const h = Math.floor(i / 2) + 10
+                                    const m = i % 2 === 0 ? "00" : "30"
+                                    const val = `${String(h).padStart(2, "0")}:${m}`
+                                    const period = h < 12 ? "am" : h === 12 ? "pm" : "pm"
+                                    const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h
+                                    return (
+                                      <SelectItem key={val} value={val}>
+                                        <span className="tabular-nums font-medium">{val}</span>
+                                        <span className="text-muted-foreground text-[10px] ml-1">{h12}:{m}{period}</span>
+                                      </SelectItem>
+                                    )
+                                  })}
+                                </SelectContent>
+                              </Select>
                             </div>
                           </div>
 
