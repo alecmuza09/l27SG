@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -27,6 +27,13 @@ import { getVacaciones } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
 import { getCurrentUser, type User } from "@/lib/auth"
 import { getSucursalByIdFromDB } from "@/lib/data/sucursales"
+import {
+  getAusenciasFromDB, createAusencia, aprobarAusencia, rechazarAusencia, cancelarAusencia,
+  TIPO_AUSENCIA_LABELS, ESTATUS_AUSENCIA_COLORS, ESTATUS_AUSENCIA_LABELS, TIPO_AUSENCIA_COLORS,
+  type Ausencia, type TipoAusencia,
+} from "@/lib/data/ausencias"
+import { Textarea } from "@/components/ui/textarea"
+import { Separator } from "@/components/ui/separator"
 
 interface AgendaKanbanViewProps {
   selectedDate: string
@@ -183,6 +190,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   // Bloques manuales (comida / descanso) — guardados en localStorage por fecha
   const [bloquesAgenda, setBloquesAgenda] = useState<BloqueAgenda[]>([])
   const [isBloquesOpen, setIsBloquesOpen] = useState(false)
+  // Ausencias del día
+  const [isAusenciasOpen, setIsAusenciasOpen] = useState(false)
+  const [ausencias, setAusencias] = useState<Ausencia[]>([])
+  const [isLoadingAusencias, setIsLoadingAusencias] = useState(false)
+  const [ausenciaForm, setAusenciaForm] = useState({
+    empleadoId: '', tipo: 'falta' as TipoAusencia, motivo: '', duracionHoras: '',
+  })
+  const [isSavingAusencia, setIsSavingAusencia] = useState(false)
+  const [motivoRechazoAusencia, setMotivoRechazoAusencia] = useState('')
+  const [rechazandoAusenciaId, setRechazandoAusenciaId] = useState<string | null>(null)
+
   // Edición de duración inline
   const [editingDuracionCita, setEditingDuracionCita] = useState<Cita | null>(null)
   const [isDuracionDialogOpen, setIsDuracionDialogOpen] = useState(false)
@@ -466,6 +484,68 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     saveBloques(bloquesAgenda.filter((b) => b.id !== id))
   }
 
+  const cargarAusencias = async () => {
+    setIsLoadingAusencias(true)
+    try {
+      const data = await getAusenciasFromDB({ fechaDesde: selectedDate, fechaHasta: selectedDate })
+      // Completar nombres desde empleadosSucursal
+      const conNombres = data.map(a => ({
+        ...a,
+        empleadoNombre: a.empleadoNombre
+          ?? empleadosSucursal.find(e => e.id === a.empleadoId)?.nombre
+          ?? a.empleadoId,
+      }))
+      setAusencias(conNombres)
+    } catch {
+      toast.error('Error al cargar ausencias')
+    } finally {
+      setIsLoadingAusencias(false)
+    }
+  }
+
+  const handleCrearAusencia = async () => {
+    if (!ausenciaForm.empleadoId) { toast.error('Selecciona una empleada'); return }
+    setIsSavingAusencia(true)
+    try {
+      const result = await createAusencia({
+        empleadoId: ausenciaForm.empleadoId,
+        tipo: ausenciaForm.tipo,
+        motivo: ausenciaForm.motivo || undefined,
+        fechaInicio: selectedDate,
+        fechaFin: selectedDate,
+        duracionHoras: ausenciaForm.duracionHoras ? Number(ausenciaForm.duracionHoras) : undefined,
+      })
+      if (result.success) {
+        toast.success('Ausencia registrada')
+        setAusenciaForm({ empleadoId: '', tipo: 'falta', motivo: '', duracionHoras: '' })
+        await cargarAusencias()
+      } else {
+        toast.error(result.error ?? 'Error al registrar')
+      }
+    } finally {
+      setIsSavingAusencia(false)
+    }
+  }
+
+  const handleAprobarAusencia = async (id: string) => {
+    const resp = currentUser?.email ?? currentUser?.name ?? 'Admin'
+    const r = await aprobarAusencia(id, resp)
+    if (r.success) { toast.success('Aprobada'); await cargarAusencias() }
+    else toast.error(r.error ?? 'Error')
+  }
+
+  const handleRechazarAusencia = async (id: string) => {
+    if (!motivoRechazoAusencia.trim()) { toast.error('Indica el motivo'); return }
+    const resp = currentUser?.email ?? currentUser?.name ?? 'Admin'
+    const r = await rechazarAusencia(id, resp, motivoRechazoAusencia)
+    if (r.success) {
+      toast.success('Rechazada')
+      setRechazandoAusenciaId(null)
+      setMotivoRechazoAusencia('')
+      await cargarAusencias()
+    } else toast.error(r.error ?? 'Error')
+  }
+
   const handleGuardarDuracion = async () => {
     if (!editingDuracionCita || nuevaDuracion < 5) return
     setIsSavingDuracion(true)
@@ -529,6 +609,21 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             {bloquesAgenda.length > 0 && (
               <Badge className="ml-2 h-5 min-w-5 px-1 text-xs" variant="secondary">
                 {bloquesAgenda.length}
+              </Badge>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setIsAusenciasOpen(true); cargarAusencias() }}
+            className="ml-2"
+            title="Registrar ausencias del día"
+          >
+            <UserX className="h-4 w-4 mr-2" />
+            Ausencias
+            {ausencias.filter(a => a.estatus === 'pendiente').length > 0 && (
+              <Badge className="ml-2 h-5 min-w-5 px-1 text-xs bg-yellow-500 hover:bg-yellow-500">
+                {ausencias.filter(a => a.estatus === 'pendiente').length}
               </Badge>
             )}
           </Button>
@@ -1210,6 +1305,156 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             <Button onClick={handleGuardarDuracion} disabled={isSavingDuracion || nuevaDuracion < 5}>
               {isSavingDuracion ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Guardar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Ausencias del día ──────────────────────────────────── */}
+      <Dialog open={isAusenciasOpen} onOpenChange={(v) => { setIsAusenciasOpen(v); if (!v) { setRechazandoAusenciaId(null); setMotivoRechazoAusencia('') } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-5 pb-3 border-b flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <UserX className="h-4 w-4" />
+              Ausencias — {selectedDate.split('-').reverse().join('/')}
+            </DialogTitle>
+            <DialogDescription>
+              Registra y gestiona faltas, permisos e incapacidades del día
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto">
+            {/* Formulario rápido de registro */}
+            <div className="px-6 py-4 bg-muted/30 border-b space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Registrar ausencia</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Empleada *</Label>
+                  <Select value={ausenciaForm.empleadoId} onValueChange={(v) => setAusenciaForm(p => ({ ...p, empleadoId: v }))}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {empleadosSucursal.map(e => (
+                        <SelectItem key={e.id} value={e.id}>{e.nombre} {e.apellido}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Tipo *</Label>
+                  <Select value={ausenciaForm.tipo} onValueChange={(v) => setAusenciaForm(p => ({ ...p, tipo: v as TipoAusencia }))}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]).map(t => (
+                        <SelectItem key={t} value={t}>{TIPO_AUSENCIA_LABELS[t]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-[1fr_auto_auto] gap-3 items-end">
+                <div className="space-y-1">
+                  <Label className="text-xs">Motivo (opcional)</Label>
+                  <Input className="h-8 text-sm" placeholder="Ej. cita médica, familiar..."
+                    value={ausenciaForm.motivo} onChange={e => setAusenciaForm(p => ({ ...p, motivo: e.target.value }))} />
+                </div>
+                {(ausenciaForm.tipo === 'salida' || ausenciaForm.tipo === 'tarde') && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Horas</Label>
+                    <Input className="h-8 text-sm w-20" type="number" min={0.5} max={12} step={0.5}
+                      placeholder="2.5" value={ausenciaForm.duracionHoras}
+                      onChange={e => setAusenciaForm(p => ({ ...p, duracionHoras: e.target.value }))} />
+                  </div>
+                )}
+                <Button size="sm" onClick={handleCrearAusencia} disabled={isSavingAusencia} className="h-8">
+                  {isSavingAusencia ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+                  Registrar
+                </Button>
+              </div>
+            </div>
+
+            {/* Lista de ausencias del día */}
+            <div className="px-6 py-4 space-y-3">
+              {isLoadingAusencias ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : ausencias.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <UserX className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Sin ausencias registradas para este día</p>
+                </div>
+              ) : (
+                ausencias.map(a => (
+                  <div key={a.id} className="rounded-lg border bg-card p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold">{a.empleadoNombre}</p>
+                          <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", TIPO_AUSENCIA_COLORS[a.tipo])}>
+                            {TIPO_AUSENCIA_LABELS[a.tipo]}
+                          </span>
+                          <Badge className={cn("text-xs border", ESTATUS_AUSENCIA_COLORS[a.estatus])}>
+                            {ESTATUS_AUSENCIA_LABELS[a.estatus]}
+                          </Badge>
+                        </div>
+                        {a.motivo && <p className="text-xs text-muted-foreground mt-0.5">{a.motivo}</p>}
+                        {a.duracionHoras != null && (
+                          <p className="text-xs text-muted-foreground">{a.duracionHoras}h de ausencia</p>
+                        )}
+                        {a.aprobadoPor && (
+                          <p className="text-xs text-muted-foreground">
+                            {a.estatus === 'aprobada' ? 'Aprobada' : 'Rechazada'} por {a.aprobadoPor}
+                          </p>
+                        )}
+                      </div>
+                      {/* Acciones */}
+                      {a.estatus === 'pendiente' && isAdmin && (
+                        <div className="flex gap-1 shrink-0">
+                          <Button size="sm" variant="outline"
+                            className="h-7 text-xs text-green-700 border-green-300 hover:bg-green-50"
+                            onClick={() => handleAprobarAusencia(a.id)}>
+                            <CheckCircle className="h-3 w-3 mr-1" />Aprobar
+                          </Button>
+                          <Button size="sm" variant="outline"
+                            className="h-7 text-xs text-red-700 border-red-300 hover:bg-red-50"
+                            onClick={() => setRechazandoAusenciaId(a.id)}>
+                            <XCircle className="h-3 w-3 mr-1" />Rechazar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    {/* Formulario inline de rechazo */}
+                    {rechazandoAusenciaId === a.id && (
+                      <div className="mt-2 space-y-2 border-t pt-2">
+                        <Textarea rows={2} placeholder="Motivo del rechazo..."
+                          className="text-sm"
+                          value={motivoRechazoAusencia}
+                          onChange={e => setMotivoRechazoAusencia(e.target.value)} />
+                        <div className="flex gap-2 justify-end">
+                          <Button size="sm" variant="ghost" className="h-7 text-xs"
+                            onClick={() => { setRechazandoAusenciaId(null); setMotivoRechazoAusencia('') }}>
+                            Cancelar
+                          </Button>
+                          <Button size="sm" variant="destructive" className="h-7 text-xs"
+                            onClick={() => handleRechazarAusencia(a.id)}>
+                            Confirmar rechazo
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="px-6 py-3 border-t flex-shrink-0 flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => setIsAusenciasOpen(false)}>
+              Cerrar
             </Button>
           </div>
         </DialogContent>
