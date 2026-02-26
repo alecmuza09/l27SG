@@ -59,7 +59,42 @@ export interface RegistrarPagoParams {
   metodoPago: 'efectivo' | 'tarjeta' | 'transferencia' | 'otro'
   montoEfectivo?: number
   montoTarjeta?: number
+  montoGiftCard?: number
+  giftCardId?: string       // ID de la gift card usada para descontar saldo
+  referencia?: string       // Referencia de transferencia
   notas?: string
+}
+
+// ─── Tipo para historial de cliente ────────────────────────────────────────
+export interface HistorialCliente {
+  id: string
+  fecha: string
+  hora: string
+  servicios: string[]
+  monto: number
+  metodoPago: string
+}
+
+// ─── Tipo para resumen de caja diario ──────────────────────────────────────
+export interface ResumenCajaDiario {
+  fecha: string
+  totalVentas: number
+  cantidadTransacciones: number
+  ticketPromedio: number
+  totalPropinas: number
+  totalDescuentos: number
+  porMetodo: {
+    efectivo: number
+    tarjeta: number
+    transferencia: number
+    otro: number
+  }
+  porMetodoCantidad: {
+    efectivo: number
+    tarjeta: number
+    transferencia: number
+    otro: number
+  }
 }
 
 export const MOCK_PAGOS: Pago[] = [
@@ -371,7 +406,7 @@ export async function registrarPago(
       await supabase.rpc('increment_promo_usos', { p_codigo: params.descuentoCodigo }).maybeSingle()
     }
 
-    // 4. Descontar saldo de gift card (si aplica)
+    // 4. Descontar saldo de gift card usada como descuento
     if (params.descuentoTipo === 'gift_card' && params.descuentoCodigo) {
       const { data: gc } = await supabase
         .from('gift_cards')
@@ -390,9 +425,184 @@ export async function registrarPago(
       }
     }
 
+    // 5. Descontar saldo de gift card usada como método de pago (pago mixto)
+    if (params.giftCardId && (params.montoGiftCard ?? 0) > 0) {
+      const { data: gcPago } = await supabase
+        .from('gift_cards')
+        .select('saldo_actual')
+        .eq('id', params.giftCardId)
+        .single()
+      if (gcPago) {
+        const nuevoSaldo = Math.max(0, Number(gcPago.saldo_actual) - (params.montoGiftCard ?? 0))
+        await supabase
+          .from('gift_cards')
+          .update({
+            saldo_actual: nuevoSaldo,
+            estado: nuevoSaldo === 0 ? 'agotada' : undefined,
+          })
+          .eq('id', params.giftCardId)
+      }
+    }
+
     return { success: true, pagoId: pagoData.id }
   } catch (err: any) {
     console.error('Error inesperado registrando pago:', err)
     return { success: false, error: err.message || 'Error desconocido' }
+  }
+}
+
+// ─── Historial de compras de un cliente ────────────────────────────────────
+export async function getHistorialClienteFromDB(
+  clienteId: string,
+  limit = 5
+): Promise<HistorialCliente[]> {
+  try {
+    const { data, error } = await supabase
+      .from('pagos')
+      .select('id, fecha, hora, servicios, monto, metodo_pago')
+      .eq('cliente_id', clienteId)
+      .eq('estado', 'completado')
+      .order('fecha', { ascending: false })
+      .order('hora', { ascending: false })
+      .limit(limit)
+
+    if (error || !data) return []
+
+    return data.map((p: any) => ({
+      id: p.id,
+      fecha: p.fecha,
+      hora: p.hora || '',
+      servicios: p.servicios || [],
+      monto: Number(p.monto) || 0,
+      metodoPago: p.metodo_pago || 'efectivo',
+    }))
+  } catch {
+    return []
+  }
+}
+
+// ─── Gift card activa de un cliente ────────────────────────────────────────
+export async function getGiftCardActivaClienteFromDB(
+  clienteId: string
+): Promise<GiftCardValidada | null> {
+  try {
+    const { data, error } = await supabase
+      .from('gift_cards')
+      .select('id, codigo, saldo_actual')
+      .eq('cliente_id', clienteId)
+      .eq('estado', 'activa')
+      .gt('saldo_actual', 0)
+      .order('saldo_actual', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (error || !data) return null
+
+    return { id: data.id, codigo: data.codigo, saldoActual: Number(data.saldo_actual) }
+  } catch {
+    return null
+  }
+}
+
+// ─── Balance pendiente de citas no pagadas de un cliente ───────────────────
+export async function getSaldoPendienteClienteFromDB(
+  clienteId: string
+): Promise<number> {
+  try {
+    const { data, error } = await supabase
+      .from('citas')
+      .select('precio')
+      .eq('cliente_id', clienteId)
+      .eq('estado', 'completada')
+      .eq('pagado', false)
+
+    if (error || !data) return 0
+
+    return data.reduce((sum: number, c: any) => sum + (Number(c.precio) || 0), 0)
+  } catch {
+    return 0
+  }
+}
+
+// ─── Resumen de caja del día actual ────────────────────────────────────────
+export async function getResumenCajaDiarioFromDB(
+  sucursalId?: string
+): Promise<ResumenCajaDiario> {
+  const hoy = new Date().toISOString().split('T')[0]
+
+  const vacio: ResumenCajaDiario = {
+    fecha: hoy,
+    totalVentas: 0,
+    cantidadTransacciones: 0,
+    ticketPromedio: 0,
+    totalPropinas: 0,
+    totalDescuentos: 0,
+    porMetodo: { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 },
+    porMetodoCantidad: { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 },
+  }
+
+  try {
+    let query = supabase
+      .from('pagos')
+      .select('monto, metodo_pago, propina, descuento_monto')
+      .eq('fecha', hoy)
+      .eq('estado', 'completado')
+
+    if (sucursalId) query = query.eq('sucursal_id', sucursalId)
+
+    const { data, error } = await query
+    if (error || !data) return vacio
+
+    const resumen: ResumenCajaDiario = { ...vacio }
+    resumen.cantidadTransacciones = data.length
+
+    for (const p of data as any[]) {
+      const monto = Number(p.monto) || 0
+      const metodo = (p.metodo_pago || 'otro') as keyof ResumenCajaDiario['porMetodo']
+      resumen.totalVentas += monto
+      resumen.totalPropinas += Number(p.propina) || 0
+      resumen.totalDescuentos += Number(p.descuento_monto) || 0
+      if (metodo in resumen.porMetodo) {
+        resumen.porMetodo[metodo] += monto
+        resumen.porMetodoCantidad[metodo] += 1
+      } else {
+        resumen.porMetodo.otro += monto
+        resumen.porMetodoCantidad.otro += 1
+      }
+    }
+
+    resumen.ticketPromedio = resumen.cantidadTransacciones > 0
+      ? resumen.totalVentas / resumen.cantidadTransacciones
+      : 0
+
+    return resumen
+  } catch {
+    return vacio
+  }
+}
+
+// ─── Resumen comparativo ayer vs hoy ───────────────────────────────────────
+export async function getResumenCajaAyerFromDB(
+  sucursalId?: string
+): Promise<Pick<ResumenCajaDiario, 'totalVentas' | 'cantidadTransacciones' | 'ticketPromedio'>> {
+  const ayer = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+  try {
+    let query = supabase
+      .from('pagos')
+      .select('monto')
+      .eq('fecha', ayer)
+      .eq('estado', 'completado')
+    if (sucursalId) query = query.eq('sucursal_id', sucursalId)
+    const { data } = await query
+    if (!data) return { totalVentas: 0, cantidadTransacciones: 0, ticketPromedio: 0 }
+    const totalVentas = data.reduce((s: number, p: any) => s + (Number(p.monto) || 0), 0)
+    const cantidadTransacciones = data.length
+    return {
+      totalVentas,
+      cantidadTransacciones,
+      ticketPromedio: cantidadTransacciones > 0 ? totalVentas / cantidadTransacciones : 0,
+    }
+  } catch {
+    return { totalVentas: 0, cantidadTransacciones: 0, ticketPromedio: 0 }
   }
 }
