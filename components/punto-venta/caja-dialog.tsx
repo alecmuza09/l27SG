@@ -100,6 +100,7 @@ interface CajaDialogProps {
   clienteNombre?: string
   clienteId?: string
   citasIniciales?: CitaInicial[]    // servicios pre-cargados desde la lista de cobros
+  sucursalIdInicial?: string        // sucursal pre-seleccionada desde la página padre
   onPagoCompletado?: (total: number) => void
 }
 
@@ -110,6 +111,7 @@ export function CajaDialog({
   clienteNombre: propClienteNombre = "",
   clienteId: propClienteId = "",
   citasIniciales = [],
+  sucursalIdInicial = "",
   onPagoCompletado,
 }: CajaDialogProps) {
 
@@ -182,7 +184,7 @@ export function CajaDialog({
     setPagoEfectivo(""); setPagoTarjeta(""); setPagoTransferencia(""); setPagoGiftCard("")
     setGcPagoId(""); setGcPagoCodigo(""); setGcPagoSaldo(0)
     setReferencia(""); setNotasVenta("")
-    setSucursalId("")
+    setSucursalId(sucursalIdInicial || "")
 
     // Pre-cargar citas seleccionadas como items del carrito
     if (citasIniciales.length > 0) {
@@ -214,7 +216,8 @@ export function CajaDialog({
         setServicios(svcs)
         setProductos(prods.filter(p => (p.precioVenta ?? 0) > 0 && p.stockActual > 0))
         setSucursales(sucs)
-        if (sucs.length === 1) setSucursalId(sucs[0].id)
+        // Auto-seleccionar: prioriza la sucursal del padre, sino la única disponible
+        if (!sucursalIdInicial && sucs.length === 1) setSucursalId(sucs[0].id)
       })
       .catch(() => toast.error("Error cargando datos"))
       .finally(() => setIsLoadingData(false))
@@ -428,7 +431,7 @@ export function CajaDialog({
   // ════════════════════════════════════════════════════════════════════════
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[1100px] w-full max-h-[95vh] p-0 flex flex-col gap-0 overflow-hidden">
+      <DialogContent className="max-w-[1300px] w-[96vw] max-h-[96vh] p-0 flex flex-col gap-0 overflow-hidden">
         {/* Header ──────────────────────────────────────────────────────── */}
         <DialogHeader className="px-5 pt-4 pb-3 flex-shrink-0 border-b bg-gradient-to-r from-violet-50 to-indigo-50">
           <div className="flex items-center gap-2">

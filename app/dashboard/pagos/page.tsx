@@ -690,6 +690,7 @@ export default function PagosPage() {
           setCajaOpen(v)
           if (!v) setCitasSeleccionadas(new Set())
         }}
+        sucursalIdInicial={sucursalId !== "todas" ? sucursalId : ""}
         clienteNombre={citasACobrar[0]?.clienteNombre ?? ""}
         clienteId={citasACobrar[0]?.clienteId ?? ""}
         citasIniciales={citasACobrar.map(c => ({
