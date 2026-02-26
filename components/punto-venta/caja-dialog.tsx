@@ -86,11 +86,20 @@ const fmtFecha = (iso: string) =>
 
 // ─── Props ────────────────────────────────────────────────────────────────
 
+interface CitaInicial {
+  id: string
+  clienteId: string
+  clienteNombre: string
+  servicioNombre: string
+  precio: number
+}
+
 interface CajaDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   clienteNombre?: string
   clienteId?: string
+  citasIniciales?: CitaInicial[]    // servicios pre-cargados desde la lista de cobros
   onPagoCompletado?: (total: number) => void
 }
 
@@ -100,6 +109,7 @@ export function CajaDialog({
   open, onOpenChange,
   clienteNombre: propClienteNombre = "",
   clienteId: propClienteId = "",
+  citasIniciales = [],
   onPagoCompletado,
 }: CajaDialogProps) {
 
@@ -173,6 +183,24 @@ export function CajaDialog({
     setGcPagoId(""); setGcPagoCodigo(""); setGcPagoSaldo(0)
     setReferencia(""); setNotasVenta("")
     setSucursalId("")
+
+    // Pre-cargar citas seleccionadas como items del carrito
+    if (citasIniciales.length > 0) {
+      const itemsIniciales: CartItem[] = citasIniciales.map(c => ({
+        id: `cita-${c.id}`,
+        tipo: "servicio" as const,
+        nombre: c.servicioNombre,
+        precio: c.precio,
+        cantidad: 1,
+      }))
+      setCart(itemsIniciales)
+      // Si hay un solo cliente en las citas, pre-seleccionarlo
+      const clientesUnicos = [...new Set(citasIniciales.map(c => c.clienteId))]
+      if (clientesUnicos.length === 1) {
+        setClienteId(citasIniciales[0].clienteId)
+        setClienteSearch(citasIniciales[0].clienteNombre)
+      }
+    }
 
     setIsLoadingData(true)
     Promise.all([

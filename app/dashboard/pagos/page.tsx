@@ -69,10 +69,11 @@ export default function PagosPage() {
   const [gastos, setGastos]                     = useState<Gasto[]>([])
   const [isLoading, setIsLoading]               = useState(true)
   const [cajaOpen, setCajaOpen]                 = useState(false)
-  const [citaSeleccionada, setCitaSeleccionada] = useState<Cita | null>(null)
+  const [citasSeleccionadas, setCitasSeleccionadas] = useState<Set<string>>(new Set())
   const [gastoDialogOpen, setGastoDialogOpen]   = useState(false)
   const [nuevoGasto, setNuevoGasto]             = useState({ descripcion: "", monto: "", categoria: "operativo" })
   const [busqueda, setBusqueda]                 = useState("")
+  const [busquedaCitas, setBusquedaCitas]       = useState("")
 
   // ── carga de datos ──────────────────────────────────────────────────────────
   const cargarDatos = useCallback(async () => {
@@ -112,6 +113,14 @@ export default function PagosPage() {
     c.estado !== "no-asistio",
   )
 
+  const citasPendientesFiltradas = busquedaCitas
+    ? citasPendientes.filter(c =>
+        c.clienteNombre.toLowerCase().includes(busquedaCitas.toLowerCase()) ||
+        c.empleadoNombre.toLowerCase().includes(busquedaCitas.toLowerCase()) ||
+        c.servicioNombre.toLowerCase().includes(busquedaCitas.toLowerCase()),
+      )
+    : citasPendientes
+
   const pagosFiltrados = busqueda
     ? pagos.filter(p =>
         p.clienteNombre.toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -125,11 +134,34 @@ export default function PagosPage() {
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
   const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf
 
-  // ── acciones ────────────────────────────────────────────────────────────────
-  const abrirCajaPorCita = (cita: Cita) => {
-    setCitaSeleccionada(cita)
+  // ── helpers de selección ────────────────────────────────────────────────────
+  const toggleCita = (id: string) => {
+    setCitasSeleccionadas(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleTodas = () => {
+    const ids = citasPendientesFiltradas.map(c => c.id)
+    const todasSeleccionadas = ids.every(id => citasSeleccionadas.has(id))
+    if (todasSeleccionadas) {
+      setCitasSeleccionadas(new Set())
+    } else {
+      setCitasSeleccionadas(new Set(ids))
+    }
+  }
+
+  const citasACobrar = citasPendientes.filter(c => citasSeleccionadas.has(c.id))
+  const totalSeleccionado = citasACobrar.reduce((s, c) => s + c.precio, 0)
+
+  const abrirCajaConSeleccion = () => {
+    if (citasSeleccionadas.size === 0) return
     setCajaOpen(true)
   }
+
+  // ── acciones ────────────────────────────────────────────────────────────────
 
   const agregarGasto = () => {
     if (!nuevoGasto.descripcion || !nuevoGasto.monto) return
@@ -286,90 +318,155 @@ export default function PagosPage() {
           </div>
 
           {/* ─── TAB: Servicios por cobrar ─────────────────────────────────── */}
-          <TabsContent value="pendientes" className="flex-1 overflow-auto m-0 p-4">
-            <div className="rounded-lg border overflow-hidden">
-              <div className="px-4 py-3 bg-muted/40 border-b flex items-center justify-between">
-                <p className="text-sm font-semibold">
-                  Cuentas por cobrar —{" "}
+          <TabsContent value="pendientes" className="flex-1 overflow-hidden m-0 flex flex-col">
+
+            {/* Barra de búsqueda + selección masiva */}
+            <div className="px-4 pt-4 pb-3 border-b bg-background flex-shrink-0 space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar cliente, empleada o servicio…"
+                    value={busquedaCitas}
+                    onChange={e => { setBusquedaCitas(e.target.value); setCitasSeleccionadas(new Set()) }}
+                    className="pl-9 h-8 text-xs"
+                  />
+                </div>
+                {citasPendientesFiltradas.length > 0 && (
+                  <button
+                    onClick={toggleTodas}
+                    className="text-xs text-primary underline underline-offset-2 whitespace-nowrap"
+                  >
+                    {citasPendientesFiltradas.every(c => citasSeleccionadas.has(c.id))
+                      ? "Deseleccionar todas"
+                      : "Seleccionar todas"}
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>
                   {new Date(fecha + "T12:00:00").toLocaleDateString("es-MX", {
                     weekday: "long", day: "numeric", month: "long",
                   })}
-                </p>
-                <span className="text-xs text-muted-foreground">
-                  {citasPendientes.length} pendiente{citasPendientes.length !== 1 ? "s" : ""}
+                  {" · "}
+                  <span className="font-medium text-foreground">
+                    {citasPendientesFiltradas.length} por cobrar
+                  </span>
                 </span>
+                {sucursalId === "todas" && (
+                  <span className="text-amber-600 font-medium">Selecciona una sucursal para ver citas</span>
+                )}
               </div>
+            </div>
+
+            {/* Lista de citas */}
+            <div className="flex-1 overflow-y-auto">
               {isLoading ? (
                 <div className="flex items-center justify-center py-20">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : citasPendientes.length === 0 ? (
+              ) : sucursalId === "todas" ? (
                 <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                  <Receipt className="h-10 w-10 mb-3 opacity-30" />
-                  <p className="text-sm">No hay servicios pendientes por cobrar</p>
-                  <p className="text-xs mt-1">Selecciona otra fecha o sucursal</p>
+                  <Receipt className="h-10 w-10 mb-3 opacity-20" />
+                  <p className="text-sm font-medium">Selecciona una sucursal</p>
+                  <p className="text-xs mt-1">Elige la sucursal en el panel izquierdo para ver las citas del día</p>
+                </div>
+              ) : citasPendientesFiltradas.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                  <Receipt className="h-10 w-10 mb-3 opacity-20" />
+                  <p className="text-sm">Sin servicios pendientes por cobrar</p>
+                  <p className="text-xs mt-1">Cambia la fecha o el filtro de búsqueda</p>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/20">
-                      <TableHead className="text-xs w-16">#</TableHead>
-                      <TableHead className="text-xs">Cliente</TableHead>
-                      <TableHead className="text-xs">Empleada</TableHead>
-                      <TableHead className="text-xs">Servicio</TableHead>
-                      <TableHead className="text-xs">Horario</TableHead>
-                      <TableHead className="text-xs text-right">Precio</TableHead>
-                      <TableHead className="text-xs">Estado</TableHead>
-                      <TableHead className="text-xs text-right">Acción</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {citasPendientes.map((cita, i) => (
-                      <TableRow key={cita.id} className="hover:bg-muted/30">
-                        <TableCell className="text-xs text-muted-foreground font-mono">
-                          {String(i + 1).padStart(2, "0")}
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-sm font-medium">{cita.clienteNombre}</p>
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-xs text-muted-foreground">{cita.empleadoNombre}</p>
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-xs">{cita.servicioNombre}</p>
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-xs text-muted-foreground tabular-nums">
+                <div className="divide-y">
+                  {citasPendientesFiltradas.map((cita) => {
+                    const seleccionada = citasSeleccionadas.has(cita.id)
+                    return (
+                      <div
+                        key={cita.id}
+                        onClick={() => toggleCita(cita.id)}
+                        className={cn(
+                          "flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors select-none",
+                          seleccionada
+                            ? "bg-emerald-50 hover:bg-emerald-100 border-l-4 border-l-emerald-500"
+                            : "hover:bg-muted/40 border-l-4 border-l-transparent",
+                        )}
+                      >
+                        {/* Checkbox */}
+                        <div className={cn(
+                          "h-5 w-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors",
+                          seleccionada
+                            ? "bg-emerald-600 border-emerald-600"
+                            : "border-gray-300 bg-white",
+                        )}>
+                          {seleccionada && (
+                            <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none">
+                              <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+
+                        {/* Info principal */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <p className="text-sm font-semibold truncate">{cita.clienteNombre}</p>
+                            <span className={cn(
+                              "text-[10px] border rounded-full px-2 py-0.5 font-medium flex-shrink-0",
+                              estadoColor(cita.estado),
+                            )}>
+                              {cita.estado.replace("-", " ")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{cita.servicioNombre}</p>
+                        </div>
+
+                        {/* Empleada */}
+                        <div className="hidden sm:block text-center flex-shrink-0 w-28">
+                          <p className="text-xs text-muted-foreground truncate">{cita.empleadoNombre}</p>
+                          <p className="text-xs tabular-nums text-muted-foreground/70">
                             {cita.horaInicio} – {cita.horaFin}
                           </p>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <p className="text-sm font-semibold">{fmtMXN(cita.precio)}</p>
-                        </TableCell>
-                        <TableCell>
-                          <span className={cn(
-                            "text-[10px] border rounded-full px-2 py-0.5 font-medium capitalize",
-                            estadoColor(cita.estado),
-                          )}>
-                            {cita.estado.replace("-", " ")}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            size="sm"
-                            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                            onClick={() => abrirCajaPorCita(cita)}
-                          >
-                            <Wallet className="h-3 w-3 mr-1" />
-                            Cobrar
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </div>
+
+                        {/* Precio */}
+                        <div className="flex-shrink-0 text-right">
+                          <p className="text-sm font-bold tabular-nums">{fmtMXN(cita.precio)}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
+
+            {/* Barra flotante de cobro cuando hay selección */}
+            {citasSeleccionadas.size > 0 && (
+              <div className="flex-shrink-0 border-t bg-emerald-700 text-white px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">
+                    {citasSeleccionadas.size} servicio{citasSeleccionadas.size > 1 ? "s" : ""} seleccionado{citasSeleccionadas.size > 1 ? "s" : ""}
+                  </p>
+                  <p className="text-xs text-emerald-200">Total: {fmtMXN(totalSeleccionado)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCitasSeleccionadas(new Set())}
+                    className="text-xs text-emerald-200 hover:text-white underline"
+                  >
+                    Limpiar
+                  </button>
+                  <Button
+                    size="sm"
+                    className="h-8 bg-white text-emerald-700 hover:bg-emerald-50 font-semibold text-xs"
+                    onClick={abrirCajaConSeleccion}
+                  >
+                    <Wallet className="h-3.5 w-3.5 mr-1.5" />
+                    Cobrar {citasSeleccionadas.size > 1 ? `(${citasSeleccionadas.size})` : ""}
+                  </Button>
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           {/* ─── TAB: Cobros ───────────────────────────────────────────────── */}
@@ -589,10 +686,24 @@ export default function PagosPage() {
       {/* ════ CAJA DIALOG ════════════════════════════════════════════════════ */}
       <CajaDialog
         open={cajaOpen}
-        onOpenChange={(v) => { setCajaOpen(v); if (!v) setCitaSeleccionada(null) }}
-        clienteNombre={citaSeleccionada?.clienteNombre ?? ""}
-        clienteId={citaSeleccionada?.clienteId ?? ""}
-        onPagoCompletado={() => { cargarDatos(); setCajaOpen(false); setCitaSeleccionada(null) }}
+        onOpenChange={(v) => {
+          setCajaOpen(v)
+          if (!v) setCitasSeleccionadas(new Set())
+        }}
+        clienteNombre={citasACobrar[0]?.clienteNombre ?? ""}
+        clienteId={citasACobrar[0]?.clienteId ?? ""}
+        citasIniciales={citasACobrar.map(c => ({
+          id: c.id,
+          clienteId: c.clienteId,
+          clienteNombre: c.clienteNombre,
+          servicioNombre: c.servicioNombre,
+          precio: c.precio,
+        }))}
+        onPagoCompletado={() => {
+          cargarDatos()
+          setCajaOpen(false)
+          setCitasSeleccionadas(new Set())
+        }}
       />
     </div>
   )
