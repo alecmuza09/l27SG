@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -12,13 +11,28 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { createCita } from "@/lib/data/citas"
-import { Plus, Search, User, Loader2, ChevronsUpDown } from "lucide-react"
+import {
+  Plus, Search, User, Loader2, ChevronsUpDown, Trash2,
+  Clock, DollarSign, ChevronDown, CheckCircle2, AlertCircle,
+} from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+interface ServicioItem {
+  uid: string          // id local para la lista
+  servicioId: string
+  empleadoId: string
+  horaInicio: string
+}
 
 interface NuevaCitaDialogProps {
   open: boolean
@@ -27,9 +41,23 @@ interface NuevaCitaDialogProps {
   selectedTime?: string
   selectedEmpleadoId?: string
   sucursalId: string
-  /** Se llama después de crear una cita para que la agenda recargue */
   onCitaCreada?: () => void
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function uid() {
+  return Math.random().toString(36).slice(2)
+}
+
+function addMinutes(hora: string, mins: number): string {
+  if (!hora) return ""
+  const [h, m] = hora.split(":").map(Number)
+  const total = h * 60 + m + mins
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
+}
+
+// ─── Componente ───────────────────────────────────────────────────────────────
 
 export function NuevaCitaDialog({
   open,
@@ -40,617 +68,580 @@ export function NuevaCitaDialog({
   sucursalId,
   onCitaCreada,
 }: NuevaCitaDialogProps) {
+  // ── Estado: cliente ────────────────────────────────────────────────────────
   const [clienteMode, setClienteMode] = useState<"existing" | "new">("existing")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedClienteId, setSelectedClienteId] = useState("")
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null)
   const [clientesBusqueda, setClientesBusqueda] = useState<Cliente[]>([])
   const [isLoadingClientes, setIsLoadingClientes] = useState(false)
+  const [nuevoCliente, setNuevoCliente] = useState({
+    nombre: "", apellido: "", email: "", telefono: "", notas: "",
+  })
+
+  // ── Estado: catálogos ──────────────────────────────────────────────────────
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(false)
+
+  // ── Estado: fecha / notas generales ────────────────────────────────────────
+  const [fechaGeneral, setFechaGeneral] = useState(selectedDate)
+  const [notasGenerales, setNotasGenerales] = useState("")
+
+  // ── Estado: lista de servicios ─────────────────────────────────────────────
+  const [serviciosItems, setServiciosItems] = useState<ServicioItem[]>([
+    { uid: uid(), servicioId: "", empleadoId: selectedEmpleadoId || "", horaInicio: selectedTime || "" },
+  ])
+  // Popovers de búsqueda de servicio por uid
+  const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({})
+
+  // ── Estado: envío ──────────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isLoadingServicios, setIsLoadingServicios] = useState(false)
-  const [isLoadingEmpleados, setIsLoadingEmpleados] = useState(false)
-  const [errorServicios, setErrorServicios] = useState<string | null>(null)
-  const [servicioPopoverOpen, setServicioPopoverOpen] = useState(false)
 
-  // Nuevo cliente form
-  const [nuevoCliente, setNuevoCliente] = useState({
-    nombre: "",
-    apellido: "",
-    email: "",
-    telefono: "",
-    notas: "",
-  })
-
-  // Cita form
-  const [citaForm, setCitaForm] = useState({
-    servicioId: "",
-    empleadoId: selectedEmpleadoId || "",
-    fecha: selectedDate,
-    horaInicio: selectedTime || "",
-    notas: "",
-  })
-
-  // Actualizar formulario cuando cambien los props (especialmente cuando se abre desde un slot)
+  // ── Reset al abrir ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (open) {
-      setCitaForm({
-        servicioId: "",
-        empleadoId: selectedEmpleadoId || "",
-        fecha: selectedDate,
-        horaInicio: selectedTime || "",
-        notas: "",
-      })
+      setFechaGeneral(selectedDate)
+      setNotasGenerales("")
+      setServiciosItems([
+        { uid: uid(), servicioId: "", empleadoId: selectedEmpleadoId || "", horaInicio: selectedTime || "" },
+      ])
       setSelectedClienteId("")
       setSelectedCliente(null)
       setClienteMode("existing")
       setSearchQuery("")
       setClientesBusqueda([])
+      setNuevoCliente({ nombre: "", apellido: "", email: "", telefono: "", notas: "" })
+      setOpenPopovers({})
     }
   }, [open, selectedDate, selectedTime, selectedEmpleadoId])
 
-  // Búsqueda de clientes en el servidor (todos los clientes activos, con debounce)
+  // ── Búsqueda de clientes ───────────────────────────────────────────────────
   useEffect(() => {
     if (!open || clienteMode !== "existing") return
-
     const trimmed = searchQuery.trim()
-    if (!trimmed) {
-      setClientesBusqueda([])
-      return
-    }
-
+    if (!trimmed) { setClientesBusqueda([]); return }
     const timer = setTimeout(async () => {
       setIsLoadingClientes(true)
       try {
-        const resultados = await searchClientes(trimmed, 100)
-        setClientesBusqueda(resultados)
-      } catch (error) {
-        console.error("Error buscando clientes:", error)
-        setClientesBusqueda([])
+        setClientesBusqueda(await searchClientes(trimmed, 100))
+      } catch {
         toast.error("Error al buscar clientes")
       } finally {
         setIsLoadingClientes(false)
       }
     }, 300)
-
     return () => clearTimeout(timer)
   }, [open, clienteMode, searchQuery])
 
+  // ── Carga de catálogos ─────────────────────────────────────────────────────
   useEffect(() => {
-    async function loadData() {
-      if (!open) return
-      
+    if (!open) return
+    async function load() {
+      setIsLoadingData(true)
       try {
-        setIsLoadingServicios(true)
-        setIsLoadingEmpleados(true)
-        setErrorServicios(null)
-        
-        const [serviciosData, empleadosData] = await Promise.all([
+        const [svc, emp] = await Promise.all([
           getServiciosActivosFromDB(),
           getEmpleadosBySucursalFromDB(sucursalId),
         ])
-        
-        setServicios(serviciosData)
-        setEmpleados(empleadosData)
-        
-        if (serviciosData.length === 0) {
-          setErrorServicios("No hay servicios disponibles en la base de datos")
-        }
-      } catch (error) {
-        console.error("Error cargando datos:", error)
-        setErrorServicios("Error al cargar los servicios")
-        toast.error("Error al cargar los datos")
+        setServicios(svc)
+        setEmpleados(emp)
+      } catch {
+        toast.error("Error al cargar datos")
       } finally {
-        setIsLoadingServicios(false)
-        setIsLoadingEmpleados(false)
+        setIsLoadingData(false)
       }
     }
-    
-    loadData()
+    load()
   }, [open, sucursalId])
 
-  const servicioSeleccionado = servicios.find((s) => s.id === citaForm.servicioId)
+  // ── Helpers de lista ───────────────────────────────────────────────────────
+  function updateItem(idx: number, patch: Partial<ServicioItem>) {
+    setServiciosItems((prev) => prev.map((it, i) => i === idx ? { ...it, ...patch } : it))
+  }
 
+  function addItem() {
+    const last = serviciosItems[serviciosItems.length - 1]
+    const lastSvc = servicios.find((s) => s.id === last.servicioId)
+    const nextHora = lastSvc && last.horaInicio
+      ? addMinutes(last.horaInicio, lastSvc.duracion)
+      : last.horaInicio
+    setServiciosItems((prev) => [
+      ...prev,
+      { uid: uid(), servicioId: "", empleadoId: "", horaInicio: nextHora },
+    ])
+  }
+
+  function removeItem(idx: number) {
+    if (serviciosItems.length === 1) return
+    setServiciosItems((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  // Totales para el resumen
+  const totalPrecio = serviciosItems.reduce((sum, it) => {
+    const svc = servicios.find((s) => s.id === it.servicioId)
+    return sum + (svc?.precio ?? 0)
+  }, 0)
+  const totalDuracion = serviciosItems.reduce((sum, it) => {
+    const svc = servicios.find((s) => s.id === it.servicioId)
+    return sum + (svc?.duracion ?? 0)
+  }, 0)
+  const allItemsValid = serviciosItems.every((it) => it.servicioId && it.empleadoId && it.horaInicio)
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
     try {
+      // 1) Resolver cliente
       let clienteIdFinal = selectedClienteId
-
-      // Si es nuevo cliente, crearlo primero
       if (clienteMode === "new") {
         if (!nuevoCliente.nombre || !nuevoCliente.apellido || !nuevoCliente.telefono) {
-          toast.error("Por favor completa todos los campos obligatorios del cliente")
+          toast.error("Completa los campos obligatorios del cliente")
           setIsSubmitting(false)
           return
         }
-
-        const clienteResult = await createCliente({
+        const res = await createCliente({
           nombre: nuevoCliente.nombre,
           apellido: nuevoCliente.apellido,
           telefono: nuevoCliente.telefono,
           email: nuevoCliente.email || undefined,
           notas: nuevoCliente.notas || undefined,
         })
-
-        if (!clienteResult.success || !clienteResult.cliente) {
-          toast.error(`Error al crear cliente: ${clienteResult.error || "Error desconocido"}`)
+        if (!res.success || !res.cliente) {
+          toast.error(`Error al crear cliente: ${res.error}`)
           setIsSubmitting(false)
           return
         }
-
-        clienteIdFinal = clienteResult.cliente.id
-        toast.success("Cliente creado exitosamente")
+        clienteIdFinal = res.cliente.id
+        toast.success("Cliente creado")
       }
 
-      // Validar que se haya seleccionado un cliente
       if (!clienteIdFinal) {
-        toast.error("Por favor selecciona o crea un cliente")
+        toast.error("Selecciona o crea un cliente")
         setIsSubmitting(false)
         return
       }
 
-      // Validar campos de la cita
-      if (!citaForm.servicioId || !citaForm.empleadoId || !citaForm.fecha || !citaForm.horaInicio) {
-        toast.error("Por favor completa todos los campos obligatorios de la cita")
-        setIsSubmitting(false)
-        return
+      // 2) Validar servicios
+      for (const [i, item] of serviciosItems.entries()) {
+        if (!item.servicioId || !item.empleadoId || !item.horaInicio) {
+          toast.error(`Completa todos los campos del servicio ${i + 1}`)
+          setIsSubmitting(false)
+          return
+        }
       }
 
-      if (!servicioSeleccionado) {
-        toast.error("Servicio no encontrado")
-        setIsSubmitting(false)
-        return
-      }
-
-      // Obtener información del cliente y empleado para mostrar en el resumen
-      const clienteSeleccionado = clienteMode === "new" 
-        ? { nombre: nuevoCliente.nombre, apellido: nuevoCliente.apellido }
-        : selectedCliente?.id === clienteIdFinal ? selectedCliente : null
-      const empleadoSeleccionado = empleados.find(e => e.id === citaForm.empleadoId)
-
-      // Mostrar resumen antes de guardar
-      const resumenCita = {
-        cliente: clienteSeleccionado ? `${clienteSeleccionado.nombre} ${clienteSeleccionado.apellido}` : "N/A",
-        servicio: servicioSeleccionado.nombre,
-        empleado: empleadoSeleccionado ? `${empleadoSeleccionado.nombre} ${empleadoSeleccionado.apellido}` : "N/A",
-        fecha: new Date(citaForm.fecha).toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
-        hora: citaForm.horaInicio,
-        duracion: servicioSeleccionado.duracion,
-        precio: servicioSeleccionado.precio,
-      }
-
-      // Mostrar toast con información de lo que se está guardando
-      toast.info(
-        `Guardando cita: ${resumenCita.cliente} - ${resumenCita.servicio} - ${resumenCita.fecha} ${resumenCita.hora}`,
-        { duration: 2000 }
+      // 3) Crear todas las citas en paralelo
+      const results = await Promise.all(
+        serviciosItems.map((item) => {
+          const svc = servicios.find((s) => s.id === item.servicioId)!
+          return createCita({
+            cliente_id: clienteIdFinal,
+            empleado_id: item.empleadoId,
+            servicio_id: item.servicioId,
+            sucursal_id: sucursalId,
+            fecha: fechaGeneral,
+            hora_inicio: item.horaInicio,
+            duracion: svc.duracion,
+            precio: svc.precio,
+            estado: "pendiente",
+            notas: notasGenerales || undefined,
+          })
+        })
       )
 
-      // Crear la cita
-      const citaResult = await createCita({
-        cliente_id: clienteIdFinal,
-        empleado_id: citaForm.empleadoId,
-        servicio_id: citaForm.servicioId,
-        sucursal_id: sucursalId,
-        fecha: citaForm.fecha,
-        hora_inicio: citaForm.horaInicio,
-        duracion: servicioSeleccionado.duracion,
-        precio: servicioSeleccionado.precio,
-        estado: "pendiente",
-        notas: citaForm.notas || undefined,
-      })
-
-      if (!citaResult.success) {
-        toast.error(`Error al crear cita: ${citaResult.error || "Error desconocido"}`)
-        setIsSubmitting(false)
-        return
+      const failed = results.filter((r) => !r.success)
+      if (failed.length > 0) {
+        toast.error(`${failed.length} cita(s) no se pudieron crear`)
+      } else {
+        toast.success(
+          serviciosItems.length === 1
+            ? "Cita creada exitosamente"
+            : `${serviciosItems.length} citas creadas exitosamente`
+        )
+        onCitaCreada?.()
+        onOpenChange(false)
       }
-
-      // Mostrar resumen de la cita creada
-      toast.success(
-        `Cita creada exitosamente: ${resumenCita.cliente} - ${resumenCita.servicio} - ${resumenCita.fecha} ${resumenCita.hora}`,
-        { duration: 4000 }
-      )
-
-      onCitaCreada?.()
-      onOpenChange(false)
-
-      // Resetear formulario
-      setNuevoCliente({
-        nombre: "",
-        apellido: "",
-        email: "",
-        telefono: "",
-        notas: "",
-      })
-      setCitaForm({
-        servicioId: "",
-        empleadoId: selectedEmpleadoId || "",
-        fecha: selectedDate,
-        horaInicio: selectedTime || "",
-        notas: "",
-      })
-      setSelectedClienteId("")
-      setClienteMode("existing")
-      setSearchQuery("")
-    } catch (error: any) {
-      console.error("Error inesperado:", error)
-      toast.error("Error inesperado al crear la cita")
+    } catch (err: any) {
+      toast.error("Error inesperado al crear las citas")
     } finally {
       setIsSubmitting(false)
     }
   }
 
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-4">
-          <DialogTitle>Nueva Cita</DialogTitle>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-3 flex-shrink-0">
+          <DialogTitle className="text-xl">Nueva Cita</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-6">
-            <div className="space-y-6 pb-6">
-              {/* Sección de Cliente */}
-              <div className="space-y-4">
+          <ScrollArea className="flex-1">
+            <div className="px-6 pb-6 space-y-6">
+
+              {/* ── CLIENTE ─────────────────────────────────────────────────── */}
+              <section className="space-y-3">
                 <Label className="text-base font-semibold">Cliente</Label>
-                <Tabs value={clienteMode} onValueChange={(v) => setClienteMode(v as "existing" | "new")}>
+                <Tabs value={clienteMode} onValueChange={(v) => setClienteMode(v as any)}>
                   <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="existing">Cliente Existente</TabsTrigger>
-                    <TabsTrigger value="new">Nuevo Cliente</TabsTrigger>
+                    <TabsTrigger value="existing">Cliente existente</TabsTrigger>
+                    <TabsTrigger value="new">Nuevo cliente</TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value="existing" className="space-y-3">
+                  <TabsContent value="existing" className="space-y-2 mt-3">
                     <div className="relative">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                       <Input
-                        placeholder="Buscar cliente por nombre, email o teléfono..."
+                        placeholder="Buscar por nombre, teléfono o email..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-9"
                       />
                     </div>
-                    <ScrollArea className="h-[200px] border rounded-md">
-                      <div className="p-2 space-y-1">
-                        {isLoadingClientes ? (
-                          <div className="flex items-center justify-center py-8">
-                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                          </div>
-                        ) : searchQuery.trim() === "" ? (
-                          <p className="p-4 text-sm text-muted-foreground text-center">
-                            Escribe nombre, email o teléfono para buscar entre todos los clientes
-                          </p>
-                        ) : clientesBusqueda.length === 0 ? (
-                          <p className="p-4 text-sm text-muted-foreground text-center">
-                            No se encontraron clientes. Prueba con otro término.
-                          </p>
-                        ) : (
-                          clientesBusqueda.map((cliente) => (
-                          <button
-                            key={cliente.id}
-                            type="button"
-                            onClick={() => {
-                          setSelectedClienteId(cliente.id)
-                          setSelectedCliente(cliente)
-                        }}
-                            className={`w-full text-left p-3 rounded-md hover:bg-accent transition-colors ${
-                              selectedClienteId === cliente.id ? "bg-accent" : ""
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                <User className="h-5 w-5 text-primary" />
-                              </div>
-                              <div className="flex-1">
-                                <p className="font-medium">
-                                  {cliente.nombre} {cliente.apellido}
-                                </p>
-                                {cliente.email && (
-                                  <p className="text-sm text-muted-foreground">{cliente.email}</p>
-                                )}
-                                <p className="text-xs text-muted-foreground">{cliente.telefono}</p>
-                              </div>
-                            </div>
-                          </button>
-                          ))
-                        )}
+                    {selectedCliente && (
+                      <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-primary/5 border border-primary/20">
+                        <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{selectedCliente.nombre} {selectedCliente.apellido}</p>
+                          <p className="text-xs text-muted-foreground">{selectedCliente.telefono}</p>
+                        </div>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 text-xs"
+                          onClick={() => { setSelectedClienteId(""); setSelectedCliente(null) }}>
+                          Cambiar
+                        </Button>
                       </div>
-                    </ScrollArea>
+                    )}
+                    {!selectedCliente && (
+                      <div className="border rounded-md">
+                        <ScrollArea className="h-[160px]">
+                          <div className="p-2 space-y-1">
+                            {isLoadingClientes ? (
+                              <div className="flex items-center justify-center py-8">
+                                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                              </div>
+                            ) : searchQuery.trim() === "" ? (
+                              <p className="p-4 text-sm text-muted-foreground text-center">
+                                Escribe para buscar entre todos los clientes
+                              </p>
+                            ) : clientesBusqueda.length === 0 ? (
+                              <p className="p-4 text-sm text-muted-foreground text-center">
+                                Sin resultados. Prueba otro término.
+                              </p>
+                            ) : clientesBusqueda.map((c) => (
+                              <button key={c.id} type="button"
+                                onClick={() => { setSelectedClienteId(c.id); setSelectedCliente(c) }}
+                                className={cn(
+                                  "w-full text-left px-3 py-2 rounded-md hover:bg-accent transition-colors flex items-center gap-3",
+                                  selectedClienteId === c.id && "bg-accent"
+                                )}>
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                  <User className="h-4 w-4 text-primary" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium">{c.nombre} {c.apellido}</p>
+                                  <p className="text-xs text-muted-foreground">{c.telefono}{c.email ? ` · ${c.email}` : ""}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    )}
                   </TabsContent>
 
-                  <TabsContent value="new" className="space-y-3">
+                  <TabsContent value="new" className="space-y-3 mt-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="nombre">Nombre *</Label>
-                        <Input
-                          id="nombre"
-                          required
-                          value={nuevoCliente.nombre}
-                          onChange={(e) => setNuevoCliente({ ...nuevoCliente, nombre: e.target.value })}
-                        />
+                      <div className="space-y-1.5">
+                        <Label>Nombre *</Label>
+                        <Input value={nuevoCliente.nombre} onChange={(e) => setNuevoCliente({ ...nuevoCliente, nombre: e.target.value })} />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="apellido">Apellido *</Label>
-                        <Input
-                          id="apellido"
-                          required
-                          value={nuevoCliente.apellido}
-                          onChange={(e) => setNuevoCliente({ ...nuevoCliente, apellido: e.target.value })}
-                        />
+                      <div className="space-y-1.5">
+                        <Label>Apellido *</Label>
+                        <Input value={nuevoCliente.apellido} onChange={(e) => setNuevoCliente({ ...nuevoCliente, apellido: e.target.value })} />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={nuevoCliente.email}
-                        onChange={(e) => setNuevoCliente({ ...nuevoCliente, email: e.target.value })}
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Teléfono *</Label>
+                        <Input type="tel" value={nuevoCliente.telefono} onChange={(e) => setNuevoCliente({ ...nuevoCliente, telefono: e.target.value })} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Email</Label>
+                        <Input type="email" value={nuevoCliente.email} onChange={(e) => setNuevoCliente({ ...nuevoCliente, email: e.target.value })} />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="telefono">Teléfono *</Label>
-                      <Input
-                        id="telefono"
-                        type="tel"
-                        required
-                        value={nuevoCliente.telefono}
-                        onChange={(e) => setNuevoCliente({ ...nuevoCliente, telefono: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="notasCliente">Notas del Cliente</Label>
-                      <Textarea
-                        id="notasCliente"
-                        placeholder="Alergias, preferencias, etc."
-                        value={nuevoCliente.notas}
-                        onChange={(e) => setNuevoCliente({ ...nuevoCliente, notas: e.target.value })}
-                      />
+                    <div className="space-y-1.5">
+                      <Label>Notas del cliente</Label>
+                      <Textarea rows={2} placeholder="Alergias, preferencias..." value={nuevoCliente.notas}
+                        onChange={(e) => setNuevoCliente({ ...nuevoCliente, notas: e.target.value })} />
                     </div>
                   </TabsContent>
                 </Tabs>
-              </div>
+              </section>
 
-              {/* Sección de Cita */}
-              <div className="space-y-4 pt-4 border-t">
-                <Label className="text-base font-semibold">Detalles de la Cita</Label>
+              <Separator />
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="fecha">Fecha *</Label>
-                    <Input
-                      id="fecha"
-                      type="date"
-                      required
-                      value={citaForm.fecha}
-                      onChange={(e) => setCitaForm({ ...citaForm, fecha: e.target.value })}
-                    />
+              {/* ── FECHA GENERAL ────────────────────────────────────────────── */}
+              <section className="space-y-3">
+                <Label className="text-base font-semibold">Fecha de la sesión</Label>
+                <div className="flex items-center gap-3">
+                  <Input type="date" value={fechaGeneral} onChange={(e) => setFechaGeneral(e.target.value)}
+                    className="w-44" required />
+                  <p className="text-sm text-muted-foreground">
+                    {fechaGeneral && new Date(fechaGeneral + "T12:00:00").toLocaleDateString("es-MX", {
+                      weekday: "long", day: "numeric", month: "long",
+                    })}
+                  </p>
+                </div>
+              </section>
+
+              <Separator />
+
+              {/* ── SERVICIOS ────────────────────────────────────────────────── */}
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-base font-semibold">Servicios</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Agrega uno o más servicios. Cada uno puede tener distinta empleada y hora.
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="hora">Hora *</Label>
-                    <Input
-                      id="hora"
-                      type="time"
-                      required
-                      value={citaForm.horaInicio}
-                      onChange={(e) => setCitaForm({ ...citaForm, horaInicio: e.target.value })}
-                    />
-                  </div>
+                  <Button type="button" size="sm" variant="outline" onClick={addItem}
+                    disabled={isLoadingData}>
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Agregar servicio
+                  </Button>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="servicio">Servicio *</Label>
-                  {isLoadingServicios ? (
-                    <div className="flex items-center gap-2 p-3 border rounded-md">
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Cargando servicios...</span>
-                    </div>
-                  ) : errorServicios ? (
-                    <div className="p-3 border border-destructive/50 rounded-md bg-destructive/10">
-                      <p className="text-sm text-destructive">{errorServicios}</p>
-                    </div>
-                  ) : servicios.length === 0 ? (
-                    <div className="p-3 border border-yellow-500/50 rounded-md bg-yellow-500/10">
-                      <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                        No hay servicios disponibles. Por favor, agrega servicios en la sección de Servicios.
-                      </p>
-                    </div>
-                  ) : (
-                    <Popover open={servicioPopoverOpen} onOpenChange={setServicioPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={servicioPopoverOpen}
-                          className="w-full justify-between font-normal"
-                          id="servicio"
+                {isLoadingData ? (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">Cargando catálogos...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {serviciosItems.map((item, idx) => {
+                      const svcSeleccionado = servicios.find((s) => s.id === item.servicioId)
+                      const empSeleccionada = empleados.find((e) => e.id === item.empleadoId)
+
+                      return (
+                        <div
+                          key={item.uid}
+                          className={cn(
+                            "rounded-lg border p-3 space-y-3 relative",
+                            svcSeleccionado && item.empleadoId && item.horaInicio
+                              ? "border-primary/30 bg-primary/5"
+                              : "border-border bg-muted/20"
+                          )}
                         >
-                          {servicioSeleccionado
-                            ? `${servicioSeleccionado.nombre} - $${servicioSeleccionado.precio} (${servicioSeleccionado.duracion} min)`
-                            : "Buscar o seleccionar servicio..."}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                        <Command
-                          filter={(value, search) => {
-                            const s = servicios.find((sv) => sv.id === value)
-                            if (!s) return 0
-                            const term = search.toLowerCase()
-                            return s.nombre.toLowerCase().includes(term) ||
-                              String(s.precio).includes(term) ||
-                              String(s.duracion).includes(term)
-                              ? 1
-                              : 0
-                          }}
-                        >
-                          <CommandInput placeholder="Escribir nombre del servicio..." />
-                          <CommandList>
-                            <CommandEmpty>No hay servicios que coincidan.</CommandEmpty>
-                            <CommandGroup>
-                              {servicios.map((servicio) => (
-                                <CommandItem
-                                  key={servicio.id}
-                                  value={servicio.id}
-                                  onSelect={() => {
-                                    setCitaForm({ ...citaForm, servicioId: servicio.id })
-                                    setServicioPopoverOpen(false)
-                                  }}
-                                >
-                                  {servicio.nombre} - ${servicio.precio} ({servicio.duracion} min)
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  )}
-                  {servicioSeleccionado && (
-                    <div className="p-3 bg-muted/50 rounded-md border">
-                      <p className="text-sm font-medium">Servicio seleccionado:</p>
-                      <p className="text-sm text-muted-foreground">
-                        {servicioSeleccionado.nombre} - ${servicioSeleccionado.precio} ({servicioSeleccionado.duracion} minutos)
-                      </p>
-                      {servicioSeleccionado.descripcion && (
-                        <p className="text-xs text-muted-foreground mt-1">{servicioSeleccionado.descripcion}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="empleado">Empleada *</Label>
-                  {isLoadingEmpleados ? (
-                    <div className="flex items-center gap-2 p-3 border rounded-md">
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Cargando empleadas...</span>
-                    </div>
-                  ) : empleados.length === 0 ? (
-                    <div className="p-3 border border-yellow-500/50 rounded-md bg-yellow-500/10">
-                      <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                        No hay empleadas disponibles para esta sucursal.
-                      </p>
-                    </div>
-                  ) : (
-                    <Select
-                      value={citaForm.empleadoId}
-                      onValueChange={(value) => setCitaForm({ ...citaForm, empleadoId: value })}
-                      required
-                    >
-                      <SelectTrigger id="empleado">
-                        <SelectValue placeholder="Seleccionar empleada" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {empleados.map((empleado) => (
-                          <SelectItem key={empleado.id} value={empleado.id}>
-                            {empleado.nombre} {empleado.apellido} - {empleado.especialidades && empleado.especialidades.length > 0 ? empleado.especialidades.join(", ") : empleado.rol}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {citaForm.empleadoId && (
-                    <div className="p-3 bg-muted/50 rounded-md border">
-                      <p className="text-sm font-medium">Empleada seleccionada:</p>
-                      <p className="text-sm text-muted-foreground">
-                        {empleados.find(e => e.id === citaForm.empleadoId)?.nombre} {empleados.find(e => e.id === citaForm.empleadoId)?.apellido}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="notasCita">Notas de la Cita</Label>
-                  <Textarea
-                    id="notasCita"
-                    placeholder="Instrucciones especiales, recordatorios, etc."
-                    value={citaForm.notas}
-                    onChange={(e) => setCitaForm({ ...citaForm, notas: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              {/* Resumen de la cita antes de guardar */}
-              {citaForm.servicioId && citaForm.empleadoId && (selectedClienteId || clienteMode === "new") && (
-                <div className="pt-4 border-t space-y-2">
-                  <Label className="text-base font-semibold">Resumen de la Cita</Label>
-                  <div className="p-4 bg-primary/5 rounded-md border border-primary/20">
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Cliente:</span>
-                        <span className="font-medium">
-                          {clienteMode === "new" 
-                            ? `${nuevoCliente.nombre} ${nuevoCliente.apellido} (nuevo)`
-                            : selectedCliente?.id === selectedClienteId 
-                              ? `${selectedCliente.nombre} ${selectedCliente.apellido}`
-                              : "No seleccionado"}
-                        </span>
-                      </div>
-                      {servicioSeleccionado && (
-                        <>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Servicio:</span>
-                            <span className="font-medium">{servicioSeleccionado.nombre}</span>
+                          {/* Número + borrar */}
+                          <div className="flex items-center justify-between mb-1">
+                            <Badge variant="outline" className="text-xs font-semibold">
+                              Servicio {idx + 1}
+                            </Badge>
+                            {serviciosItems.length > 1 && (
+                              <Button type="button" variant="ghost" size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                onClick={() => removeItem(idx)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Duración:</span>
-                            <span className="font-medium">{servicioSeleccionado.duracion} minutos</span>
+
+                          {/* Fila: Servicio + Empleada + Hora */}
+                          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                            {/* Servicio */}
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Servicio *</Label>
+                              <Popover
+                                open={!!openPopovers[item.uid]}
+                                onOpenChange={(v) => setOpenPopovers((p) => ({ ...p, [item.uid]: v }))}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button variant="outline" role="combobox"
+                                    className="w-full justify-between font-normal text-left h-9 text-sm">
+                                    <span className="truncate">
+                                      {svcSeleccionado
+                                        ? svcSeleccionado.nombre
+                                        : "Seleccionar servicio..."}
+                                    </span>
+                                    <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-80 p-0" align="start">
+                                  <Command filter={(value, search) => {
+                                    const s = servicios.find((sv) => sv.id === value)
+                                    return s && s.nombre.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
+                                  }}>
+                                    <CommandInput placeholder="Buscar servicio..." />
+                                    <CommandList>
+                                      <CommandEmpty>Sin resultados.</CommandEmpty>
+                                      <CommandGroup>
+                                        {servicios.map((svc) => (
+                                          <CommandItem key={svc.id} value={svc.id}
+                                            onSelect={() => {
+                                              updateItem(idx, { servicioId: svc.id })
+                                              setOpenPopovers((p) => ({ ...p, [item.uid]: false }))
+                                            }}>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-sm font-medium truncate">{svc.nombre}</p>
+                                              <p className="text-xs text-muted-foreground">
+                                                ${svc.precio} · {svc.duracion} min
+                                              </p>
+                                            </div>
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+
+                            {/* Empleada */}
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Empleada *</Label>
+                              <Select value={item.empleadoId}
+                                onValueChange={(v) => updateItem(idx, { empleadoId: v })}>
+                                <SelectTrigger className="h-9 text-sm">
+                                  <SelectValue placeholder="Seleccionar..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {empleados.map((emp) => (
+                                    <SelectItem key={emp.id} value={emp.id}>
+                                      {emp.nombre} {emp.apellido}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* Hora */}
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Hora *</Label>
+                              <Input type="time" value={item.horaInicio}
+                                onChange={(e) => updateItem(idx, { horaInicio: e.target.value })}
+                                className="h-9 w-28 text-sm" required />
+                            </div>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Precio:</span>
-                            <span className="font-medium">${servicioSeleccionado.precio}</span>
-                          </div>
-                        </>
-                      )}
-                      {empleados.find(e => e.id === citaForm.empleadoId) && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Empleada:</span>
-                          <span className="font-medium">
-                            {empleados.find(e => e.id === citaForm.empleadoId)!.nombre} {empleados.find(e => e.id === citaForm.empleadoId)!.apellido}
-                          </span>
+
+                          {/* Info del servicio seleccionado */}
+                          {svcSeleccionado && (
+                            <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {svcSeleccionado.duracion} min
+                                {item.horaInicio && (
+                                  <> · hasta {addMinutes(item.horaInicio, svcSeleccionado.duracion)}</>
+                                )}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <DollarSign className="h-3 w-3" />
+                                ${svcSeleccionado.precio}
+                              </span>
+                              {empSeleccionada && (
+                                <span className="flex items-center gap-1">
+                                  <User className="h-3 w-3" />
+                                  {empSeleccionada.nombre} {empSeleccionada.apellido}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {citaForm.fecha && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Fecha:</span>
-                          <span className="font-medium">
-                            {new Date(citaForm.fecha).toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-                          </span>
-                        </div>
-                      )}
-                      {citaForm.horaInicio && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Hora:</span>
-                          <span className="font-medium">{citaForm.horaInicio}</span>
-                        </div>
-                      )}
-                    </div>
+                      )
+                    })}
                   </div>
-                </div>
+                )}
+              </section>
+
+              {/* ── NOTAS GENERALES ──────────────────────────────────────────── */}
+              <section className="space-y-2">
+                <Label className="text-sm font-medium text-muted-foreground">Notas generales (opcionales)</Label>
+                <Textarea rows={2} placeholder="Instrucciones, recordatorios, etc."
+                  value={notasGenerales} onChange={(e) => setNotasGenerales(e.target.value)} />
+              </section>
+
+              {/* ── RESUMEN ───────────────────────────────────────────────────── */}
+              {allItemsValid && (selectedClienteId || clienteMode === "new") && (
+                <section className="rounded-lg border border-primary/25 bg-primary/5 p-4 space-y-3">
+                  <p className="text-sm font-semibold">Resumen de la sesión</p>
+
+                  {/* Cliente */}
+                  <div className="text-sm flex justify-between">
+                    <span className="text-muted-foreground">Cliente</span>
+                    <span className="font-medium">
+                      {clienteMode === "new"
+                        ? `${nuevoCliente.nombre} ${nuevoCliente.apellido}`
+                        : selectedCliente
+                          ? `${selectedCliente.nombre} ${selectedCliente.apellido}`
+                          : "—"}
+                    </span>
+                  </div>
+
+                  <Separator />
+
+                  {/* Lista de servicios */}
+                  <div className="space-y-2">
+                    {serviciosItems.map((item, idx) => {
+                      const svc = servicios.find((s) => s.id === item.servicioId)
+                      const emp = empleados.find((e) => e.id === item.empleadoId)
+                      if (!svc || !emp) return null
+                      return (
+                        <div key={item.uid} className="text-sm flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2">
+                            <Badge variant="secondary" className="text-[10px] mt-0.5 shrink-0">#{idx + 1}</Badge>
+                            <div>
+                              <p className="font-medium">{svc.nombre}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {emp.nombre} {emp.apellido} · {item.horaInicio}–{addMinutes(item.horaInicio, svc.duracion)} · {svc.duracion} min
+                              </p>
+                            </div>
+                          </div>
+                          <span className="font-semibold shrink-0">${svc.precio}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <Separator />
+
+                  {/* Totales */}
+                  <div className="flex justify-between text-sm font-semibold">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                      {totalDuracion} min en total
+                    </span>
+                    <span className="text-primary">${totalPrecio} total</span>
+                  </div>
+                </section>
               )}
+
             </div>
-          </div>
+          </ScrollArea>
 
-          <DialogFooter className="px-6 py-4 border-t bg-background flex-shrink-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Creando...
-                </>
-              ) : (
-                <>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Crear Cita
-                </>
-              )}
-            </Button>
+          {/* ── FOOTER ──────────────────────────────────────────────────────── */}
+          <DialogFooter className="px-6 py-4 border-t bg-background flex-shrink-0 flex items-center justify-between">
+            <div className="text-xs text-muted-foreground">
+              {serviciosItems.length} servicio{serviciosItems.length > 1 ? "s" : ""} · ${totalPrecio}
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isSubmitting || isLoadingData}>
+                {isSubmitting ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</>
+                ) : (
+                  <><Plus className="h-4 w-4 mr-2" />
+                    {serviciosItems.length === 1 ? "Crear Cita" : `Crear ${serviciosItems.length} Citas`}
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>
