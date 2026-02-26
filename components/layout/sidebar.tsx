@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Receipt,
+  UserX,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { logout } from "@/lib/auth"
@@ -41,6 +42,7 @@ const newModules = [
   { name: "Gift Cards", href: "/dashboard/gift-cards", icon: Gift },
   { name: "Promociones", href: "/dashboard/promociones", icon: Tag },
   { name: "Vacaciones", href: "/dashboard/vacaciones", icon: Palmtree },
+  { name: "Ausencias", href: "/dashboard/ausencias", icon: UserX },
 ]
 
 const settingsNav = [{ name: "Configuración", href: "/dashboard/configuracion", icon: Settings }]

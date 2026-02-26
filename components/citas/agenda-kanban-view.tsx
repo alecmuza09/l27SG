@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -17,7 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { updateCitaEstado } from "@/lib/data/citas"
+import { updateCitaEstado, updateCita } from "@/lib/data/citas"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
@@ -80,6 +80,65 @@ interface BloqueAgenda {
   horaFin?: string     // solo para tipo 'comida'
 }
 
+// Altura por slot en px (incluye margen)
+const SLOT_H = 34
+
+// Convierte hora "HH:MM[:ss]" a minutos desde medianoche
+function horaToMins(hora: string): number {
+  const [h, m] = hora.substring(0, 5).split(":").map(Number)
+  return h * 60 + m
+}
+
+// Posición top en px para una hora (referencia: 10:00 = 0px)
+function horaToPx(hora: string): number {
+  return Math.max(0, (horaToMins(hora) - 10 * 60) / 30 * SLOT_H)
+}
+
+// Altura en px para una duración en minutos
+function duracionToPx(minutos: number): number {
+  return Math.max((minutos / 30) * SLOT_H - 2, 48)
+}
+
+// Detecta si dos citas se solapan en tiempo
+function citasOverlap(a: Cita, b: Cita): boolean {
+  const a1 = horaToMins(a.horaInicio)
+  const a2 = horaToMins(a.horaFin)
+  const b1 = horaToMins(b.horaInicio)
+  const b2 = horaToMins(b.horaFin)
+  return a1 < b2 && b1 < a2
+}
+
+// Asigna columna a cada cita para mostrarlas lado a lado cuando solapan
+function getOverlapInfo(citas: Cita[]): Map<string, { col: number; totalCols: number }> {
+  const result = new Map<string, { col: number; totalCols: number }>()
+  if (citas.length === 0) return result
+
+  const sorted = [...citas].sort((a, b) =>
+    horaToMins(a.horaInicio) - horaToMins(b.horaInicio)
+  )
+  const colMap = new Map<string, number>()
+
+  for (const cita of sorted) {
+    const usedCols = new Set<number>()
+    for (const [otherId, otherCol] of colMap.entries()) {
+      const other = sorted.find((c) => c.id === otherId)
+      if (other && citasOverlap(cita, other)) usedCols.add(otherCol)
+    }
+    let col = 0
+    while (usedCols.has(col)) col++
+    colMap.set(cita.id, col)
+  }
+
+  for (const cita of sorted) {
+    const overlapping = sorted.filter((c) => c.id !== cita.id && citasOverlap(cita, c))
+    const allCols = [colMap.get(cita.id)!, ...overlapping.map((c) => colMap.get(c.id)!)]
+    const totalCols = Math.max(...allCols) + 1
+    result.set(cita.id, { col: colMap.get(cita.id)!, totalCols })
+  }
+
+  return result
+}
+
 // Slots de 30 min: 10:00 → 20:00 (21 slots: 10:00, 10:30 … 20:00)
 const TIME_SLOTS = Array.from({ length: 21 }, (_, i) => {
   const hour = Math.floor(i / 2) + 10
@@ -108,6 +167,11 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   // Bloques manuales (comida / descanso) — guardados en localStorage por fecha
   const [bloquesAgenda, setBloquesAgenda] = useState<BloqueAgenda[]>([])
   const [isBloquesOpen, setIsBloquesOpen] = useState(false)
+  // Edición de duración inline
+  const [editingDuracionCita, setEditingDuracionCita] = useState<Cita | null>(null)
+  const [isDuracionDialogOpen, setIsDuracionDialogOpen] = useState(false)
+  const [nuevaDuracion, setNuevaDuracion] = useState<number>(60)
+  const [isSavingDuracion, setIsSavingDuracion] = useState(false)
   const [nuevoBloque, setNuevoBloque] = useState<{ empleadoId: string; tipo: 'comida' | 'descanso'; horaInicio: string; horaFin: string }>({
     empleadoId: '',
     tipo: 'comida',
@@ -386,6 +450,29 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     saveBloques(bloquesAgenda.filter((b) => b.id !== id))
   }
 
+  const handleGuardarDuracion = async () => {
+    if (!editingDuracionCita || nuevaDuracion < 5) return
+    setIsSavingDuracion(true)
+    try {
+      const result = await updateCita(editingDuracionCita.id, {
+        hora_inicio: editingDuracionCita.horaInicio,
+        duracion: nuevaDuracion,
+      })
+      if (result.success) {
+        toast.success(`Duración actualizada a ${nuevaDuracion} min`)
+        setIsDuracionDialogOpen(false)
+        setEditingDuracionCita(null)
+        await handleCitaCreated()
+      } else {
+        toast.error(`Error al actualizar duración: ${result.error}`)
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Error inesperado")
+    } finally {
+      setIsSavingDuracion(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header con filtros */}
@@ -579,179 +666,193 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             </div>
                           </div>
                         ) : (
-                          /* Timeline de 30 minutos */
-                          <div className="space-y-0.5 relative">
-                            {TIME_SLOTS.map((slot, slotIndex) => {
-                              const [hour, minutes] = slot.split(":")
-                              const slotTime = `${hour}:${minutes}`
-                              
-                              const normalizarHora = (hora: string): string => {
-                                if (!hora) return ''
-                                return hora.substring(0, 5)
-                              }
-                              // Buscar si algún bloque de comida de esta empleada cubre este slot
-                              const bloqueComida = bloquesAgenda.find(
-                                (b) =>
-                                  b.empleadoId === empleado.id &&
-                                  b.tipo === 'comida' &&
-                                  b.horaInicio &&
-                                  b.horaFin &&
-                                  slotTime >= b.horaInicio.substring(0, 5) &&
-                                  slotTime < b.horaFin.substring(0, 5)
-                              )
-                              const isComida = !!bloqueComida
-                              
-                              // Buscar citas que empiecen exactamente en este slot
-                              const cita = citasEmpleado.find((c) => {
-                                const horaInicioNormalizada = normalizarHora(c.horaInicio)
-                                return horaInicioNormalizada === slotTime
-                              })
-                              
-                              // Verificar si este slot está ocupado por una cita que empezó antes
-                              const citaQueOcupaEsteSlot = citasEmpleado.find((c) => {
-                                const horaInicio = normalizarHora(c.horaInicio)
-                                const horaFin = normalizarHora(c.horaFin)
-                                return slotTime >= horaInicio && slotTime < horaFin
-                              })
-                              
-                              const isInRange =
-                                slotTime >= empleado.horarioInicio &&
-                                slotTime < empleado.horarioFin &&
-                                !isComida
-                              
-                              // Calcular cuántos slots ocupa la cita (cada slot es 30 minutos)
-                              const calcularSlotsOcupados = (cita: Cita): number => {
-                                return Math.ceil(cita.duracion / 30)
-                              }
-                              
-                              // Solo mostrar la cita en el slot donde empieza
-                              const mostrarCita = cita && normalizarHora(cita.horaInicio) === slotTime
-
-                              const slotTieneCita = mostrarCita && !!cita
-                              const alturaCita = slotTieneCita ? Math.max(calcularSlotsOcupados(cita!) * 32 + (calcularSlotsOcupados(cita!) - 1) * 2, 76) : 32
-                              return (
-                                <div key={slot} className="flex gap-1 relative">
-                                  <div className="text-[10px] text-muted-foreground py-1 w-9 flex-shrink-0 leading-tight">{slot}</div>
-                                  <div
-                                    className={cn(
-                                      "flex-1 border-l border-border pl-1 cursor-pointer hover:bg-accent/50 transition-colors relative",
-                                      !slotTieneCita && "min-h-[32px]",
-                                      (!isInRange || isComida) && "bg-muted/30 cursor-not-allowed",
-                                      isComida && "bg-orange-50 dark:bg-orange-950/20",
-                                      (cita || citaQueOcupaEsteSlot) && "cursor-default bg-primary/5",
-                                    )}
-                                    style={slotTieneCita ? { minHeight: `${alturaCita}px` } : undefined}
-                                    onClick={() => !cita && !citaQueOcupaEsteSlot && isInRange && handleSlotClick(slotTime, empleado.id, true)}
-                                  >
-                                    {mostrarCita && cita ? (
-                                      <Card
-                                        className="cursor-move hover:shadow-md transition-shadow absolute inset-0 z-10 border border-border bg-card shadow-sm rounded-md overflow-visible"
-                                        draggable
-                                        onDragStart={() => handleDragStart(cita)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        style={{ minHeight: `${alturaCita}px` }}
-                                      >
-                                        <CardContent className="p-1.5 h-full flex flex-col gap-0.5 min-h-0 overflow-visible">
-                                          <div className="flex items-center justify-between gap-0.5 shrink-0">
-                                            <Badge
-                                              className={cn(
-                                                "text-[9px] px-1 py-0 shrink-0 leading-tight",
-                                                ESTADOS.find((e) => e.value === getEstadoUI(cita))?.color || "bg-gray-500",
-                                              )}
-                                            >
-                                              {ESTADOS.find((e) => e.value === getEstadoUI(cita))?.label || cita.estado}
-                                            </Badge>
-                                            <DropdownMenu>
-                                              <DropdownMenuTrigger asChild>
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className="h-5 w-5 shrink-0"
-                                                  onClick={(e) => e.stopPropagation()}
-                                                >
-                                                  <MoreVertical className="h-2.5 w-2.5" />
-                                                </Button>
-                                              </DropdownMenuTrigger>
-                                              <DropdownMenuContent align="end" className="z-50" onClick={(e) => e.stopPropagation()}>
-                                                <DropdownMenuItem
-                                                  onSelect={() => {
-                                                    setEditingCita(cita)
-                                                    setIsEditDialogOpen(true)
-                                                  }}
-                                                >
-                                                  <Edit className="h-4 w-4 mr-2" />
-                                                  Editar Cita
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                  onSelect={() => {
-                                                    setCajaCita(cita)
-                                                    setIsCajaOpen(true)
-                                                  }}
-                                                  className="text-emerald-700 focus:text-emerald-700 focus:bg-emerald-50"
-                                                >
-                                                  <ShoppingBag className="h-4 w-4 mr-2" />
-                                                  Ir a Caja
-                                                </DropdownMenuItem>
-                                                <DropdownMenuSeparator />
-                                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                                                  Cambiar Estado:
-                                                </div>
-                                                {ESTADOS.map((estado) => {
-                                                  const isCurrentState = getEstadoUI(cita) === estado.value
-                                                  return (
-                                                    <DropdownMenuItem
-                                                      key={estado.value}
-                                                      onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleCambiarEstado(cita.id, estado.value)
-                                                      }}
-                                                      disabled={isCurrentState}
-                                                      className={isCurrentState ? "bg-accent" : ""}
-                                                    >
-                                                      <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
-                                                      {estado.label}
-                                                    </DropdownMenuItem>
-                                                  )
-                                                })}
-                                                </DropdownMenuContent>
-                                              </DropdownMenu>
-                                          </div>
-                                          <div className="flex-1 min-h-[2rem] flex flex-col justify-center gap-0 min-w-0">
-                                            <p className="font-semibold text-[11px] text-foreground leading-snug truncate" title={cita.clienteNombre}>
-                                              {cita.clienteNombre}
-                                            </p>
-                                            <p className="text-[10px] text-muted-foreground leading-snug truncate" title={cita.servicioNombre}>
-                                              {cita.servicioNombre}
-                                            </p>
-                                          </div>
-                                          <div className="flex items-center justify-between text-[10px] text-muted-foreground shrink-0 pt-0.5 border-t border-border/60">
-                                            <span className="flex items-center gap-0.5">
-                                              <Clock className="h-2.5 w-2.5 shrink-0" />
-                                              {cita.horaInicio}–{cita.horaFin}
-                                            </span>
-                                            <span className="font-medium text-foreground">${cita.precio}</span>
-                                          </div>
-                                        </CardContent>
-                                      </Card>
-                                    ) : citaQueOcupaEsteSlot ? (
-                                      <div className="absolute inset-0 bg-primary/5 z-0" />
-                                    ) : isComida ? (
-                                      <div className="flex items-center justify-center h-full min-h-[32px] text-[10px] text-orange-600 dark:text-orange-400">
-                                        <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5" />
-                                        Comida
+                          /* Timeline absoluto — soporta citas solapadas */
+                          (() => {
+                            const overlapMap = getOverlapInfo(citasEmpleado)
+                            const totalH = TIME_SLOTS.length * SLOT_H
+                            return (
+                              <div className="relative" style={{ height: `${totalH}px` }}>
+                                {/* Etiquetas de hora + fondos de slot */}
+                                {TIME_SLOTS.map((slot, idx) => {
+                                  const isInRange =
+                                    slot >= empleado.horarioInicio && slot < empleado.horarioFin
+                                  const bloqueComida = bloquesAgenda.find(
+                                    (b) =>
+                                      b.empleadoId === empleado.id &&
+                                      b.tipo === 'comida' &&
+                                      b.horaInicio && b.horaFin &&
+                                      slot >= b.horaInicio.substring(0, 5) &&
+                                      slot < b.horaFin.substring(0, 5)
+                                  )
+                                  const isComida = !!bloqueComida
+                                  const isOcupado = citasEmpleado.some((c) => {
+                                    const ni = c.horaInicio.substring(0, 5)
+                                    const nf = c.horaFin.substring(0, 5)
+                                    return slot >= ni && slot < nf
+                                  })
+                                  return (
+                                    <div
+                                      key={slot}
+                                      className={cn(
+                                        "absolute flex gap-1 group",
+                                        (!isInRange || isComida) && "bg-muted/30",
+                                        isComida && "bg-orange-50 dark:bg-orange-950/20",
+                                        isInRange && !isOcupado && !isComida && "hover:bg-accent/40 cursor-pointer",
+                                        isOcupado && "cursor-default",
+                                      )}
+                                      style={{ top: `${idx * SLOT_H}px`, height: `${SLOT_H - 2}px`, left: 0, right: 0 }}
+                                      onClick={() => {
+                                        if (!isComida && isInRange && !isOcupado)
+                                          handleSlotClick(slot, empleado.id, true)
+                                      }}
+                                    >
+                                      <div className="text-[10px] text-muted-foreground pt-1 w-9 flex-shrink-0 leading-tight select-none">
+                                        {slot}
                                       </div>
-                                    ) : (
-                                      isInRange && (
-                                        <div className="flex items-center justify-center h-full min-h-[32px] opacity-0 hover:opacity-100 transition-opacity">
-                                          <Plus className="h-3 w-3 text-muted-foreground" />
+                                      <div className="flex-1 border-l border-border/40 relative">
+                                        {isComida && (
+                                          <span className="absolute inset-0 flex items-center pl-1 text-[10px] text-orange-600 dark:text-orange-400 pointer-events-none">
+                                            <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5" /> Comida
+                                          </span>
+                                        )}
+                                        {isInRange && !isOcupado && !isComida && (
+                                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                            <Plus className="h-3 w-3 text-muted-foreground" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+
+                                {/* Tarjetas de citas — posicionadas absolutamente */}
+                                {citasEmpleado.map((cita) => {
+                                  const { col, totalCols } = overlapMap.get(cita.id) ?? { col: 0, totalCols: 1 }
+                                  const topPx = horaToPx(cita.horaInicio)
+                                  const heightPx = duracionToPx(cita.duracion)
+                                  const LEFT_OFFSET = 36 // ancho etiqueta hora
+                                  const widthFrac = 1 / totalCols
+
+                                  return (
+                                    <Card
+                                      key={cita.id}
+                                      className={cn(
+                                        "absolute z-10 border border-border bg-card shadow-sm rounded-md overflow-hidden cursor-move hover:shadow-md transition-shadow",
+                                        totalCols > 1 && "border-l-2",
+                                        col === 0 && totalCols > 1 && "border-l-blue-400",
+                                        col === 1 && totalCols > 1 && "border-l-purple-400",
+                                        col === 2 && totalCols > 1 && "border-l-pink-400",
+                                      )}
+                                      draggable
+                                      onDragStart={() => handleDragStart(cita)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{
+                                        top: `${topPx}px`,
+                                        left: `calc(${LEFT_OFFSET}px + ${col * widthFrac} * (100% - ${LEFT_OFFSET}px))`,
+                                        width: `calc(${widthFrac} * (100% - ${LEFT_OFFSET}px))`,
+                                        height: `${heightPx}px`,
+                                      }}
+                                    >
+                                      <CardContent className="p-1.5 h-full flex flex-col gap-0.5 min-h-0">
+                                        <div className="flex items-center justify-between gap-0.5 shrink-0">
+                                          <Badge
+                                            className={cn(
+                                              "text-[9px] px-1 py-0 shrink-0 leading-tight",
+                                              ESTADOS.find((e) => e.value === getEstadoUI(cita))?.color || "bg-gray-500",
+                                            )}
+                                          >
+                                            {ESTADOS.find((e) => e.value === getEstadoUI(cita))?.label || cita.estado}
+                                          </Badge>
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-5 w-5 shrink-0"
+                                                onClick={(e) => e.stopPropagation()}
+                                              >
+                                                <MoreVertical className="h-2.5 w-2.5" />
+                                              </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="z-50" onClick={(e) => e.stopPropagation()}>
+                                              <DropdownMenuItem
+                                                onSelect={() => {
+                                                  setEditingCita(cita)
+                                                  setIsEditDialogOpen(true)
+                                                }}
+                                              >
+                                                <Edit className="h-4 w-4 mr-2" />
+                                                Editar Cita
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                onSelect={() => {
+                                                  setEditingDuracionCita(cita)
+                                                  setNuevaDuracion(cita.duracion)
+                                                  setIsDuracionDialogOpen(true)
+                                                }}
+                                              >
+                                                <Timer className="h-4 w-4 mr-2" />
+                                                Editar Duración
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                onSelect={() => {
+                                                  setCajaCita(cita)
+                                                  setIsCajaOpen(true)
+                                                }}
+                                                className="text-emerald-700 focus:text-emerald-700 focus:bg-emerald-50"
+                                              >
+                                                <ShoppingBag className="h-4 w-4 mr-2" />
+                                                Ir a Caja
+                                              </DropdownMenuItem>
+                                              <DropdownMenuSeparator />
+                                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                                Cambiar Estado:
+                                              </div>
+                                              {ESTADOS.map((estado) => {
+                                                const isCurrentState = getEstadoUI(cita) === estado.value
+                                                return (
+                                                  <DropdownMenuItem
+                                                    key={estado.value}
+                                                    onClick={(e) => {
+                                                      e.stopPropagation()
+                                                      handleCambiarEstado(cita.id, estado.value)
+                                                    }}
+                                                    disabled={isCurrentState}
+                                                    className={isCurrentState ? "bg-accent" : ""}
+                                                  >
+                                                    <div className={cn("h-2 w-2 rounded-full mr-2", estado.color)} />
+                                                    {estado.label}
+                                                  </DropdownMenuItem>
+                                                )
+                                              })}
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
                                         </div>
-                                      )
-                                    )}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
+                                        <div className="flex-1 flex flex-col justify-center gap-0 min-w-0 overflow-hidden">
+                                          <p className="font-semibold text-[11px] text-foreground leading-snug truncate" title={cita.clienteNombre}>
+                                            {cita.clienteNombre}
+                                          </p>
+                                          <p className="text-[10px] text-muted-foreground leading-snug truncate" title={cita.servicioNombre}>
+                                            {cita.servicioNombre}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground shrink-0 pt-0.5 border-t border-border/60">
+                                          <span className="flex items-center gap-0.5">
+                                            <Clock className="h-2.5 w-2.5 shrink-0" />
+                                            {cita.horaInicio.substring(0,5)}–{cita.horaFin.substring(0,5)}
+                                            {totalCols > 1 && (
+                                              <span className="ml-1 text-[9px] text-muted-foreground/70">{cita.duracion}m</span>
+                                            )}
+                                          </span>
+                                          <span className="font-medium text-foreground">${cita.precio}</span>
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  )
+                                })}
+                              </div>
+                            )
+                          })()
                         )}
                       </div>
                     )
@@ -970,6 +1071,87 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         cita={cajaCita}
         onPagoCobrado={handleCitaCreated}
       />
+
+      {/* Dialog edición de duración */}
+      <Dialog
+        open={isDuracionDialogOpen}
+        onOpenChange={(open) => {
+          setIsDuracionDialogOpen(open)
+          if (!open) setEditingDuracionCita(null)
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Timer className="h-4 w-4" />
+              Editar duración
+            </DialogTitle>
+            <DialogDescription>
+              {editingDuracionCita && (
+                <>
+                  <span className="font-medium">{editingDuracionCita.clienteNombre}</span>
+                  {" — "}{editingDuracionCita.servicioNombre}
+                  <br />
+                  <span className="text-xs">Hora inicio: {editingDuracionCita.horaInicio.substring(0, 5)}</span>
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Duración (minutos)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={5}
+                  max={480}
+                  step={5}
+                  value={nuevaDuracion}
+                  onChange={(e) => setNuevaDuracion(Number(e.target.value))}
+                  className="w-28"
+                />
+                <span className="text-sm text-muted-foreground">
+                  = {Math.floor(nuevaDuracion / 60) > 0 && `${Math.floor(nuevaDuracion / 60)}h `}
+                  {nuevaDuracion % 60 > 0 && `${nuevaDuracion % 60}min`}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[30, 45, 60, 90, 120].map((min) => (
+                <Button
+                  key={min}
+                  size="sm"
+                  variant={nuevaDuracion === min ? "default" : "outline"}
+                  onClick={() => setNuevaDuracion(min)}
+                >
+                  {min < 60 ? `${min}min` : `${min / 60}h`}
+                </Button>
+              ))}
+            </div>
+            {editingDuracionCita && (
+              <p className="text-xs text-muted-foreground">
+                Nueva hora fin:{" "}
+                <span className="font-medium text-foreground">
+                  {(() => {
+                    const [h, m] = editingDuracionCita.horaInicio.substring(0, 5).split(":").map(Number)
+                    const total = h * 60 + m + nuevaDuracion
+                    return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
+                  })()}
+                </span>
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <Button variant="outline" onClick={() => setIsDuracionDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleGuardarDuracion} disabled={isSavingDuracion || nuevaDuracion < 5}>
+              {isSavingDuracion ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Guardar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
