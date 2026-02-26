@@ -155,7 +155,7 @@ export default function SucursalesPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="horario">Horario</Label>
-                <Input id="horario" name="horario" placeholder="Lun-Sab: 9:00 - 20:00" />
+                <Input id="horario" name="horario" placeholder="Lun-Sab: 10:00 - 20:00" defaultValue="Lun-Sab: 10:00 - 20:00" />
               </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>

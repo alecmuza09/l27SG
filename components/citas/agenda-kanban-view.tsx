@@ -80,8 +80,9 @@ interface BloqueAgenda {
   horaFin?: string     // solo para tipo 'comida'
 }
 
-const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
-  const hour = Math.floor(i / 2) + 9
+// Slots de 30 min: 10:00 → 20:00 (21 slots: 10:00, 10:30 … 20:00)
+const TIME_SLOTS = Array.from({ length: 21 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 10
   const minutes = i % 2 === 0 ? "00" : "30"
   return `${hour.toString().padStart(2, "0")}:${minutes}`
 })
