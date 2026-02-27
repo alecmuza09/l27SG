@@ -9,8 +9,9 @@ import { Label } from "@/components/ui/label"
 import {
   CreditCard, Banknote, ArrowLeftRight, Plus, ShoppingBag,
   RefreshCw, Receipt, Search, Gift, Loader2, Wallet,
-  Eye, Pencil, X, Check, Star,
+  Eye, Pencil, X, Check, Star, ChevronDown,
 } from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import {
   getPagosFromDB, getResumenCajaDiarioFromDB, updatePago,
@@ -173,6 +174,29 @@ export default function PagosPage() {
   const abrirCajaConSeleccion = () => {
     if (citasSeleccionadas.size === 0) return
     setCajaOpen(true)
+  }
+
+  const ESTADOS_CITA = [
+    { value: "pendiente",   label: "Pendiente",    color: "bg-yellow-100 text-yellow-800 border-yellow-300" },
+    { value: "confirmada",  label: "Confirmada",   color: "bg-blue-100 text-blue-800 border-blue-300" },
+    { value: "en-progreso", label: "En atención",  color: "bg-purple-100 text-purple-800 border-purple-300" },
+    { value: "completada",  label: "Completada",   color: "bg-green-100 text-green-800 border-green-300" },
+    { value: "pagado",      label: "✓ Pagado",     color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+    { value: "cancelada",   label: "Cancelada",    color: "bg-red-100 text-red-700 border-red-300" },
+  ]
+
+  const handleCambiarEstadoRapido = async (cita: Cita, nuevoEstado: string) => {
+    const esPagado = nuevoEstado === "pagado"
+    const estadoDB = esPagado ? "completada" : nuevoEstado as any
+    const res = await updateCitaEstado(cita.id, estadoDB, esPagado ? true : undefined)
+    if (!res.success) return
+    // Si quedó pagado o cancelada, sacar de la lista; si no, actualizar estado
+    if (esPagado || nuevoEstado === "cancelada") {
+      setCitas(prev => prev.filter(c => c.id !== cita.id))
+      setCitasSeleccionadas(prev => { const s = new Set(prev); s.delete(cita.id); return s })
+    } else {
+      setCitas(prev => prev.map(c => c.id === cita.id ? { ...c, estado: estadoDB } : c))
+    }
   }
 
   const abrirDetalleCita = (cita: Cita) => {
@@ -486,12 +510,33 @@ export default function PagosPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
                             <p className="text-sm font-semibold truncate">{cita.clienteNombre}</p>
-                            <span className={cn(
-                              "text-[10px] border rounded-full px-2 py-0.5 font-medium flex-shrink-0",
-                              estadoColor(cita.estado),
-                            )}>
-                              {cita.estado.replace("-", " ")}
-                            </span>
+                            {/* Badge de estado clickeable */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  onClick={e => e.stopPropagation()}
+                                  className={cn(
+                                    "flex items-center gap-0.5 text-[10px] border rounded-full px-2 py-0.5 font-medium flex-shrink-0 hover:opacity-80 transition-opacity",
+                                    estadoColor(cita.estado),
+                                  )}
+                                >
+                                  {cita.estado.replace("-", " ")}
+                                  <ChevronDown className="h-2.5 w-2.5 ml-0.5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start" className="w-40" onClick={e => e.stopPropagation()}>
+                                {ESTADOS_CITA.map(est => (
+                                  <DropdownMenuItem
+                                    key={est.value}
+                                    className="text-xs cursor-pointer"
+                                    onClick={() => handleCambiarEstadoRapido(cita, est.value)}
+                                  >
+                                    <span className={cn("h-2 w-2 rounded-full mr-2 flex-shrink-0 border", est.color)} />
+                                    {est.label}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                           <p className="text-xs text-muted-foreground truncate">{cita.servicioNombre}</p>
                         </div>
