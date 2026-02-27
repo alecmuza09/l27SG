@@ -88,6 +88,7 @@ export default function PagosPage() {
   const [editPropina, setEditPropina]           = useState("")
   const [editNotas, setEditNotas]               = useState("")
   const [editReferencia, setEditReferencia]     = useState("")
+  const [editMetodoPago, setEditMetodoPago]     = useState("")
   const [isSavingPago, setIsSavingPago]         = useState(false)
 
   // ── carga de datos ──────────────────────────────────────────────────────────
@@ -240,6 +241,7 @@ export default function PagosPage() {
     setEditPropina(String(pago.propina ?? 0))
     setEditNotas(pago.notas ?? "")
     setEditReferencia(pago.referencia ?? "")
+    setEditMetodoPago(pago.metodoPago ?? "efectivo")
   }
 
   const handleGuardarEdicion = async () => {
@@ -249,14 +251,13 @@ export default function PagosPage() {
       propina: Number(editPropina) || 0,
       notas: editNotas.trim() || undefined,
       referencia: editReferencia.trim() || undefined,
+      metodo_pago: editMetodoPago,
     })
     setIsSavingPago(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
-    setPagos(prev => prev.map(p => p.id === pagoDetalle.id
-      ? { ...p, propina: Number(editPropina) || 0, notas: editNotas.trim() || undefined, referencia: editReferencia.trim() || undefined }
-      : p
-    ))
-    setPagoDetalle(prev => prev ? { ...prev, propina: Number(editPropina) || 0, notas: editNotas.trim() || undefined, referencia: editReferencia.trim() || undefined } : null)
+    const updated = { propina: Number(editPropina) || 0, notas: editNotas.trim() || undefined, referencia: editReferencia.trim() || undefined, metodoPago: editMetodoPago as any }
+    setPagos(prev => prev.map(p => p.id === pagoDetalle.id ? { ...p, ...updated } : p))
+    setPagoDetalle(prev => prev ? { ...prev, ...updated } : null)
     setEditando(false)
   }
 
@@ -996,12 +997,25 @@ export default function PagosPage() {
                 </div>
                 <div>
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Método de pago</p>
-                  <span className="inline-flex items-center gap-1 text-xs border rounded px-1.5 py-0.5 capitalize bg-background">
-                    {pagoDetalle.metodoPago === "efectivo"      && <Banknote className="h-3 w-3 text-emerald-500" />}
-                    {pagoDetalle.metodoPago === "tarjeta"       && <CreditCard className="h-3 w-3 text-blue-500" />}
-                    {pagoDetalle.metodoPago === "transferencia" && <ArrowLeftRight className="h-3 w-3 text-indigo-500" />}
-                    {pagoDetalle.metodoPago}
-                  </span>
+                  {editando ? (
+                    <select
+                      value={editMetodoPago}
+                      onChange={e => setEditMetodoPago(e.target.value)}
+                      className="mt-0.5 w-full h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="efectivo">💵 Efectivo</option>
+                      <option value="tarjeta">💳 Tarjeta</option>
+                      <option value="transferencia">🔄 Transferencia</option>
+                      <option value="otro">🔖 Otro</option>
+                    </select>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs border rounded px-1.5 py-0.5 capitalize bg-background mt-0.5">
+                      {pagoDetalle.metodoPago === "efectivo"      && <Banknote className="h-3 w-3 text-emerald-500" />}
+                      {pagoDetalle.metodoPago === "tarjeta"       && <CreditCard className="h-3 w-3 text-blue-500" />}
+                      {pagoDetalle.metodoPago === "transferencia" && <ArrowLeftRight className="h-3 w-3 text-indigo-500" />}
+                      {pagoDetalle.metodoPago}
+                    </span>
+                  )}
                 </div>
               </div>
 
