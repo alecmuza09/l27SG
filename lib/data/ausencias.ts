@@ -24,6 +24,8 @@ export interface Ausencia {
   motivo: string | null
   fechaInicio: string       // "YYYY-MM-DD"
   fechaFin: string
+  horaInicio: string | null // "HH:MM" — null = día completo
+  horaFin: string | null    // "HH:MM" — null = día completo
   duracionHoras: number | null
   estatus: EstatusAusencia
   aprobadoPor: string | null
@@ -40,6 +42,8 @@ export interface CreateAusenciaInput {
   motivo?: string
   fechaInicio: string
   fechaFin: string
+  horaInicio?: string  // "HH:MM" — omitir para día completo
+  horaFin?: string     // "HH:MM" — omitir para día completo
   duracionHoras?: number
   notas?: string
 }
@@ -89,6 +93,8 @@ function mapRow(row: any, empleadoNombre?: string): Ausencia {
     motivo:          row.motivo ?? null,
     fechaInicio:     row.fecha_inicio,
     fechaFin:        row.fecha_fin,
+    horaInicio:      row.hora_inicio ? String(row.hora_inicio).substring(0, 5) : null,
+    horaFin:         row.hora_fin    ? String(row.hora_fin).substring(0, 5)    : null,
     duracionHoras:   row.duracion_horas ?? null,
     estatus:         row.estatus as EstatusAusencia,
     aprobadoPor:     row.aprobado_por ?? null,
@@ -152,6 +158,8 @@ export async function createAusencia(
       motivo:         input.motivo ?? null,
       fecha_inicio:   input.fechaInicio,
       fecha_fin:      input.fechaFin,
+      hora_inicio:    input.horaInicio ?? null,
+      hora_fin:       input.horaFin    ?? null,
       duracion_horas: input.duracionHoras ?? null,
       notas:          input.notas ?? null,
     })

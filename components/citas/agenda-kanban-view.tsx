@@ -34,6 +34,7 @@ import {
 } from "@/lib/data/ausencias"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
 interface AgendaKanbanViewProps {
   selectedDate: string
@@ -196,10 +197,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isLoadingAusencias, setIsLoadingAusencias] = useState(false)
   const [ausenciaForm, setAusenciaForm] = useState({
     empleadoId: '', tipo: 'falta' as TipoAusencia, motivo: '', duracionHoras: '',
+    diaCompleto: true, horaInicio: '10:00', horaFin: '12:00',
   })
   const [isSavingAusencia, setIsSavingAusencia] = useState(false)
   const [motivoRechazoAusencia, setMotivoRechazoAusencia] = useState('')
   const [rechazandoAusenciaId, setRechazandoAusenciaId] = useState<string | null>(null)
+
+  // Detalle de cita (click en tarjeta)
+  const [detalleCita, setDetalleCita] = useState<Cita | null>(null)
 
   // Edición de duración inline
   const [editingDuracionCita, setEditingDuracionCita] = useState<Cita | null>(null)
@@ -292,20 +297,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       (a.estatus === 'aprobada' || a.estatus === 'pendiente')
     )
 
-  // Devuelve true si el slot (HH:MM) cae dentro de una ausencia parcial
+  // Devuelve la ausencia parcial si el slot (HH:MM) cae dentro de su rango
   const isSlotBloqueadoPorAusencia = (slot: string, ausenciasEmp: Ausencia[]): Ausencia | null => {
     for (const a of ausenciasEmp) {
-      if (a.tipo === 'falta') continue // día completo, se maneja a nivel columna
-      if (!a.duracionHoras) continue
-      // Intentar extraer hora de inicio de fecha_inicio
-      const fechaInicio = a.fechaInicio ? new Date(a.fechaInicio) : null
-      const horaInicioAus = fechaInicio
-        ? `${String(fechaInicio.getHours()).padStart(2, '0')}:${String(fechaInicio.getMinutes()).padStart(2, '0')}`
-        : '10:00'
-      const minInicio = horaToMins(horaInicioAus)
-      const minFin = minInicio + (a.duracionHoras * 60)
-      const minSlot = horaToMins(slot)
-      if (minSlot >= minInicio && minSlot < minFin) return a
+      // Si tiene hora_inicio y hora_fin explícitas, usarlas directamente
+      if (a.horaInicio && a.horaFin) {
+        const minSlot   = horaToMins(slot)
+        const minInicio = horaToMins(a.horaInicio)
+        const minFin    = horaToMins(a.horaFin)
+        if (minSlot >= minInicio && minSlot < minFin) return a
+      }
+      // Sin hora_inicio/hora_fin → día completo, se maneja a nivel de columna
     }
     return null
   }
@@ -541,17 +543,23 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     if (!ausenciaForm.empleadoId) { toast.error('Selecciona una empleada'); return }
     setIsSavingAusencia(true)
     try {
+      const esParcial = !ausenciaForm.diaCompleto
+      const durMin = esParcial
+        ? (horaToMins(ausenciaForm.horaFin) - horaToMins(ausenciaForm.horaInicio)) / 60
+        : undefined
       const result = await createAusencia({
         empleadoId: ausenciaForm.empleadoId,
         tipo: ausenciaForm.tipo,
         motivo: ausenciaForm.motivo || undefined,
         fechaInicio: selectedDate,
         fechaFin: selectedDate,
-        duracionHoras: ausenciaForm.duracionHoras ? Number(ausenciaForm.duracionHoras) : undefined,
+        horaInicio: esParcial ? ausenciaForm.horaInicio : undefined,
+        horaFin:    esParcial ? ausenciaForm.horaFin    : undefined,
+        duracionHoras: esParcial && durMin && durMin > 0 ? durMin : undefined,
       })
       if (result.success) {
         toast.success('Ausencia registrada')
-        setAusenciaForm({ empleadoId: '', tipo: 'falta', motivo: '', duracionHoras: '' })
+        setAusenciaForm({ empleadoId: '', tipo: 'falta', motivo: '', duracionHoras: '', diaCompleto: true, horaInicio: '10:00', horaFin: '12:00' })
         await cargarAusencias()
       } else {
         toast.error(result.error ?? 'Error al registrar')
@@ -744,7 +752,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
                       const descansoHoy = bloquesAgenda.some((b) => b.empleadoId === empleado.id && b.tipo === 'descanso')
                       const ausenciasEmp = getAusenciasEmpleadoHoy(empleado.id)
-                      const ausenciaDiaCompleto = ausenciasEmp.find(a => a.tipo === 'falta')
+                      const ausenciaDiaCompleto = ausenciasEmp.find(a => !a.horaInicio && !a.horaFin)
                       const noDisponible = !!(vacacionEmpleado || descansoHoy || ausenciaDiaCompleto)
 
                     return (
@@ -916,14 +924,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                     <div
                                       key={cita.id}
                                       className={cn(
-                                        "absolute z-10 rounded-md border shadow-sm cursor-default select-none",
+                                        "absolute z-10 rounded-md border shadow-sm cursor-pointer select-none",
                                         "hover:shadow-md hover:z-20 transition-all",
                                         cardStyle.bg,
                                         cardStyle.border,
                                       )}
-                                      draggable
-                                      onDragStart={() => handleDragStart(cita)}
-                                      onClick={(e) => e.stopPropagation()}
+                                      onClick={(e) => { e.stopPropagation(); setDetalleCita(cita) }}
                                       style={{
                                         top: `${topPx}px`,
                                         left: `calc(${LEFT_OFFSET}px + ${col * widthFrac} * (100% - ${LEFT_OFFSET}px))`,
@@ -932,8 +938,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         overflow: "visible",
                                       }}
                                     >
-                                      {/* Barra de color superior por estado */}
-                                      <div className={cn("h-1 w-full rounded-t-md shrink-0", cardStyle.bar)} />
+                                      {/* Barra de color = drag handle */}
+                                      <div
+                                        className={cn("h-2 w-full rounded-t-md shrink-0 cursor-grab active:cursor-grabbing", cardStyle.bar)}
+                                        draggable
+                                        onDragStart={(e) => { e.stopPropagation(); handleDragStart(cita) }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        title="Arrastrar"
+                                      />
 
                                       {/* Contenido */}
                                       <div className="px-1.5 pt-0.5 pb-1 h-[calc(100%-4px)] flex flex-col gap-0.5 overflow-hidden">
@@ -1418,20 +1430,80 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-[1fr_auto_auto] gap-3 items-end">
-                <div className="space-y-1">
-                  <Label className="text-xs">Motivo (opcional)</Label>
-                  <Input className="h-8 text-sm" placeholder="Ej. cita médica, familiar..."
-                    value={ausenciaForm.motivo} onChange={e => setAusenciaForm(p => ({ ...p, motivo: e.target.value }))} />
-                </div>
-                {(ausenciaForm.tipo === 'salida' || ausenciaForm.tipo === 'tarde') && (
+              {/* Motivo */}
+              <div className="space-y-1">
+                <Label className="text-xs">Motivo (opcional)</Label>
+                <Input className="h-8 text-sm" placeholder="Ej. cita médica, familiar..."
+                  value={ausenciaForm.motivo} onChange={e => setAusenciaForm(p => ({ ...p, motivo: e.target.value }))} />
+              </div>
+
+              {/* Toggle día completo / rango de horas */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAusenciaForm(p => ({ ...p, diaCompleto: true }))}
+                  className={cn(
+                    "flex-1 h-8 text-xs rounded border font-medium transition-colors",
+                    ausenciaForm.diaCompleto
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:bg-muted"
+                  )}
+                >
+                  Día completo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAusenciaForm(p => ({ ...p, diaCompleto: false }))}
+                  className={cn(
+                    "flex-1 h-8 text-xs rounded border font-medium transition-colors",
+                    !ausenciaForm.diaCompleto
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:bg-muted"
+                  )}
+                >
+                  Rango de horas
+                </button>
+              </div>
+
+              {/* Selectores de hora (sólo en modo parcial) */}
+              {!ausenciaForm.diaCompleto && (
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">Horas</Label>
-                    <Input className="h-8 text-sm w-20" type="number" min={0.5} max={12} step={0.5}
-                      placeholder="2.5" value={ausenciaForm.duracionHoras}
-                      onChange={e => setAusenciaForm(p => ({ ...p, duracionHoras: e.target.value }))} />
+                    <Label className="text-xs">Hora inicio</Label>
+                    <Select value={ausenciaForm.horaInicio} onValueChange={(v) => setAusenciaForm(p => ({ ...p, horaInicio: v }))}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-52">
+                        {Array.from({ length: 21 }, (_, i) => {
+                          const h = Math.floor(i / 2) + 10
+                          const m = i % 2 === 0 ? '00' : '30'
+                          const val = `${String(h).padStart(2, '0')}:${m}`
+                          return <SelectItem key={val} value={val}>{val}</SelectItem>
+                        })}
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
+                  <div className="space-y-1">
+                    <Label className="text-xs">Hora fin</Label>
+                    <Select value={ausenciaForm.horaFin} onValueChange={(v) => setAusenciaForm(p => ({ ...p, horaFin: v }))}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-52">
+                        {Array.from({ length: 21 }, (_, i) => {
+                          const h = Math.floor(i / 2) + 10
+                          const m = i % 2 === 0 ? '00' : '30'
+                          const val = `${String(h).padStart(2, '0')}:${m}`
+                          return <SelectItem key={val} value={val}>{val}</SelectItem>
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end">
                 <Button size="sm" onClick={handleCrearAusencia} disabled={isSavingAusencia} className="h-8">
                   {isSavingAusencia ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
                   Registrar
@@ -1522,6 +1594,127 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Sheet detalle de cita ── */}
+      <Sheet open={!!detalleCita} onOpenChange={(o) => { if (!o) setDetalleCita(null) }}>
+        <SheetContent side="right" className="w-[380px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden">
+          {detalleCita && (() => {
+            const estadoUI = getEstadoUI(detalleCita)
+            const cardStyle = ESTADO_CARD[estadoUI] ?? ESTADO_CARD["pendiente"]
+            const estadoLabel = ESTADOS.find(e => e.value === estadoUI)?.label ?? estadoUI
+            const estadoColor = ESTADOS.find(e => e.value === estadoUI)?.color ?? "bg-gray-400"
+            const fecha = detalleCita.fecha
+              ? new Date(detalleCita.fecha + "T12:00:00").toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+              : "—"
+            return (
+              <>
+                {/* Cabecera con color del estado */}
+                <div className={cn("px-5 pt-5 pb-4", cardStyle.bg)}>
+                  <div className={cn("h-1 w-full rounded-full mb-4", cardStyle.bar)} />
+                  <SheetHeader className="p-0 space-y-1">
+                    <SheetTitle className="text-base font-bold leading-tight">{detalleCita.clienteNombre}</SheetTitle>
+                    <p className="text-sm text-muted-foreground">{detalleCita.servicioNombre}</p>
+                  </SheetHeader>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full text-white", estadoColor)}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+                      {estadoLabel}
+                    </span>
+                    {detalleCita.pagado && (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300">
+                        <CheckCircle className="h-3 w-3" /> Pagado
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Datos */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Fecha</p>
+                      <p className="text-sm font-semibold capitalize">{fecha}</p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Horario</p>
+                      <p className="text-sm font-semibold">{detalleCita.horaInicio.substring(0, 5)} – {detalleCita.horaFin.substring(0, 5)}</p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Duración</p>
+                      <p className="text-sm font-semibold">{detalleCita.duracion} min</p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Precio</p>
+                      <p className="text-sm font-semibold">${detalleCita.precio}</p>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Empleada</p>
+                    <p className="text-sm font-semibold">{detalleCita.empleadoNombre}</p>
+                  </div>
+
+                  {detalleCita.notas && (
+                    <>
+                      <Separator />
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Notas</p>
+                        <p className="text-sm text-foreground whitespace-pre-wrap">{detalleCita.notas}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Acciones */}
+                <div className="px-5 py-4 flex flex-col gap-2">
+                  <Button
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                    onClick={() => {
+                      setCajaCita(detalleCita)
+                      setIsCajaOpen(true)
+                      setDetalleCita(null)
+                    }}
+                  >
+                    <ShoppingBag className="h-4 w-4" />
+                    Ir a Caja
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      setEditingCita(detalleCita)
+                      setIsEditDialogOpen(true)
+                      setDetalleCita(null)
+                    }}
+                  >
+                    <Edit className="h-4 w-4" />
+                    Editar Cita
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      setEditingDuracionCita(detalleCita)
+                      setNuevaDuracion(detalleCita.duracion)
+                      setIsDuracionDialogOpen(true)
+                      setDetalleCita(null)
+                    }}
+                  >
+                    <Timer className="h-4 w-4" />
+                    Editar Duración
+                  </Button>
+                </div>
+              </>
+            )
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
