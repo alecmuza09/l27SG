@@ -35,6 +35,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { getClienteById, type Cliente } from "@/lib/data/clientes"
 
 interface AgendaKanbanViewProps {
   selectedDate: string
@@ -205,6 +206,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   // Detalle de cita (click en tarjeta)
   const [detalleCita, setDetalleCita] = useState<Cita | null>(null)
+  const [detalleCliente, setDetalleCliente] = useState<Cliente | null>(null)
+  const [loadingDetalleCliente, setLoadingDetalleCliente] = useState(false)
 
   // Edición de duración inline
   const [editingDuracionCita, setEditingDuracionCita] = useState<Cita | null>(null)
@@ -289,6 +292,19 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     }
     loadCitas()
   }, [selectedSucursal, selectedDate, refreshCitasKey, empleadosSucursal])
+
+  // Cargar datos del cliente cuando se abre el sheet de detalle
+  useEffect(() => {
+    if (!detalleCita) {
+      setDetalleCliente(null)
+      return
+    }
+    setLoadingDetalleCliente(true)
+    getClienteById(detalleCita.clienteId)
+      .then(c => setDetalleCliente(c))
+      .catch(() => setDetalleCliente(null))
+      .finally(() => setLoadingDetalleCliente(false))
+  }, [detalleCita?.clienteId])
 
   // Devuelve ausencias aprobadas/pendientes del día para un empleado
   const getAusenciasEmpleadoHoy = (empleadoId: string): Ausencia[] =>
@@ -1658,15 +1674,101 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     <p className="text-sm font-semibold">{detalleCita.empleadoNombre}</p>
                   </div>
 
+                  {/* Notas de la cita */}
                   {detalleCita.notas && (
                     <>
                       <Separator />
                       <div className="space-y-1">
-                        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Notas</p>
-                        <p className="text-sm text-foreground whitespace-pre-wrap">{detalleCita.notas}</p>
+                        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1">
+                          <FileText className="h-3 w-3" /> Notas de la cita
+                        </p>
+                        <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{detalleCita.notas}</p>
                       </div>
                     </>
                   )}
+
+                  {/* Información del cliente */}
+                  <Separator />
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1">
+                      <User className="h-3 w-3" /> Ficha del cliente
+                    </p>
+
+                    {loadingDetalleCliente ? (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span className="text-xs">Cargando...</span>
+                      </div>
+                    ) : detalleCliente ? (
+                      <div className="space-y-2.5">
+                        {/* Contacto */}
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          {detalleCliente.telefono && (
+                            <div>
+                              <p className="text-[10px] text-muted-foreground">Teléfono</p>
+                              <p className="font-medium text-xs">{detalleCliente.telefono}</p>
+                            </div>
+                          )}
+                          {detalleCliente.email && (
+                            <div>
+                              <p className="text-[10px] text-muted-foreground">Email</p>
+                              <p className="font-medium text-xs truncate">{detalleCliente.email}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Visitas</p>
+                            <p className="font-medium text-xs">{detalleCliente.totalVisitas}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Total gastado</p>
+                            <p className="font-medium text-xs">${detalleCliente.totalGastado.toLocaleString('es-MX')}</p>
+                          </div>
+                        </div>
+
+                        {/* Alergias */}
+                        {detalleCliente.alergias && detalleCliente.alergias.length > 0 && (
+                          <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 space-y-1">
+                            <p className="text-[10px] font-semibold text-red-700 uppercase tracking-wide flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> Alergias
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {detalleCliente.alergias.map((a, i) => (
+                                <span key={i} className="text-[11px] bg-red-100 text-red-700 border border-red-200 rounded px-1.5 py-0.5">{a}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Preferencias */}
+                        {detalleCliente.preferencias && detalleCliente.preferencias.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Preferencias</p>
+                            <div className="flex flex-wrap gap-1">
+                              {detalleCliente.preferencias.map((p, i) => (
+                                <span key={i} className="text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5">{p}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Notas del cliente */}
+                        {detalleCliente.notas && (
+                          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 space-y-1">
+                            <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1">
+                              <FileText className="h-3 w-3" /> Notas del cliente
+                            </p>
+                            <p className="text-xs text-amber-900 whitespace-pre-wrap leading-relaxed">{detalleCliente.notas}</p>
+                          </div>
+                        )}
+
+                        {!detalleCliente.notas && (!detalleCliente.alergias || detalleCliente.alergias.length === 0) && (!detalleCliente.preferencias || detalleCliente.preferencias.length === 0) && (
+                          <p className="text-xs text-muted-foreground italic">Sin notas ni preferencias registradas</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">No se encontró la ficha del cliente</p>
+                    )}
+                  </div>
                 </div>
 
                 <Separator />
