@@ -217,23 +217,32 @@ export default function GiftCardsPage() {
     await reload()
   }
 
+  // Helper: recarga el historial y abre el dialog de detalles para la card dada
+  const abrirHistorial = async (cardId: string) => {
+    const todas = await getGiftCardsFromDB()
+    const updated = todas.find(c => c.id === cardId) || null
+    if (updated) {
+      setSelectedCard(updated)
+      if (consultaCard?.id === cardId) setConsultaCard(updated)
+      const txns = await getGiftCardTransaccionesFromDB(cardId)
+      setTransacciones(txns)
+      setIsViewOpen(true)
+    }
+  }
+
   const handleCanjear = async () => {
     if (!selectedCard || !redeemMonto) return
     const monto = parseFloat(redeemMonto)
     if (monto <= 0 || monto > selectedCard.saldoActual) return
     setIsSubmitting(true)
-    const res = await canjearGiftCard(selectedCard.id, monto, redeemNotas || undefined)
+    const cardId = selectedCard.id
+    const res = await canjearGiftCard(cardId, monto, redeemNotas || undefined)
     setIsSubmitting(false)
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
     toast.success(`Canjeados ${fmtMXN(monto)}. Saldo restante: ${fmtMXN(res.saldoNuevo ?? 0)}`)
-    setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(false); setSelectedCard(null)
+    setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(false)
     await reload()
-    // Actualizar panel de consulta si era la misma card
-    if (consultaCard?.id === selectedCard.id) {
-      const todas = await getGiftCardsFromDB()
-      const updated = todas.find(c => c.id === selectedCard.id) || null
-      setConsultaCard(updated)
-    }
+    await abrirHistorial(cardId)
   }
 
   const handleRecargar = async () => {
@@ -241,18 +250,14 @@ export default function GiftCardsPage() {
     const monto = parseFloat(rechargeMonto)
     if (monto <= 0) return
     setIsSubmitting(true)
-    const res = await recargarGiftCard(selectedCard.id, monto, rechargeNotas || undefined)
+    const cardId = selectedCard.id
+    const res = await recargarGiftCard(cardId, monto, rechargeNotas || undefined)
     setIsSubmitting(false)
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
     toast.success(`Recargados ${fmtMXN(monto)}. Nuevo saldo: ${fmtMXN(res.saldoNuevo ?? 0)}`)
-    setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(false); setSelectedCard(null)
+    setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(false)
     await reload()
-    // Actualizar panel de consulta si era la misma card
-    if (consultaCard?.id === selectedCard.id) {
-      const todas = await getGiftCardsFromDB()
-      const updated = todas.find(c => c.id === selectedCard.id) || null
-      setConsultaCard(updated)
-    }
+    await abrirHistorial(cardId)
   }
 
   const handleCancelar = async () => {
@@ -403,6 +408,14 @@ export default function GiftCardsPage() {
                   onClick={() => { setSelectedCard(consultaCard); setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(true) }}
                 >
                   <ArrowDownCircle className="h-4 w-4" /> Descontar saldo
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1.5 flex-1 sm:flex-none text-muted-foreground"
+                  onClick={() => handleVerDetalles(consultaCard)}
+                >
+                  <Eye className="h-4 w-4" /> Ver historial
                 </Button>
               </div>
             </div>
@@ -822,37 +835,75 @@ export default function GiftCardsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Ver Detalles */}
+      {/* Ver Detalles + Historial */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
-                <Gift className="h-5 w-5 text-primary" />
+          <DialogHeader className="px-6 pt-5 pb-4 border-b flex-shrink-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Gift className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle className="font-mono text-lg">{selectedCard?.codigo}</DialogTitle>
+                  {selectedCard && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge className={`${estadoConfig[selectedCard.estado].className} border text-xs`}>
+                        {estadoConfig[selectedCard.estado].label}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {transacciones.length} movimiento{transacciones.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div>
-                <DialogTitle className="font-mono text-lg">{selectedCard?.codigo}</DialogTitle>
-                {selectedCard && (
-                  <Badge className={`${estadoConfig[selectedCard.estado].className} border text-xs mt-1`}>
-                    {estadoConfig[selectedCard.estado].label}
-                  </Badge>
-                )}
-              </div>
+              {/* Acciones rápidas dentro del dialog */}
+              {selectedCard && (
+                <div className="flex gap-2 flex-shrink-0">
+                  {selectedCard.estado !== 'cancelada' && selectedCard.estado !== 'expirada' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-emerald-700 border-emerald-300 hover:bg-emerald-50 h-8"
+                      onClick={() => { setIsViewOpen(false); setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(true) }}
+                    >
+                      <ArrowUpCircle className="h-3.5 w-3.5" /> Agregar
+                    </Button>
+                  )}
+                  {selectedCard.estado === 'activa' && selectedCard.saldoActual > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 h-8"
+                      onClick={() => { setIsViewOpen(false); setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(true) }}
+                    >
+                      <ArrowDownCircle className="h-3.5 w-3.5" /> Descontar
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </DialogHeader>
 
           {selectedCard && (
             <ScrollArea className="flex-1">
-              <div className="px-6 py-5 space-y-6">
-                {/* Saldo destacado */}
-                <div className="grid grid-cols-2 gap-4 p-4 bg-muted/40 rounded-xl">
+              <div className="px-6 py-5 space-y-5">
+                {/* Saldo + gastos destacados */}
+                <div className="grid grid-cols-3 gap-3 p-4 bg-muted/40 rounded-xl">
                   <div className="text-center">
-                    <p className="text-xs text-muted-foreground mb-1">Saldo Actual</p>
-                    <p className="text-2xl font-bold text-emerald-600">{fmtMXN(selectedCard.saldoActual)}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase font-medium mb-1">Saldo actual</p>
+                    <p className={cn("text-xl font-bold", selectedCard.saldoActual > 0 ? "text-emerald-600" : "text-red-500")}>
+                      {fmtMXN(selectedCard.saldoActual)}
+                    </p>
                   </div>
-                  <div className="text-center border-l">
-                    <p className="text-xs text-muted-foreground mb-1">Saldo Inicial</p>
-                    <p className="text-2xl font-bold">{fmtMXN(selectedCard.saldoInicial)}</p>
+                  <div className="text-center border-x">
+                    <p className="text-[10px] text-muted-foreground uppercase font-medium mb-1">Carga total</p>
+                    <p className="text-xl font-bold">{fmtMXN(selectedCard.saldoInicial)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase font-medium mb-1">Total usado</p>
+                    <p className="text-xl font-bold text-orange-600">{fmtMXN(selectedCard.saldoInicial - selectedCard.saldoActual)}</p>
                   </div>
                 </div>
 
@@ -875,36 +926,57 @@ export default function GiftCardsPage() {
 
                 {/* Historial de transacciones */}
                 <div>
-                  <h4 className="font-semibold text-sm mb-3">Historial de Movimientos</h4>
+                  <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                    <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+                    Historial de Movimientos
+                  </h4>
                   {transacciones.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4 border rounded-lg">
+                    <p className="text-sm text-muted-foreground text-center py-6 border rounded-lg bg-muted/20">
                       Sin movimientos registrados
                     </p>
                   ) : (
                     <div className="border rounded-lg overflow-hidden">
                       <Table>
                         <TableHeader>
-                          <TableRow>
-                            <TableHead>Fecha</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead>Monto</TableHead>
-                            <TableHead>Saldo resultante</TableHead>
+                          <TableRow className="bg-muted/30">
+                            <TableHead className="text-xs">Fecha</TableHead>
+                            <TableHead className="text-xs">Tipo</TableHead>
+                            <TableHead className="text-xs text-right">Monto</TableHead>
+                            <TableHead className="text-xs text-right">Saldo resultante</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {transacciones.map((t) => {
                             const cfg = tipoTransaccionConfig[t.tipo] ?? { label: t.tipo, signo: "·", color: "" }
+                            const esIngreso = cfg.signo === "+"
+                            const esEgreso  = cfg.signo === "−" || cfg.signo === "-"
                             return (
-                              <TableRow key={t.id}>
-                                <TableCell className="text-sm">{fmtDate(t.fecha)}</TableCell>
-                                <TableCell>
-                                  <span className="text-sm">{cfg.label}</span>
-                                  {t.notas && <p className="text-xs text-muted-foreground">{t.notas}</p>}
+                              <TableRow key={t.id} className="hover:bg-muted/20">
+                                <TableCell className="text-sm py-2.5">{fmtDate(t.fecha)}</TableCell>
+                                <TableCell className="py-2.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className={cn(
+                                      "inline-flex h-5 w-5 rounded-full items-center justify-center flex-shrink-0",
+                                      esIngreso ? "bg-emerald-100" : esEgreso ? "bg-red-100" : "bg-gray-100"
+                                    )}>
+                                      {esIngreso
+                                        ? <ArrowUpCircle className="h-3 w-3 text-emerald-600" />
+                                        : esEgreso
+                                          ? <ArrowDownCircle className="h-3 w-3 text-red-500" />
+                                          : <RefreshCw className="h-3 w-3 text-gray-500" />
+                                      }
+                                    </span>
+                                    <div>
+                                      <span className="text-sm font-medium">{cfg.label}</span>
+                                      {t.notas && <p className="text-xs text-muted-foreground leading-tight">{t.notas}</p>}
+                                      {t.empleadoNombre && <p className="text-xs text-muted-foreground leading-tight">Por: {t.empleadoNombre}</p>}
+                                    </div>
+                                  </div>
                                 </TableCell>
-                                <TableCell className={`text-sm font-semibold ${cfg.color}`}>
+                                <TableCell className={cn("text-sm font-semibold text-right py-2.5", cfg.color)}>
                                   {cfg.signo !== "—" ? `${cfg.signo}${fmtMXN(t.monto)}` : "—"}
                                 </TableCell>
-                                <TableCell className="text-sm font-medium">{fmtMXN(t.saldoNuevo)}</TableCell>
+                                <TableCell className="text-sm font-medium text-right py-2.5">{fmtMXN(t.saldoNuevo)}</TableCell>
                               </TableRow>
                             )
                           })}
