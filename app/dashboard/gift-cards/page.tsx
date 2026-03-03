@@ -47,6 +47,7 @@ import {
   Sparkles,
 } from "lucide-react"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 import { getClientes, type Cliente } from "@/lib/data/clientes"
 import {
   getGiftCardsFromDB,
@@ -129,6 +130,12 @@ export default function GiftCardsPage() {
   // ── Formulario Recargar ────────────────────────────────────────────────
   const [rechargeMonto, setRechargeMonto] = useState("")
   const [rechargeNotas, setRechargeNotas] = useState("")
+
+  // ── Consulta rápida por código ─────────────────────────────────────────
+  const [consultaCodigo, setConsultaCodigo] = useState("")
+  const [consultaCard,   setConsultaCard]   = useState<GiftCard | null>(null)
+  const [consultaError,  setConsultaError]  = useState("")
+  const [isSearching,    setIsSearching]    = useState(false)
 
   // ── Cargar datos ───────────────────────────────────────────────────────
   const reload = async () => {
@@ -221,6 +228,12 @@ export default function GiftCardsPage() {
     toast.success(`Canjeados ${fmtMXN(monto)}. Saldo restante: ${fmtMXN(res.saldoNuevo ?? 0)}`)
     setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(false); setSelectedCard(null)
     await reload()
+    // Actualizar panel de consulta si era la misma card
+    if (consultaCard?.id === selectedCard.id) {
+      const todas = await getGiftCardsFromDB()
+      const updated = todas.find(c => c.id === selectedCard.id) || null
+      setConsultaCard(updated)
+    }
   }
 
   const handleRecargar = async () => {
@@ -234,6 +247,12 @@ export default function GiftCardsPage() {
     toast.success(`Recargados ${fmtMXN(monto)}. Nuevo saldo: ${fmtMXN(res.saldoNuevo ?? 0)}`)
     setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(false); setSelectedCard(null)
     await reload()
+    // Actualizar panel de consulta si era la misma card
+    if (consultaCard?.id === selectedCard.id) {
+      const todas = await getGiftCardsFromDB()
+      const updated = todas.find(c => c.id === selectedCard.id) || null
+      setConsultaCard(updated)
+    }
   }
 
   const handleCancelar = async () => {
@@ -245,6 +264,30 @@ export default function GiftCardsPage() {
     toast.success(`Gift card ${selectedCard.codigo} cancelada`)
     setIsCancelOpen(false); setSelectedCard(null)
     await reload()
+  }
+
+  const handleConsultarCodigo = async () => {
+    const codigo = consultaCodigo.trim().toUpperCase()
+    if (!codigo) return
+    setIsSearching(true)
+    setConsultaError("")
+    setConsultaCard(null)
+    // Buscar en la lista local primero, luego en DB
+    const local = giftCards.find(c => c.codigo.toUpperCase() === codigo)
+    if (local) {
+      setConsultaCard(local)
+    } else {
+      // Recargar desde DB por si acaso
+      const todas = await getGiftCardsFromDB()
+      const found = todas.find(c => c.codigo.toUpperCase() === codigo)
+      if (found) {
+        setConsultaCard(found)
+        setGiftCards(todas)
+      } else {
+        setConsultaError("No se encontró una gift card con ese código")
+      }
+    }
+    setIsSearching(false)
   }
 
   const handleVerDetalles = async (card: GiftCard) => {
@@ -284,6 +327,88 @@ export default function GiftCardsPage() {
           Nueva Gift Card
         </Button>
       </div>
+
+      {/* ── Panel consulta rápida por código ── */}
+      <Card className="border-2 border-primary/20 bg-primary/5">
+        <CardContent className="pt-5 pb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <CreditCard className="h-4 w-4 text-primary" />
+            <p className="text-sm font-semibold text-primary">Consultar / Usar Gift Card</p>
+            <span className="text-xs text-muted-foreground">— ingresa el código para agregar o descontar saldo</span>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Código de gift card (ej. LUNA02lAoMN, PEDI2049PASS...)"
+              value={consultaCodigo}
+              onChange={(e) => { setConsultaCodigo(e.target.value); setConsultaCard(null); setConsultaError("") }}
+              onKeyDown={(e) => e.key === "Enter" && handleConsultarCodigo()}
+              className="font-mono bg-white"
+            />
+            <Button onClick={handleConsultarCodigo} disabled={isSearching || !consultaCodigo.trim()}>
+              {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              <span className="ml-2">Buscar</span>
+            </Button>
+          </div>
+
+          {/* Resultado de la consulta */}
+          {consultaError && (
+            <p className="mt-3 text-sm text-red-600 flex items-center gap-1.5">
+              <XCircle className="h-4 w-4" /> {consultaError}
+            </p>
+          )}
+
+          {consultaCard && (
+            <div className="mt-3 rounded-lg border bg-white p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+              {/* Info */}
+              <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Código</p>
+                  <p className="font-mono font-bold text-sm">{consultaCard.codigo}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Saldo actual</p>
+                  <p className={cn(
+                    "font-bold text-lg leading-tight",
+                    consultaCard.saldoActual > 0 ? "text-emerald-600" : "text-red-500"
+                  )}>
+                    {fmtMXN(consultaCard.saldoActual)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Carga total</p>
+                  <p className="font-semibold text-sm">{fmtMXN(consultaCard.saldoInicial)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Estado</p>
+                  <Badge className={`${estadoConfig[consultaCard.estado].className} border text-xs mt-0.5`}>
+                    {estadoConfig[consultaCard.estado].label}
+                  </Badge>
+                </div>
+              </div>
+              {/* Acciones */}
+              <div className="flex gap-2 sm:flex-col">
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 flex-1 sm:flex-none"
+                  disabled={consultaCard.estado === 'cancelada' || consultaCard.estado === 'expirada'}
+                  onClick={() => { setSelectedCard(consultaCard); setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(true) }}
+                >
+                  <ArrowUpCircle className="h-4 w-4" /> Agregar saldo
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 flex-1 sm:flex-none"
+                  disabled={consultaCard.estado !== 'activa' || consultaCard.saldoActual <= 0}
+                  onClick={() => { setSelectedCard(consultaCard); setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(true) }}
+                >
+                  <ArrowDownCircle className="h-4 w-4" /> Descontar saldo
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-4">
