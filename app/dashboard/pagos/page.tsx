@@ -97,8 +97,8 @@ export default function PagosPage() {
     try {
       const [sucData, pagosData, resData] = await Promise.all([
         getSucursalesActivasFromDB(),
-        getPagosFromDB(sucursalId !== "todas" ? sucursalId : undefined),
-        getResumenCajaDiarioFromDB(sucursalId !== "todas" ? sucursalId : undefined),
+        getPagosFromDB(sucursalId !== "todas" ? sucursalId : undefined, fecha),
+        getResumenCajaDiarioFromDB(sucursalId !== "todas" ? sucursalId : undefined, fecha),
       ])
       setSucursales(sucData)
       setPagos(pagosData)

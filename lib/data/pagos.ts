@@ -187,7 +187,7 @@ export function getPagosPendientes(): Pago[] {
 }
 
 // Obtener pagos desde Supabase
-export async function getPagosFromDB(sucursalId?: string): Promise<Pago[]> {
+export async function getPagosFromDB(sucursalId?: string, fecha?: string): Promise<Pago[]> {
   try {
     let query = supabase
       .from('pagos')
@@ -201,6 +201,10 @@ export async function getPagosFromDB(sucursalId?: string): Promise<Pago[]> {
     
     if (sucursalId) {
       query = query.eq('sucursal_id', sucursalId)
+    }
+
+    if (fecha) {
+      query = query.eq('fecha', fecha)
     }
     
     const { data, error } = await query
@@ -533,12 +537,13 @@ export async function getSaldoPendienteClienteFromDB(
 
 // ─── Resumen de caja del día actual ────────────────────────────────────────
 export async function getResumenCajaDiarioFromDB(
-  sucursalId?: string
+  sucursalId?: string,
+  fecha?: string
 ): Promise<ResumenCajaDiario> {
-  const hoy = new Date().toISOString().split('T')[0]
+  const fechaConsulta = fecha ?? new Date().toISOString().split('T')[0]
 
   const vacio: ResumenCajaDiario = {
-    fecha: hoy,
+    fecha: fechaConsulta,
     totalVentas: 0,
     cantidadTransacciones: 0,
     ticketPromedio: 0,
@@ -552,7 +557,7 @@ export async function getResumenCajaDiarioFromDB(
     let query = supabase
       .from('pagos')
       .select('monto, metodo_pago, propina, descuento_monto')
-      .eq('fecha', hoy)
+      .eq('fecha', fechaConsulta)
       .eq('estado', 'completado')
 
     if (sucursalId) query = query.eq('sucursal_id', sucursalId)
