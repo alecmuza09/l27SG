@@ -40,15 +40,18 @@ import {
   Eye,
   RefreshCw,
   CheckCircle,
+  CheckCircle2,
   Loader2,
   ArrowDownCircle,
   ArrowUpCircle,
   XCircle,
   Sparkles,
+  User,
 } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { getClientes, type Cliente } from "@/lib/data/clientes"
+import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes"
 import {
   getGiftCardsFromDB,
   getGiftCardTransaccionesFromDB,
@@ -98,7 +101,6 @@ const fmtDate = (d: string | null) =>
 export default function GiftCardsPage() {
   // ── Datos ──────────────────────────────────────────────────────────────
   const [giftCards, setGiftCards]     = useState<GiftCard[]>([])
-  const [clientes, setClientes]       = useState<Cliente[]>([])
   const [sucursales, setSucursales]   = useState<Sucursal[]>([])
   const [transacciones, setTransacciones] = useState<GiftCardTransaccion[]>([])
   const [isLoading, setIsLoading]     = useState(true)
@@ -120,8 +122,17 @@ export default function GiftCardsPage() {
   // ── Formulario Crear ───────────────────────────────────────────────────
   const [newMonto,       setNewMonto]      = useState("")
   const [newExpiracion,  setNewExpiracion] = useState("")
-  const [newClienteId,   setNewClienteId]  = useState("sin-cliente")
   const [newSucursalId,  setNewSucursalId] = useState("")
+
+  // ── Selector de cliente (modal Crear) ──────────────────────────────────
+  const [clienteMode,        setClienteMode]        = useState<"existing" | "new">("existing")
+  const [clienteSearchQuery, setClienteSearchQuery] = useState("")
+  const [clientesBusqueda,   setClientesBusqueda]   = useState<Cliente[]>([])
+  const [isLoadingClientes,  setIsLoadingClientes]  = useState(false)
+  const [selectedCliente,    setSelectedCliente]    = useState<Cliente | null>(null)
+  const [nuevoClienteData,   setNuevoClienteData]   = useState({
+    nombre: "", apellido: "", telefono: "", email: "",
+  })
 
   // ── Formulario Canjear ─────────────────────────────────────────────────
   const [redeemMonto, setRedeemMonto] = useState("")
@@ -147,13 +158,11 @@ export default function GiftCardsPage() {
     async function loadAll() {
       setIsLoading(true)
       try {
-        const [gcs, cls, sucs] = await Promise.all([
+        const [gcs, sucs] = await Promise.all([
           getGiftCardsFromDB(),
-          getClientes(),
           getSucursalesActivasFromDB(),
         ])
         setGiftCards(gcs)
-        setClientes(cls)
         setSucursales(sucs)
       } catch (err) {
         console.error("Error cargando datos:", err)
@@ -164,6 +173,24 @@ export default function GiftCardsPage() {
     }
     loadAll()
   }, [])
+
+  // ── Búsqueda de clientes (modal Crear) ────────────────────────────────
+  useEffect(() => {
+    if (!isCreateOpen || clienteMode !== "existing") return
+    const trimmed = clienteSearchQuery.trim()
+    if (!trimmed) { setClientesBusqueda([]); return }
+    const timer = setTimeout(async () => {
+      setIsLoadingClientes(true)
+      try {
+        setClientesBusqueda(await searchClientes(trimmed, 100))
+      } catch {
+        toast.error("Error al buscar clientes")
+      } finally {
+        setIsLoadingClientes(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [isCreateOpen, clienteMode, clienteSearchQuery])
 
   // ── Filtrado ───────────────────────────────────────────────────────────
   const filtered = giftCards.filter((c) => {
@@ -186,13 +213,43 @@ export default function GiftCardsPage() {
   // Handlers
   // ─────────────────────────────────────────────────────────────────────
 
+  const resetCreateForm = () => {
+    setNewMonto(""); setNewExpiracion(""); setNewSucursalId("")
+    setClienteMode("existing"); setClienteSearchQuery(""); setClientesBusqueda([])
+    setSelectedCliente(null); setNuevoClienteData({ nombre: "", apellido: "", telefono: "", email: "" })
+  }
+
   const handleCreate = async () => {
     if (!newMonto || !newSucursalId) return
     setIsSubmitting(true)
+
+    let clienteIdFinal: string | null = null
+    if (clienteMode === "new") {
+      if (!nuevoClienteData.nombre || !nuevoClienteData.apellido || !nuevoClienteData.telefono) {
+        toast.error("Completa nombre, apellido y teléfono del cliente")
+        setIsSubmitting(false)
+        return
+      }
+      const creado = await createCliente({
+        nombre: nuevoClienteData.nombre,
+        apellido: nuevoClienteData.apellido,
+        telefono: nuevoClienteData.telefono,
+        email: nuevoClienteData.email || undefined,
+      })
+      if (!creado.success || !creado.cliente) {
+        toast.error(`Error al crear cliente: ${creado.error}`)
+        setIsSubmitting(false)
+        return
+      }
+      clienteIdFinal = creado.cliente.id
+    } else {
+      clienteIdFinal = selectedCliente?.id ?? null
+    }
+
     const res = await crearGiftCard({
       montoInicial: parseFloat(newMonto),
       sucursalId: newSucursalId,
-      clienteId: newClienteId === "sin-cliente" ? null : newClienteId,
+      clienteId: clienteIdFinal,
       fechaVencimiento: newExpiracion || null,
     })
     setIsSubmitting(false)
@@ -201,7 +258,7 @@ export default function GiftCardsPage() {
       return
     }
     toast.success(`Gift card creada: ${res.gc?.codigo}`)
-    setNewMonto(""); setNewExpiracion(""); setNewClienteId("sin-cliente"); setNewSucursalId("")
+    resetCreateForm()
     setIsCreateOpen(false)
     await reload()
   }
@@ -619,8 +676,8 @@ export default function GiftCardsPage() {
       ══════════════════════════════════════════════════════ */}
 
       {/* Crear */}
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent>
+      <Dialog open={isCreateOpen} onOpenChange={(open) => { if (!open) resetCreateForm(); setIsCreateOpen(open) }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Nueva Gift Card</DialogTitle>
             <DialogDescription>Se generará un código único automáticamente</DialogDescription>
@@ -654,20 +711,130 @@ export default function GiftCardsPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* ── Cliente ── */}
             <div className="grid gap-2">
               <Label>Cliente (Opcional)</Label>
-              <Select value={newClienteId} onValueChange={setNewClienteId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sin asignar" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sin-cliente">Sin asignar</SelectItem>
-                  {clientes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.nombre} {c.apellido}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Tabs
+                value={clienteMode}
+                onValueChange={(v) => {
+                  setClienteMode(v as "existing" | "new")
+                  setClienteSearchQuery("")
+                  setClientesBusqueda([])
+                  setSelectedCliente(null)
+                }}
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="existing">Cliente existente</TabsTrigger>
+                  <TabsTrigger value="new">Nuevo cliente</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="existing" className="space-y-2 mt-2">
+                  {selectedCliente ? (
+                    <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-primary/5 border border-primary/20">
+                      <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{selectedCliente.nombre} {selectedCliente.apellido}</p>
+                        <p className="text-xs text-muted-foreground">{selectedCliente.telefono}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => { setSelectedCliente(null); setClienteSearchQuery("") }}
+                      >
+                        Cambiar
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Buscar por nombre, teléfono o email..."
+                          value={clienteSearchQuery}
+                          onChange={(e) => setClienteSearchQuery(e.target.value)}
+                          className="pl-9"
+                        />
+                      </div>
+                      <div className="border rounded-md">
+                        <ScrollArea className="h-[140px]">
+                          <div className="p-2 space-y-1">
+                            {isLoadingClientes ? (
+                              <div className="flex items-center justify-center py-6">
+                                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                              </div>
+                            ) : clienteSearchQuery.trim() === "" ? (
+                              <p className="p-3 text-sm text-muted-foreground text-center">
+                                Escribe para buscar clientes
+                              </p>
+                            ) : clientesBusqueda.length === 0 ? (
+                              <p className="p-3 text-sm text-muted-foreground text-center">
+                                Sin resultados. Prueba otro término.
+                              </p>
+                            ) : clientesBusqueda.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => setSelectedCliente(c)}
+                                className="w-full text-left px-3 py-2 rounded-md hover:bg-accent transition-colors flex items-center gap-3"
+                              >
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                  <User className="h-4 w-4 text-primary" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium">{c.nombre} {c.apellido}</p>
+                                  <p className="text-xs text-muted-foreground">{c.telefono}{c.email ? ` · ${c.email}` : ""}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    </>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="new" className="space-y-3 mt-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Nombre *</Label>
+                      <Input
+                        value={nuevoClienteData.nombre}
+                        onChange={(e) => setNuevoClienteData({ ...nuevoClienteData, nombre: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Apellido *</Label>
+                      <Input
+                        value={nuevoClienteData.apellido}
+                        onChange={(e) => setNuevoClienteData({ ...nuevoClienteData, apellido: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Teléfono *</Label>
+                      <Input
+                        type="tel"
+                        value={nuevoClienteData.telefono}
+                        onChange={(e) => setNuevoClienteData({ ...nuevoClienteData, telefono: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Email</Label>
+                      <Input
+                        type="email"
+                        value={nuevoClienteData.email}
+                        onChange={(e) => setNuevoClienteData({ ...nuevoClienteData, email: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </div>
+
             <div className="grid gap-2">
               <Label>Fecha de Expiración (Opcional)</Label>
               <Input
@@ -678,7 +845,7 @@ export default function GiftCardsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>
+            <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
             <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId}>
