@@ -77,14 +77,43 @@ export function getCurrentUser(): User | null {
   }
 }
 
-// Verifica sesión activa con Supabase (útil al recargar página)
+// Verifica sesión activa con Supabase y re-sincroniza datos desde la BD.
+// Siempre consulta la tabla `usuarios` para que sucursalId esté actualizado.
 export async function refreshSession(): Promise<User | null> {
   const { data } = await supabase.auth.getSession()
   if (!data.session) {
     if (typeof window !== "undefined") localStorage.removeItem(USER_KEY)
     return null
   }
-  return getCurrentUser()
+
+  const email = data.session.user.email!
+  const { data: usuarioData } = await supabase
+    .from("usuarios")
+    .select("*")
+    .eq("email", email)
+    .eq("activo", true)
+    .maybeSingle()
+
+  const user: User = usuarioData
+    ? {
+        id: usuarioData.id,
+        email: usuarioData.email,
+        name: usuarioData.nombre,
+        role: (usuarioData.rol as User["role"]) || "staff",
+        sucursalId: usuarioData.sucursal_id || undefined,
+      }
+    : {
+        id: data.session.user.id,
+        email: data.session.user.email!,
+        name: data.session.user.user_metadata?.nombre || data.session.user.email!.split("@")[0],
+        role: (data.session.user.user_metadata?.rol || "admin") as User["role"],
+      }
+
+  if (typeof window !== "undefined") {
+    localStorage.setItem(USER_KEY, JSON.stringify(user))
+  }
+
+  return user
 }
 
 export function checkPermission(user: User | null, requiredRole: User["role"]): boolean {

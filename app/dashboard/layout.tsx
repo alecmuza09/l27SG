@@ -7,7 +7,7 @@ import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Loader2 } from "lucide-react"
-import { getCurrentUser, refreshSession } from "@/lib/auth"
+import { refreshSession } from "@/lib/auth"
 
 export default function DashboardLayout({
   children,
@@ -20,12 +20,9 @@ export default function DashboardLayout({
 
   useEffect(() => {
     async function checkAuth() {
-      // Primero revisar localStorage (rápido)
-      const localUser = getCurrentUser()
-      if (localUser) { setAuthChecked(true); return }
-      // Si no hay local, verificar sesión Supabase activa
-      const sessionUser = await refreshSession()
-      if (!sessionUser) {
+      // Siempre re-sincroniza desde la BD para que sucursalId sea el correcto
+      const user = await refreshSession()
+      if (!user) {
         router.replace("/")
         return
       }
