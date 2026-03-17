@@ -1,4 +1,11 @@
 // Usuarios data from Supabase
+import { supabase } from "@/lib/supabase/client"
+
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 export interface Usuario {
   id: string
@@ -17,7 +24,7 @@ export async function getUsuariosFromDB(): Promise<Usuario[]> {
   try {
     const response = await fetch('/api/usuarios', {
       method: 'GET',
-      credentials: 'include',
+      headers: await getAuthHeaders(),
     })
 
     if (!response.ok) {
@@ -39,33 +46,13 @@ export async function getUsuariosFromDB(): Promise<Usuario[]> {
 // Obtener usuario por ID
 export async function getUsuarioByIdFromDB(usuarioId: string): Promise<Usuario | null> {
   try {
-    const { data, error } = await supabase
-      .from('usuarios')
-      .select(`
-        *,
-        sucursal:sucursales(nombre)
-      `)
-      .eq('id', usuarioId)
-      .single()
-    
-    if (error) {
-      console.error('Error obteniendo usuario:', error)
-      return null
-    }
-    
-    if (!data) return null
-    
-    return {
-      id: data.id,
-      email: data.email,
-      nombre: data.nombre,
-      rol: data.rol,
-      sucursalId: data.sucursal_id || null,
-      sucursalNombre: data.sucursal?.nombre || undefined,
-      activo: data.activo ?? true,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    }
+    const response = await fetch(`/api/usuarios/${usuarioId}`, {
+      method: 'GET',
+      headers: await getAuthHeaders(),
+    })
+    if (!response.ok) return null
+    const data = await response.json()
+    return data.usuario || null
   } catch (error) {
     console.error('Error inesperado obteniendo usuario:', error)
     return null
@@ -85,8 +72,8 @@ export async function createUsuarioFromDB(datos: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(await getAuthHeaders()),
       },
-      credentials: 'include',
       body: JSON.stringify(datos),
     })
 
@@ -118,8 +105,8 @@ export async function updateUsuarioFromDB(
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
+        ...(await getAuthHeaders()),
       },
-      credentials: 'include',
       body: JSON.stringify(datos),
     })
 
@@ -141,7 +128,7 @@ export async function deleteUsuarioFromDB(usuarioId: string): Promise<{ success:
   try {
     const response = await fetch(`/api/usuarios/${usuarioId}`, {
       method: 'DELETE',
-      credentials: 'include',
+      headers: await getAuthHeaders(),
     })
 
     const data = await response.json()
@@ -167,8 +154,8 @@ export async function updateUsuarioPassword(
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
+        ...(await getAuthHeaders()),
       },
-      credentials: 'include',
       body: JSON.stringify({ password }),
     })
 
