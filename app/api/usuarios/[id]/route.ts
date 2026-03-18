@@ -1,24 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-
-async function getAdminUser(req: NextRequest) {
-  const authHeader = req.headers.get('Authorization')
-  if (!authHeader?.startsWith('Bearer ')) return null
-
-  const token = authHeader.slice(7)
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token)
-  if (error || !user) return null
-
-  const { data: usuarioData } = await supabaseAdmin
-    .from('usuarios')
-    .select('rol')
-    .eq('id', user.id)
-    .eq('activo', true)
-    .single()
-
-  if (usuarioData?.rol !== 'admin') return null
-  return user
-}
+import { getAdminUser } from '@/lib/supabase/auth-admin'
 
 // GET /api/usuarios/[id] — Obtener usuario por ID
 export async function GET(
