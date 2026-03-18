@@ -47,6 +47,9 @@ import {
   XCircle,
   Sparkles,
   User,
+  Trash2,
+  RotateCcw,
+  Calendar,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
@@ -61,9 +64,11 @@ import {
   canjearGiftCard,
   recargarGiftCard,
   cancelarGiftCard,
+  eliminarGiftCard,
 } from "@/lib/data/gift-cards"
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getCurrentUser, type User } from "@/lib/auth"
 
 // ─── Configuración de estados ─────────────────────────────────────────────
 
@@ -98,6 +103,27 @@ const fmtDate = (d: string | null) =>
 // Página
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Opciones de vigencia predefinidas
+const VIGENCIA_OPCIONES = [
+  { value: "sin_vigencia",  label: "Sin vigencia" },
+  { value: "3_meses",       label: "3 meses" },
+  { value: "6_meses",       label: "6 meses" },
+  { value: "1_anio",        label: "1 año" },
+  { value: "2_anios",       label: "2 años" },
+  { value: "personalizada", label: "Fecha personalizada" },
+] as const
+
+function calcularFechaExpiracion(opcion: string, fechaPersonalizada: string): string | null {
+  if (opcion === "sin_vigencia") return null
+  if (opcion === "personalizada") return fechaPersonalizada || null
+  const hoy = new Date()
+  if (opcion === "3_meses") hoy.setMonth(hoy.getMonth() + 3)
+  else if (opcion === "6_meses") hoy.setMonth(hoy.getMonth() + 6)
+  else if (opcion === "1_anio") hoy.setFullYear(hoy.getFullYear() + 1)
+  else if (opcion === "2_anios") hoy.setFullYear(hoy.getFullYear() + 2)
+  return hoy.toISOString().split("T")[0]
+}
+
 export default function GiftCardsPage() {
   // ── Datos ──────────────────────────────────────────────────────────────
   const [giftCards, setGiftCards]     = useState<GiftCard[]>([])
@@ -105,6 +131,7 @@ export default function GiftCardsPage() {
   const [transacciones, setTransacciones] = useState<GiftCardTransaccion[]>([])
   const [isLoading, setIsLoading]     = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   // ── Búsqueda / filtros ─────────────────────────────────────────────────
   const [searchTerm, setSearchTerm]   = useState("")
@@ -117,10 +144,13 @@ export default function GiftCardsPage() {
   const [isRedeemOpen,   setIsRedeemOpen]   = useState(false)
   const [isRechargeOpen, setIsRechargeOpen] = useState(false)
   const [isCancelOpen,   setIsCancelOpen]   = useState(false)
+  const [isDeleteOpen,   setIsDeleteOpen]   = useState(false)
   const [selectedCard,   setSelectedCard]   = useState<GiftCard | null>(null)
 
   // ── Formulario Crear ───────────────────────────────────────────────────
   const [newMonto,       setNewMonto]      = useState("")
+  const [newCodigo,      setNewCodigo]     = useState("")
+  const [newVigencia,    setNewVigencia]   = useState("sin_vigencia")
   const [newExpiracion,  setNewExpiracion] = useState("")
   const [newSucursalId,  setNewSucursalId] = useState("")
 
@@ -155,6 +185,7 @@ export default function GiftCardsPage() {
   }
 
   useEffect(() => {
+    setCurrentUser(getCurrentUser())
     async function loadAll() {
       setIsLoading(true)
       try {
@@ -214,7 +245,8 @@ export default function GiftCardsPage() {
   // ─────────────────────────────────────────────────────────────────────
 
   const resetCreateForm = () => {
-    setNewMonto(""); setNewExpiracion(""); setNewSucursalId("")
+    setNewMonto(""); setNewCodigo(""); setNewVigencia("sin_vigencia")
+    setNewExpiracion(""); setNewSucursalId("")
     setClienteMode("existing"); setClienteSearchQuery(""); setClientesBusqueda([])
     setSelectedCliente(null); setNuevoClienteData({ nombre: "", apellido: "", telefono: "", email: "" })
   }
@@ -250,7 +282,8 @@ export default function GiftCardsPage() {
       montoInicial: parseFloat(newMonto),
       sucursalId: newSucursalId,
       clienteId: clienteIdFinal,
-      fechaVencimiento: newExpiracion || null,
+      fechaVencimiento: calcularFechaExpiracion(newVigencia, newExpiracion),
+      codigoPersonalizado: newCodigo || null,
     })
     setIsSubmitting(false)
     if (!res.success) {
@@ -325,6 +358,17 @@ export default function GiftCardsPage() {
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
     toast.success(`Gift card ${selectedCard.codigo} cancelada`)
     setIsCancelOpen(false); setSelectedCard(null)
+    await reload()
+  }
+
+  const handleEliminar = async () => {
+    if (!selectedCard) return
+    setIsSubmitting(true)
+    const res = await eliminarGiftCard(selectedCard.id)
+    setIsSubmitting(false)
+    if (!res.success) { toast.error(`Error al eliminar: ${res.error}`); return }
+    toast.success(`Gift card ${selectedCard.codigo} eliminada`)
+    setIsDeleteOpen(false); setSelectedCard(null)
     await reload()
   }
 
@@ -651,6 +695,19 @@ export default function GiftCardsPage() {
                               </DropdownMenuItem>
                             </>
                           )}
+
+                          {currentUser?.role === "admin" && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => { setSelectedCard(card); setIsDeleteOpen(true) }}
+                                className="text-red-700 focus:text-red-700 focus:bg-red-50 font-medium"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Eliminar permanentemente
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -680,9 +737,35 @@ export default function GiftCardsPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Nueva Gift Card</DialogTitle>
-            <DialogDescription>Se generará un código único automáticamente</DialogDescription>
+            <DialogDescription>Ingresa los datos de la nueva tarjeta de regalo</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+
+            {/* Código */}
+            <div className="grid gap-2">
+              <Label>Código / Clave de la tarjeta *</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Ej. LUNA-2025-001"
+                  value={newCodigo}
+                  onChange={(e) => setNewCodigo(e.target.value.toUpperCase())}
+                  className="font-mono"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  title="Generar código automático"
+                  onClick={() => setNewCodigo(generarCodigoGiftCard())}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Escribe el código de la tarjeta o usa el botón para generar uno automáticamente.
+              </p>
+            </div>
+
             <div className="grid gap-2">
               <Label>Monto Inicial *</Label>
               <div className="relative">
@@ -835,20 +918,42 @@ export default function GiftCardsPage() {
               </Tabs>
             </div>
 
+            {/* Vigencia */}
             <div className="grid gap-2">
-              <Label>Fecha de Expiración (Opcional)</Label>
-              <Input
-                type="date"
-                value={newExpiracion}
-                onChange={(e) => setNewExpiracion(e.target.value)}
-              />
+              <Label className="flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5" />
+                Vigencia
+              </Label>
+              <Select value={newVigencia} onValueChange={setNewVigencia}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {VIGENCIA_OPCIONES.map((op) => (
+                    <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {newVigencia === "personalizada" && (
+                <Input
+                  type="date"
+                  value={newExpiracion}
+                  onChange={(e) => setNewExpiracion(e.target.value)}
+                  min={new Date().toISOString().split("T")[0]}
+                />
+              )}
+              {newVigencia !== "sin_vigencia" && newVigencia !== "personalizada" && (
+                <p className="text-xs text-muted-foreground">
+                  Expira el: <strong>{fmtDate(calcularFechaExpiracion(newVigencia, ""))}</strong>
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId}>
+            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim()}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
             </Button>
           </DialogFooter>
@@ -997,6 +1102,32 @@ export default function GiftCardsPage() {
               className="bg-red-600 hover:bg-red-700"
             >
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Cancelando...</> : "Sí, cancelar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Eliminar (solo admin) */}
+      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-700">
+              <Trash2 className="h-5 w-5" />
+              Eliminar gift card permanentemente
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Estás a punto de eliminar la gift card <strong className="font-mono">{selectedCard?.codigo}</strong> de forma definitiva.
+              Se borrarán también todas sus transacciones. <strong>Esta acción es irreversible.</strong>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSubmitting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleEliminar}
+              disabled={isSubmitting}
+              className="bg-red-700 hover:bg-red-800"
+            >
+              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Eliminando...</> : "Sí, eliminar definitivamente"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

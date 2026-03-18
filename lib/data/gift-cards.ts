@@ -291,15 +291,28 @@ export function addTransaccion(transaccion: GiftCardTransaccion): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Crea una nueva gift card en BD y registra la transacción de emisión */
+export async function eliminarGiftCard(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Primero eliminar transacciones relacionadas
+    await supabase.from('gift_card_transacciones').delete().eq('gift_card_id', id)
+    const { error } = await supabase.from('gift_cards').delete().eq('id', id)
+    if (error) return { success: false, error: error.message }
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Error eliminando gift card' }
+  }
+}
+
 export async function crearGiftCard(datos: {
   montoInicial: number
   sucursalId: string
   clienteId?: string | null
   fechaVencimiento?: string | null
   empleadoEmisorId?: string | null
+  codigoPersonalizado?: string | null
 }): Promise<{ success: boolean; gc?: GiftCard; error?: string }> {
   try {
-    const codigo = generarCodigoGiftCard()
+    const codigo = datos.codigoPersonalizado?.trim().toUpperCase() || generarCodigoGiftCard()
     const hoy = new Date().toISOString().split('T')[0]
 
     const { data: gcData, error: gcError } = await supabase
