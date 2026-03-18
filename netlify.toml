@@ -1,13 +1,9 @@
 [build]
   command = "npm run build"
-  publish = "out"
 
 [build.environment]
   NEXT_TELEMETRY_DISABLED = "1"
   NODE_VERSION = "20"
 
-# SPA fallback: todas las rutas sirven index.html (Next.js maneja el routing cliente)
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
