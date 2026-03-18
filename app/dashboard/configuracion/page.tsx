@@ -18,8 +18,15 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { getCurrentUser, checkPermission, type User } from "@/lib/auth"
-import { getUsuariosFromDB, createUsuarioFromDB, updateUsuarioFromDB, deleteUsuarioFromDB, updateUsuarioPassword, type Usuario } from "@/lib/data/usuarios"
+import { getCurrentUser, type User } from "@/lib/auth"
+import { type Usuario } from "@/lib/data/usuarios"
+import {
+  getUsuariosAction,
+  createUsuarioAction,
+  updateUsuarioAction,
+  deleteUsuarioAction,
+  updateUsuarioPasswordAction,
+} from "@/app/actions/usuarios"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { normalizeEmail } from "@/lib/utils"
 import { Plus, Edit, Trash2, Loader2, UserPlus, Shield, UserCog, AlertCircle, Key } from "lucide-react"
@@ -56,10 +63,11 @@ export default function ConfiguracionPage() {
       try {
         setIsLoading(true)
         if (user?.role === 'admin') {
-          const [usuariosData, sucursalesData] = await Promise.all([
-            getUsuariosFromDB(),
+          const [{ usuarios: usuariosData, error: usuariosError }, sucursalesData] = await Promise.all([
+            getUsuariosAction(),
             getSucursalesActivasFromDB()
           ])
+          if (usuariosError) toast.error(`Error cargando usuarios: ${usuariosError}`)
           setUsuarios(usuariosData)
           setSucursales(sucursalesData)
         }
@@ -94,7 +102,7 @@ export default function ConfiguracionPage() {
     }
 
     try {
-      const result = await createUsuarioFromDB({
+      const result = await createUsuarioAction({
         email: emailNormalizado,
         nombre: formNombre,
         rol: formRol,
@@ -104,8 +112,8 @@ export default function ConfiguracionPage() {
 
       if (result.success && result.usuario) {
         toast.success('Usuario creado exitosamente')
-        const updatedUsuarios = await getUsuariosFromDB()
-        setUsuarios(updatedUsuarios)
+        const { usuarios: updated } = await getUsuariosAction()
+        setUsuarios(updated)
         resetForm()
         setIsUserDialogOpen(false)
       } else {
@@ -129,7 +137,7 @@ export default function ConfiguracionPage() {
     }
 
     try {
-      const result = await updateUsuarioFromDB(editingUsuario.id, {
+      const result = await updateUsuarioAction(editingUsuario.id, {
         nombre: formNombre,
         rol: formRol,
         sucursalId: formRol === 'admin' ? null : formSucursalId,
@@ -137,8 +145,8 @@ export default function ConfiguracionPage() {
 
       if (result.success && result.usuario) {
         toast.success('Usuario actualizado exitosamente')
-        const updatedUsuarios = await getUsuariosFromDB()
-        setUsuarios(updatedUsuarios)
+        const { usuarios: updated } = await getUsuariosAction()
+        setUsuarios(updated)
         resetForm()
         setIsUserDialogOpen(false)
         setEditingUsuario(null)
@@ -155,11 +163,11 @@ export default function ConfiguracionPage() {
     if (!confirm('¿Estás seguro de desactivar este usuario?')) return
 
     try {
-      const result = await deleteUsuarioFromDB(usuarioId)
+      const result = await deleteUsuarioAction(usuarioId)
       if (result.success) {
         toast.success('Usuario desactivado exitosamente')
-        const updatedUsuarios = await getUsuariosFromDB()
-        setUsuarios(updatedUsuarios)
+        const { usuarios: updated } = await getUsuariosAction()
+        setUsuarios(updated)
       } else {
         toast.error(result.error || 'Error desactivando usuario')
       }
@@ -192,7 +200,7 @@ export default function ConfiguracionPage() {
     setIsChangingPassword(true)
 
     try {
-      const result = await updateUsuarioPassword(passwordUsuario.id, newPassword)
+      const result = await updateUsuarioPasswordAction(passwordUsuario.id, newPassword)
       if (result.success) {
         toast.success('Contraseña actualizada exitosamente')
         setIsPasswordDialogOpen(false)
