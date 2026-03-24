@@ -18,7 +18,7 @@ import {
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { getCitasByDateAndSucursalFromDB, updateCita, updateCitaEstado, type Cita } from "@/lib/data/citas"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalById, type Sucursal } from "@/lib/data/sucursales"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -29,12 +29,17 @@ import {
 } from "@/components/ui/dialog"
 import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 import { cn } from "@/lib/utils"
+import { getCurrentUser } from "@/lib/auth"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 const fmtMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
 
-const hoy = () => new Date().toISOString().slice(0, 10)
+// Usa fecha local para que no cambie de día a las 6 PM (UTC−6)
+const hoy = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+}
 
 // ─── tipos locales ───────────────────────────────────────────────────────────
 interface Gasto {
@@ -63,9 +68,14 @@ function StatRow({
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function PagosPage() {
+  const currentUser = getCurrentUser()
+  const isAdmin = currentUser?.role === "admin"
+
   const [fecha, setFecha]                       = useState(hoy())
   const [sucursales, setSucursales]             = useState<Sucursal[]>([])
-  const [sucursalId, setSucursalId]             = useState<string>("todas")
+  const [sucursalId, setSucursalId]             = useState<string>(
+    currentUser?.sucursalId ?? "todas",
+  )
   const [citas, setCitas]                       = useState<Cita[]>([])
   const [pagos, setPagos]                       = useState<Pago[]>([])
   const [resumen, setResumen]                   = useState<ResumenCajaDiario | null>(null)
@@ -95,21 +105,21 @@ export default function PagosPage() {
   const cargarDatos = useCallback(async () => {
     setIsLoading(true)
     try {
+      const sidFiltro = sucursalId !== "todas" ? sucursalId : undefined
+
       const [sucData, pagosData, resData] = await Promise.all([
-        getSucursalesActivasFromDB(),
-        getPagosFromDB(sucursalId !== "todas" ? sucursalId : undefined, fecha),
-        getResumenCajaDiarioFromDB(sucursalId !== "todas" ? sucursalId : undefined, fecha),
+        isAdmin ? getSucursalesActivasFromDB() : Promise.resolve([] as Sucursal[]),
+        getPagosFromDB(sidFiltro, fecha),
+        getResumenCajaDiarioFromDB(sidFiltro, fecha),
       ])
-      setSucursales(sucData)
+      if (isAdmin) setSucursales(sucData)
       setPagos(pagosData)
       setResumen(resData)
 
-      // Citas del día seleccionado
       if (sucursalId !== "todas") {
         const citasData = await getCitasByDateAndSucursalFromDB(fecha, sucursalId)
         setCitas(citasData)
-      } else if (sucData.length > 0) {
-        // Para "todas", cargamos de la primera sucursal como default
+      } else if (isAdmin && sucData.length > 0) {
         const citasData = await getCitasByDateAndSucursalFromDB(fecha, sucData[0].id)
         setCitas(citasData)
       }
@@ -118,7 +128,7 @@ export default function PagosPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [fecha, sucursalId])
+  }, [fecha, sucursalId, isAdmin])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 
@@ -300,20 +310,26 @@ export default function PagosPage() {
         <div className="p-4 border-b bg-white">
           <h2 className="font-bold text-base text-foreground mb-3">Cobros Luna27</h2>
 
-          {/* Sucursal */}
-          <Select value={sucursalId} onValueChange={setSucursalId}>
-            <SelectTrigger className="h-8 text-xs mb-2">
-              <SelectValue placeholder="Sucursal…" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas las sucursales</SelectItem>
-              {sucursales.map(s => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.nombre.replace("Luna27 ", "")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Sucursal — solo admins pueden cambiarla */}
+          {isAdmin ? (
+            <Select value={sucursalId} onValueChange={setSucursalId}>
+              <SelectTrigger className="h-8 text-xs mb-2">
+                <SelectValue placeholder="Sucursal…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas las sucursales</SelectItem>
+                {sucursales.map(s => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.nombre.replace("Luna27 ", "")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="h-8 text-xs mb-2 flex items-center px-2 rounded-md border bg-muted/40 text-muted-foreground font-medium truncate">
+              {getSucursalById(sucursalId)?.nombre.replace("Luna27 ", "") ?? "Mi sucursal"}
+            </div>
+          )}
 
           {/* Fecha */}
           <input
