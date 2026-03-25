@@ -29,8 +29,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { getCurrentUser } from "@/lib/auth"
 
 export default function ServiciosPage() {
+  const currentUser = getCurrentUser()
+  const isAdmin = currentUser?.role === "admin"
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -198,12 +201,14 @@ export default function ServiciosPage() {
             setIsDialogOpen(open)
             if (!open) setNewServicioCategoria('')
           }}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Nuevo Servicio
-            </Button>
-          </DialogTrigger>
+          {isAdmin && (
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Nuevo Servicio
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Nuevo Servicio</DialogTitle>
@@ -358,26 +363,28 @@ export default function ServiciosPage() {
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
                     <span className="font-semibold text-lg">${servicio.precio}</span>
                   </div>
-                  <div className="flex gap-2 pt-2 border-t">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1 bg-transparent"
-                      onClick={() => handleEdit(servicio)}
-                    >
-                      <Edit className="mr-2 h-4 w-4" />
-                      Editar
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 bg-transparent"
-                      onClick={() => setServicioToDelete(servicio)}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Eliminar
-                    </Button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex gap-2 pt-2 border-t">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 bg-transparent"
+                        onClick={() => handleEdit(servicio)}
+                      >
+                        <Edit className="mr-2 h-4 w-4" />
+                        Editar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 bg-transparent"
+                        onClick={() => setServicioToDelete(servicio)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Eliminar
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}

@@ -9,8 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getPagosFromDB } from "@/lib/data/pagos"
 import { getDashboardStats, getServiciosPopulares, getTopEmpleadosFromDB } from "@/lib/data/dashboard"
 import { getClientesStats } from "@/lib/data/clientes"
+import { getCurrentUser } from "@/lib/auth"
 
 export default function ReportesPage() {
+  const currentUser = getCurrentUser()
+  const isAdmin = currentUser?.role === "admin"
+  const sucursalFiltro = isAdmin ? undefined : (currentUser?.sucursalId ?? undefined)
   const [isLoading, setIsLoading] = useState(true)
   const [ventasPorDia, setVentasPorDia] = useState<Array<{ dia: string; ventas: number }>>([])
   const [serviciosMasVendidos, setServiciosMasVendidos] = useState<Array<{ name: string; count: number; revenue: number }>>([])
@@ -23,8 +27,8 @@ export default function ReportesPage() {
       try {
         setIsLoading(true)
         
-        // Calcular ventas por día de la última semana
-        const pagos = await getPagosFromDB()
+        // Filtrar por sucursal si el usuario no es admin
+        const pagos = await getPagosFromDB(sucursalFiltro)
         const hoy = new Date()
         const ventasPorDiaArray = []
         
@@ -43,9 +47,9 @@ export default function ReportesPage() {
         
         setVentasPorDia(ventasPorDiaArray)
         
-        // Obtener servicios populares y empleados top
+        // Servicios populares y empleados top (filtrado por sucursal si aplica)
         const [servicios, empleados] = await Promise.all([
-          getServiciosPopulares(5),
+          getServiciosPopulares(5, sucursalFiltro),
           getTopEmpleadosFromDB(4)
         ])
         
@@ -60,11 +64,10 @@ export default function ReportesPage() {
           apellido: e.apellido,
           servicios: e.citas,
           ingresos: e.ingresos,
-          comision: Math.round(e.ingresos * 0.4) // Estimación de comisión 40%
+          comision: Math.round(e.ingresos * 0.4)
         })))
         
-        // Obtener estadísticas generales
-        const dashboardStats = await getDashboardStats()
+        const dashboardStats = await getDashboardStats(sucursalFiltro)
         const clientesData = await getClientesStats()
         
         const ingresosTotales = pagos

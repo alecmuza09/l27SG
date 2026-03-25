@@ -23,26 +23,35 @@ import {
   UserX,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { logout } from "@/lib/auth"
+import { logout, getCurrentUser } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 
+// Rutas exclusivas para admin — manager/staff no las ven en el sidebar
+const ADMIN_ONLY = new Set([
+  "/dashboard/empleados",
+  "/dashboard/servicios",
+  "/dashboard/inventario",
+  "/dashboard/sucursales",
+  "/dashboard/promociones",
+])
+
 const navigation = [
-  { name: "Dashboard", href: "/dashboard", icon: BarChart3 },
-  { name: "Citas", href: "/dashboard/citas", icon: Calendar },
-  { name: "Clientes", href: "/dashboard/clientes", icon: Users },
-  { name: "Empleados", href: "/dashboard/empleados", icon: UserCircle },
-  { name: "Servicios", href: "/dashboard/servicios", icon: Briefcase },
-  { name: "Inventario", href: "/dashboard/inventario", icon: Package },
-  { name: "Pagos", href: "/dashboard/pagos", icon: CreditCard },
-  { name: "Reportes", href: "/dashboard/reportes", icon: BarChart3 },
-  { name: "Sucursales", href: "/dashboard/sucursales", icon: Building2 },
+  { name: "Dashboard",  href: "/dashboard",           icon: BarChart3  },
+  { name: "Citas",      href: "/dashboard/citas",      icon: Calendar   },
+  { name: "Clientes",   href: "/dashboard/clientes",   icon: Users      },
+  { name: "Empleados",  href: "/dashboard/empleados",  icon: UserCircle },
+  { name: "Servicios",  href: "/dashboard/servicios",  icon: Briefcase  },
+  { name: "Inventario", href: "/dashboard/inventario", icon: Package    },
+  { name: "Pagos",      href: "/dashboard/pagos",      icon: CreditCard },
+  { name: "Reportes",   href: "/dashboard/reportes",   icon: BarChart3  },
+  { name: "Sucursales", href: "/dashboard/sucursales", icon: Building2  },
 ]
 
 const newModules = [
-  { name: "Gift Cards", href: "/dashboard/gift-cards", icon: Gift },
-  { name: "Promociones", href: "/dashboard/promociones", icon: Tag },
-  { name: "Vacaciones", href: "/dashboard/vacaciones", icon: Palmtree },
-  { name: "Ausencias", href: "/dashboard/ausencias", icon: UserX },
+  { name: "Gift Cards",  href: "/dashboard/gift-cards",  icon: Gift    },
+  { name: "Promociones", href: "/dashboard/promociones", icon: Tag     },
+  { name: "Vacaciones",  href: "/dashboard/vacaciones",  icon: Palmtree},
+  { name: "Ausencias",   href: "/dashboard/ausencias",   icon: UserX   },
 ]
 
 const settingsNav = [{ name: "Configuración", href: "/dashboard/configuracion", icon: Settings }]
@@ -55,6 +64,12 @@ interface SidebarProps {
 export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+
+  const currentUser = getCurrentUser()
+  const isAdmin = currentUser?.role === "admin"
+
+  const visibleNav = isAdmin ? navigation : navigation.filter(i => !ADMIN_ONLY.has(i.href))
+  const visibleModules = isAdmin ? newModules : newModules.filter(i => !ADMIN_ONLY.has(i.href))
 
   const handleLogout = async () => {
     await logout()
@@ -81,7 +96,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-        {navigation.map((item) => {
+        {visibleNav.map((item) => {
           const isActive = pathname === item.href
           return (
             <Link
@@ -108,7 +123,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
             Gestión Adicional
           </p>
         )}
-        {newModules.map((item) => {
+        {visibleModules.map((item) => {
           const isActive = pathname === item.href
           return (
             <Link

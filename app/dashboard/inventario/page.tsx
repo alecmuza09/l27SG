@@ -37,8 +37,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { getCurrentUser } from "@/lib/auth"
 
 export default function InventarioPage() {
+  const currentUser = getCurrentUser()
+  const isAdmin = currentUser?.role === "admin"
   const [inventario, setInventario] = useState<ProductoInventario[]>([])
   const [productosBajoStock, setProductosBajoStock] = useState<ProductoInventario[]>([])
   const [productosProximosVencer, setProductosProximosVencer] = useState<ProductoInventario[]>([])
@@ -111,12 +114,14 @@ export default function InventarioPage() {
         </div>
         <div className="flex gap-2">
           <Dialog open={isMovimientoDialogOpen} onOpenChange={setIsMovimientoDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <ArrowUpDown className="mr-2 h-4 w-4" />
-                Movimiento
-              </Button>
-            </DialogTrigger>
+            {isAdmin && (
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <ArrowUpDown className="mr-2 h-4 w-4" />
+                  Movimiento
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle>Registrar Movimiento</DialogTitle>
@@ -181,12 +186,14 @@ export default function InventarioPage() {
           </Dialog>
 
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Nuevo Producto
-              </Button>
-            </DialogTrigger>
+            {isAdmin && (
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuevo Producto
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Nuevo Producto</DialogTitle>
@@ -483,14 +490,16 @@ export default function InventarioPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button variant="ghost" size="icon">
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
+                            {isAdmin && (
+                              <div className="flex justify-end gap-2">
+                                <Button variant="ghost" size="icon">
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
                           </TableCell>
                         </TableRow>
                       )

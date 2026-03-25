@@ -239,12 +239,14 @@ export default function EmpleadosPage() {
           <p className="text-muted-foreground">Gestiona tu equipo de trabajo</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Nuevo Empleado
-            </Button>
-          </DialogTrigger>
+          {isAdmin && (
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Nuevo Empleado
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Nuevo Empleado</DialogTitle>
@@ -558,38 +560,40 @@ export default function EmpleadosPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        {activeTab === "activos" ? (
-                          <>
-                            <Button 
-                              variant="ghost" 
+                      {isAdmin && (
+                        <div className="flex justify-end gap-2">
+                          {activeTab === "activos" ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleEdit(empleado)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setEmpleadoToDelete(empleado)
+                                  setDeleteDialogOpen(true)
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              variant="ghost"
                               size="icon"
-                              onClick={() => handleEdit(empleado)}
+                              onClick={() => handleRestaurar(empleado)}
+                              title="Restaurar empleado"
                             >
-                              <Edit className="h-4 w-4" />
+                              <RotateCcw className="h-4 w-4" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              onClick={() => {
-                                setEmpleadoToDelete(empleado)
-                                setDeleteDialogOpen(true)
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        ) : (
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            onClick={() => handleRestaurar(empleado)}
-                            title="Restaurar empleado"
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                   ))

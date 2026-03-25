@@ -2,12 +2,21 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Loader2 } from "lucide-react"
 import { refreshSession } from "@/lib/auth"
+
+// Rutas que solo puede visitar un admin
+const ADMIN_ONLY_ROUTES = [
+  "/dashboard/empleados",
+  "/dashboard/servicios",
+  "/dashboard/inventario",
+  "/dashboard/sucursales",
+  "/dashboard/promociones",
+]
 
 export default function DashboardLayout({
   children,
@@ -17,19 +26,27 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen]   = useState(true)
   const [authChecked, setAuthChecked]   = useState(false)
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     async function checkAuth() {
-      // Siempre re-sincroniza desde la BD para que sucursalId sea el correcto
       const user = await refreshSession()
       if (!user) {
         router.replace("/")
         return
       }
+      // Redirigir manager/staff si intentan acceder a rutas exclusivas de admin
+      if (user.role !== "admin") {
+        const isAdminRoute = ADMIN_ONLY_ROUTES.some(r => pathname.startsWith(r))
+        if (isAdminRoute) {
+          router.replace("/dashboard")
+          return
+        }
+      }
       setAuthChecked(true)
     }
     checkAuth()
-  }, [router])
+  }, [router, pathname])
 
   if (!authChecked) {
     return (
