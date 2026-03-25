@@ -178,8 +178,7 @@ export function CajaDialog({
   const [vipPassCodigo, setVipPassCodigo]         = useState("")
   const [vipPassSaldo, setVipPassSaldo]           = useState(0)
   const [vipPassBuscando, setVipPassBuscando]     = useState(false)
-  const [vipPassPrecioNormal, setVipPassPrecioNormal] = useState("")
-  const [vipPassPrecioVip, setVipPassPrecioVip]   = useState("")
+  const [vipPassDiferencia, setVipPassDiferencia] = useState("") // descuento: precio normal − precio VIP
   const [pagoVipPass, setPagoVipPass]             = useState("")
 
   // ─── Cargar datos al abrir ─────────────────────────────────────────────
@@ -199,7 +198,7 @@ export function CajaDialog({
     setGcPagoId(""); setGcPagoCodigo(""); setGcPagoSaldo(0)
     setReferencia(""); setNotasVenta("")
     setVipPassInput(""); setVipPassId(""); setVipPassCodigo(""); setVipPassSaldo(0)
-    setVipPassPrecioNormal(""); setVipPassPrecioVip(""); setPagoVipPass("")
+    setVipPassDiferencia(""); setPagoVipPass("")
     setSucursalId(sucursalIdInicial || "")
 
     // Pre-cargar citas seleccionadas como items del carrito
@@ -306,8 +305,7 @@ export function CajaDialog({
     setCodigoCupon(""); setCodigoGC(""); setDescManualVal("")
     // Si el descuento era VIP Pass, también limpiar su pago y búsqueda
     setVipPassId(""); setVipPassCodigo(""); setVipPassSaldo(0)
-    setVipPassInput(""); setVipPassPrecioNormal(""); setVipPassPrecioVip("")
-    setPagoVipPass("")
+    setVipPassInput(""); setVipPassDiferencia(""); setPagoVipPass("")
   }
 
   const handleAplicarCupon = useCallback(async () => {
@@ -395,27 +393,22 @@ export function CajaDialog({
 
   const handleAplicarVipPass = () => {
     if (!vipPassId) { toast.error("Primero busca el VIP Pass"); return }
-    const precioNormal = parseFloat(vipPassPrecioNormal) || 0
-    const precioVip    = parseFloat(vipPassPrecioVip)    || 0
-    if (precioNormal <= 0 || precioVip <= 0) {
-      toast.error("Ingresa precio normal y precio VIP"); return
+    const diferencia = parseFloat(vipPassDiferencia) || 0
+    if (diferencia <= 0) { toast.error("Ingresa la diferencia de descuento VIP"); return }
+    if (diferencia >= subtotal) { toast.error("La diferencia no puede ser igual o mayor al total del servicio"); return }
+    const cobroVip = subtotal - diferencia // lo que se descuenta del saldo del VIP Pass
+    if (cobroVip > vipPassSaldo + 0.01) {
+      toast.error(`Saldo insuficiente en el VIP Pass (disponible: ${fmtMXN(vipPassSaldo)})`); return
     }
-    if (precioVip > precioNormal) {
-      toast.error("El precio VIP no puede ser mayor que el precio normal"); return
-    }
-    if (precioVip > vipPassSaldo + 0.01) {
-      toast.error("El precio VIP supera el saldo disponible en el VIP Pass"); return
-    }
-    const descuento = Math.max(0, precioNormal - precioVip)
     setDescuentoAplicado({
       tipo: "vip_pass",
       codigo: vipPassCodigo,
       gcId: vipPassId,
-      label: `VIP Pass ${vipPassCodigo} (ahorro ${fmtMXN(descuento)}, comisión sobre ${fmtMXN(precioNormal)})`,
-      monto: descuento,
+      label: `VIP Pass ${vipPassCodigo} · diferencia ${fmtMXN(diferencia)} · comisión sobre ${fmtMXN(subtotal)}`,
+      monto: diferencia,
     })
-    setPagoVipPass(String(precioVip))
-    toast.success(`VIP Pass aplicado · Descuento: ${fmtMXN(descuento)}`)
+    setPagoVipPass(String(cobroVip))
+    toast.success(`VIP Pass aplicado · Descuento: ${fmtMXN(diferencia)} · Cobro VIP: ${fmtMXN(cobroVip)}`)
   }
 
   // ── Cortesía ──────────────────────────────────────────────────────────
@@ -856,52 +849,51 @@ export function CajaDialog({
                             </Button>
                           </div>
 
-                          {/* Precios */}
-                          <div className="grid grid-cols-2 gap-1">
-                            <div>
-                              <p className="text-[10px] text-muted-foreground mb-0.5">Precio normal $</p>
-                              <Input
-                                type="number" min="0" step="any"
-                                value={vipPassPrecioNormal}
-                                onChange={e => setVipPassPrecioNormal(e.target.value)}
-                                placeholder="240"
-                                className="h-7 text-xs"
-                              />
-                            </div>
-                            <div>
-                              <p className="text-[10px] text-muted-foreground mb-0.5">Precio VIP $</p>
-                              <Input
-                                type="number" min="0" step="any"
-                                value={vipPassPrecioVip}
-                                onChange={e => setVipPassPrecioVip(e.target.value)}
-                                placeholder="170"
-                                className="h-7 text-xs"
-                              />
+                          {/* Precio total del carrito (solo lectura) */}
+                          <div className="flex items-center justify-between bg-muted/40 rounded px-2 py-1 text-[10px]">
+                            <span className="text-muted-foreground">Precio completo (comisión)</span>
+                            <span className="font-bold text-foreground">{fmtMXN(subtotal)}</span>
+                          </div>
+
+                          {/* Campo único: diferencia = descuento del VIP Pass */}
+                          <div>
+                            <p className="text-[10px] text-muted-foreground mb-0.5">Diferencia (descuento VIP) $</p>
+                            <div className="flex gap-1">
+                              <div className="relative flex-1">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
+                                <Input
+                                  type="number" min="0" step="any"
+                                  value={vipPassDiferencia}
+                                  onChange={e => setVipPassDiferencia(e.target.value)}
+                                  placeholder="ej. 70"
+                                  className="h-7 text-xs pl-5"
+                                  onKeyDown={e => e.key === "Enter" && handleAplicarVipPass()}
+                                />
+                              </div>
+                              <Button size="sm" className="h-7 px-2 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1"
+                                onClick={handleAplicarVipPass} disabled={!vipPassDiferencia}>
+                                <Crown className="h-3 w-3" /> Aplicar
+                              </Button>
                             </div>
                           </div>
 
-                          {/* Preview del descuento */}
-                          {vipPassPrecioNormal && vipPassPrecioVip && parseFloat(vipPassPrecioNormal) > 0 && parseFloat(vipPassPrecioVip) > 0 && (
+                          {/* Preview en tiempo real */}
+                          {vipPassDiferencia && parseFloat(vipPassDiferencia) > 0 && parseFloat(vipPassDiferencia) < subtotal && (
                             <div className="text-[10px] bg-violet-50 border border-violet-200 rounded px-2 py-1 space-y-0.5">
                               <div className="flex justify-between text-violet-700">
-                                <span>Descuento VIP</span>
-                                <span className="font-bold">− {fmtMXN(Math.max(0, parseFloat(vipPassPrecioNormal) - parseFloat(vipPassPrecioVip)))}</span>
+                                <span>Descuento VIP Pass</span>
+                                <span className="font-bold">− {fmtMXN(parseFloat(vipPassDiferencia))}</span>
+                              </div>
+                              <div className="flex justify-between text-emerald-700">
+                                <span>Cobro al VIP Pass</span>
+                                <span className="font-bold">{fmtMXN(subtotal - parseFloat(vipPassDiferencia))}</span>
                               </div>
                               <div className="flex justify-between text-amber-700">
-                                <span>Comisión calculada sobre</span>
-                                <span className="font-bold">{fmtMXN(parseFloat(vipPassPrecioNormal))}</span>
+                                <span>Comisión sobre</span>
+                                <span className="font-bold">{fmtMXN(subtotal)}</span>
                               </div>
                             </div>
                           )}
-
-                          <Button
-                            size="sm"
-                            className="w-full h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1"
-                            onClick={handleAplicarVipPass}
-                            disabled={!vipPassPrecioNormal || !vipPassPrecioVip}
-                          >
-                            <Crown className="h-3 w-3" /> Aplicar VIP Pass
-                          </Button>
                         </>
                       )}
                     </TabsContent>
