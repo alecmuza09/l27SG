@@ -15,7 +15,7 @@ import {
   Plus, Minus, X, Search, Banknote, CreditCard, ArrowLeftRight,
   CheckCircle2, Loader2, ShoppingCart, User, Tag, Gift, Scissors,
   Package, BadgePercent, Receipt, Clock, Star, AlertTriangle,
-  Sparkles, Wallet, History, TrendingDown, Heart,
+  Sparkles, Wallet, History, TrendingDown, Heart, Crown,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -44,7 +44,7 @@ interface CartItem {
 }
 
 interface DescuentoAplicado {
-  tipo: "cupon" | "gift_card" | "manual_pct" | "manual_monto"
+  tipo: "cupon" | "gift_card" | "manual_pct" | "manual_monto" | "vip_pass"
   codigo?: string
   gcId?: string
   label: string
@@ -172,6 +172,16 @@ export function CajaDialog({
   const [notasVenta, setNotasVenta]         = useState("")
   const [isCobrandо, setIsCobrando]         = useState(false)
 
+  // ── VIP Pass ───────────────────────────────────────────────────────────────
+  const [vipPassInput, setVipPassInput]           = useState("")
+  const [vipPassId, setVipPassId]                 = useState("")
+  const [vipPassCodigo, setVipPassCodigo]         = useState("")
+  const [vipPassSaldo, setVipPassSaldo]           = useState(0)
+  const [vipPassBuscando, setVipPassBuscando]     = useState(false)
+  const [vipPassPrecioNormal, setVipPassPrecioNormal] = useState("")
+  const [vipPassPrecioVip, setVipPassPrecioVip]   = useState("")
+  const [pagoVipPass, setPagoVipPass]             = useState("")
+
   // ─── Cargar datos al abrir ─────────────────────────────────────────────
   useEffect(() => {
     if (!open) return
@@ -188,6 +198,8 @@ export function CajaDialog({
     setPagoEfectivo(""); setPagoTarjeta(""); setPagoTransferencia(""); setPagoGiftCard("")
     setGcPagoId(""); setGcPagoCodigo(""); setGcPagoSaldo(0)
     setReferencia(""); setNotasVenta("")
+    setVipPassInput(""); setVipPassId(""); setVipPassCodigo(""); setVipPassSaldo(0)
+    setVipPassPrecioNormal(""); setVipPassPrecioVip(""); setPagoVipPass("")
     setSucursalId(sucursalIdInicial || "")
 
     // Pre-cargar citas seleccionadas como items del carrito
@@ -261,8 +273,9 @@ export function CajaDialog({
   const tarNum = parseFloat(pagoTarjeta)      || 0
   const trfNum = parseFloat(pagoTransferencia)|| 0
   const gcNum  = parseFloat(pagoGiftCard)     || 0
-  const totalPagado = efNum + tarNum + trfNum + gcNum
-  const cambio      = Math.max(0, efNum - (total - tarNum - trfNum - gcNum))
+  const vipNum = parseFloat(pagoVipPass)      || 0
+  const totalPagado = efNum + tarNum + trfNum + gcNum + vipNum
+  const cambio      = Math.max(0, efNum - (total - tarNum - trfNum - gcNum - vipNum))
   const faltante    = Math.max(0, total - totalPagado)
 
   // ── Categorías de servicios en carrito para sugerencias ───────────────
@@ -291,6 +304,10 @@ export function CajaDialog({
   const limpiarDescuento = () => {
     setDescuentoAplicado(null)
     setCodigoCupon(""); setCodigoGC(""); setDescManualVal("")
+    // Si el descuento era VIP Pass, también limpiar su pago y búsqueda
+    setVipPassId(""); setVipPassCodigo(""); setVipPassSaldo(0)
+    setVipPassInput(""); setVipPassPrecioNormal(""); setVipPassPrecioVip("")
+    setPagoVipPass("")
   }
 
   const handleAplicarCupon = useCallback(async () => {
@@ -363,6 +380,44 @@ export function CajaDialog({
     setPagoGiftCard(String(montoSugerido))
   }
 
+  // ── VIP Pass ──────────────────────────────────────────────────────────────
+  const handleBuscarVipPass = async () => {
+    if (!vipPassInput.trim()) return
+    setVipPassBuscando(true)
+    const res = await validarGiftCard(vipPassInput)
+    setVipPassBuscando(false)
+    if (!res.valida || !res.gc) { toast.error(res.error || "VIP Pass no encontrado"); return }
+    setVipPassId(res.gc.id)
+    setVipPassCodigo(res.gc.codigo)
+    setVipPassSaldo(res.gc.saldoActual)
+    toast.success(`VIP Pass encontrado · Saldo: ${fmtMXN(res.gc.saldoActual)}`)
+  }
+
+  const handleAplicarVipPass = () => {
+    if (!vipPassId) { toast.error("Primero busca el VIP Pass"); return }
+    const precioNormal = parseFloat(vipPassPrecioNormal) || 0
+    const precioVip    = parseFloat(vipPassPrecioVip)    || 0
+    if (precioNormal <= 0 || precioVip <= 0) {
+      toast.error("Ingresa precio normal y precio VIP"); return
+    }
+    if (precioVip > precioNormal) {
+      toast.error("El precio VIP no puede ser mayor que el precio normal"); return
+    }
+    if (precioVip > vipPassSaldo + 0.01) {
+      toast.error("El precio VIP supera el saldo disponible en el VIP Pass"); return
+    }
+    const descuento = Math.max(0, precioNormal - precioVip)
+    setDescuentoAplicado({
+      tipo: "vip_pass",
+      codigo: vipPassCodigo,
+      gcId: vipPassId,
+      label: `VIP Pass ${vipPassCodigo} (ahorro ${fmtMXN(descuento)}, comisión sobre ${fmtMXN(precioNormal)})`,
+      monto: descuento,
+    })
+    setPagoVipPass(String(precioVip))
+    toast.success(`VIP Pass aplicado · Descuento: ${fmtMXN(descuento)}`)
+  }
+
   // ── Cortesía ──────────────────────────────────────────────────────────
   const handleCortesia = async () => {
     if (cart.length === 0) { toast.error("Agrega al menos un servicio o producto"); return }
@@ -416,6 +471,7 @@ export function CajaDialog({
     if (totalPagado < total - 0.01) { toast.error(`Faltan ${fmtMXN(faltante)} por asignar a un método de pago`); return }
     if (trfNum > 0 && !referencia.trim()) { toast.error("Ingresa la referencia de la transferencia"); return }
     if (gcNum > 0 && gcNum > gcPagoSaldo + 0.01) { toast.error("El monto en gift card excede el saldo disponible"); return }
+    if (vipNum > 0 && vipNum > vipPassSaldo + 0.01) { toast.error("El monto VIP Pass excede el saldo disponible"); return }
 
     setIsCobrando(true)
 
@@ -432,6 +488,15 @@ export function CajaDialog({
     // Tomar el empleado principal del primer servicio del carrito
     const empleadoPrincipal = cart.find(i => i.tipo === "servicio" && i.empleadoId)?.empleadoId ?? null
 
+    // VIP Pass usa el mismo campo que gift card (giftCardId / montoGiftCard)
+    // El descuento de VIP Pass se registra con tipo "vip_pass" para cálculo de comisiones
+    const giftCardIdFinal = vipNum > 0 ? vipPassId : (gcNum > 0 ? gcPagoId : undefined)
+    const montoGiftCardFinal = vipNum > 0 ? vipNum : (gcNum > 0 ? gcNum : 0)
+    const descuentoTipoFinal = descuentoAplicado?.tipo === "cupon" ? "cupon"
+      : descuentoAplicado?.tipo === "gift_card" ? "gift_card"
+      : descuentoAplicado?.tipo === "vip_pass"  ? "vip_pass"
+      : descuentoAplicado ? "manual" : undefined
+
     const res = await registrarPago({
       citaId: null,
       clienteId,
@@ -440,15 +505,15 @@ export function CajaDialog({
       servicioNombre: cart.map(i => `${i.nombre} x${i.cantidad}`).join(", "),
       subtotal,
       descuentoMonto: descuento,
-      descuentoTipo:  descuentoAplicado?.tipo === "cupon" ? "cupon" : descuentoAplicado?.tipo === "gift_card" ? "gift_card" : descuentoAplicado ? "manual" : undefined,
+      descuentoTipo:  descuentoTipoFinal,
       descuentoCodigo: descuentoAplicado?.codigo,
       propina: propinaNum,
       total,
       metodoPago: metodoPrincipal,
       montoEfectivo: efNum,
       montoTarjeta: tarNum,
-      montoGiftCard: gcNum,
-      giftCardId: gcNum > 0 ? gcPagoId : undefined,
+      montoGiftCard: montoGiftCardFinal,
+      giftCardId: giftCardIdFinal,
       referencia: referencia.trim() || undefined,
       notas: notasVenta.trim() || undefined,
     })
@@ -488,7 +553,7 @@ export function CajaDialog({
   ).slice(0, 4)
 
   const clienteSeleccionado = clientes.find(c => c.id === clienteId)
-  const hayMultiMetodo = (efNum > 0 ? 1 : 0) + (tarNum > 0 ? 1 : 0) + (trfNum > 0 ? 1 : 0) + (gcNum > 0 ? 1 : 0) > 1
+  const hayMultiMetodo = (efNum > 0 ? 1 : 0) + (tarNum > 0 ? 1 : 0) + (trfNum > 0 ? 1 : 0) + (gcNum > 0 ? 1 : 0) + (vipNum > 0 ? 1 : 0) > 1
 
   // ════════════════════════════════════════════════════════════════════════
   return (
@@ -726,10 +791,12 @@ export function CajaDialog({
                 ) : (
                   <Tabs defaultValue="cupon">
                     <TabsList className="h-6 text-[10px] w-full">
-                      <TabsTrigger value="cupon" className="flex-1 text-[10px] h-5"><Tag className="h-2.5 w-2.5 mr-1" />Cupón</TabsTrigger>
-                      <TabsTrigger value="gc" className="flex-1 text-[10px] h-5"><Gift className="h-2.5 w-2.5 mr-1" />GC</TabsTrigger>
+                      <TabsTrigger value="cupon"  className="flex-1 text-[10px] h-5"><Tag className="h-2.5 w-2.5 mr-1" />Cupón</TabsTrigger>
+                      <TabsTrigger value="gc"     className="flex-1 text-[10px] h-5"><Gift className="h-2.5 w-2.5 mr-1" />GC</TabsTrigger>
                       <TabsTrigger value="manual" className="flex-1 text-[10px] h-5"><BadgePercent className="h-2.5 w-2.5 mr-1" />Manual</TabsTrigger>
+                      <TabsTrigger value="vip"    className="flex-1 text-[10px] h-5"><Crown className="h-2.5 w-2.5 mr-1" />VIP</TabsTrigger>
                     </TabsList>
+
                     <TabsContent value="cupon" className="mt-1.5">
                       <div className="flex gap-1">
                         <Input placeholder="Código cupón" value={codigoCupon} onChange={e => setCodigoCupon(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && handleAplicarCupon()} className="h-7 text-xs uppercase" />
@@ -738,6 +805,7 @@ export function CajaDialog({
                         </Button>
                       </div>
                     </TabsContent>
+
                     <TabsContent value="gc" className="mt-1.5">
                       <div className="flex gap-1">
                         <Input placeholder="Código gift card" value={codigoGC} onChange={e => setCodigoGC(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && handleAplicarGC()} className="h-7 text-xs uppercase" />
@@ -746,6 +814,7 @@ export function CajaDialog({
                         </Button>
                       </div>
                     </TabsContent>
+
                     <TabsContent value="manual" className="mt-1.5">
                       <div className="flex gap-1 items-center">
                         <div className="flex rounded border overflow-hidden flex-shrink-0">
@@ -755,6 +824,86 @@ export function CajaDialog({
                         <Input type="number" min="0" step="any" value={descManualVal} onChange={e => setDescManualVal(e.target.value)} className="h-7 text-xs flex-1" placeholder={descManualTipo === "pct" ? "15" : "200"} />
                         <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={handleAplicarManual} disabled={!descManualVal}>OK</Button>
                       </div>
+                    </TabsContent>
+
+                    {/* ── VIP Pass ── */}
+                    <TabsContent value="vip" className="mt-1.5 space-y-1.5">
+                      {!vipPassId ? (
+                        <div className="flex gap-1">
+                          <Input
+                            placeholder="Código VIP Pass…"
+                            value={vipPassInput}
+                            onChange={e => setVipPassInput(e.target.value.toUpperCase())}
+                            onKeyDown={e => e.key === "Enter" && handleBuscarVipPass()}
+                            className="h-7 text-xs uppercase"
+                          />
+                          <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={handleBuscarVipPass} disabled={vipPassBuscando || !vipPassInput}>
+                            {vipPassBuscando ? <Loader2 className="h-3 w-3 animate-spin" /> : "Buscar"}
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Código encontrado + saldo */}
+                          <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                            <div className="flex items-center gap-1.5">
+                              <Crown className="h-3 w-3 text-amber-600 flex-shrink-0" />
+                              <span className="text-[10px] text-amber-800 font-semibold">{vipPassCodigo}</span>
+                              <span className="text-[10px] text-amber-600">· saldo: {fmtMXN(vipPassSaldo)}</span>
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-4 w-4"
+                              onClick={() => { setVipPassId(""); setVipPassCodigo(""); setVipPassSaldo(0); setVipPassInput("") }}>
+                              <X className="h-2.5 w-2.5" />
+                            </Button>
+                          </div>
+
+                          {/* Precios */}
+                          <div className="grid grid-cols-2 gap-1">
+                            <div>
+                              <p className="text-[10px] text-muted-foreground mb-0.5">Precio normal $</p>
+                              <Input
+                                type="number" min="0" step="any"
+                                value={vipPassPrecioNormal}
+                                onChange={e => setVipPassPrecioNormal(e.target.value)}
+                                placeholder="240"
+                                className="h-7 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-muted-foreground mb-0.5">Precio VIP $</p>
+                              <Input
+                                type="number" min="0" step="any"
+                                value={vipPassPrecioVip}
+                                onChange={e => setVipPassPrecioVip(e.target.value)}
+                                placeholder="170"
+                                className="h-7 text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Preview del descuento */}
+                          {vipPassPrecioNormal && vipPassPrecioVip && parseFloat(vipPassPrecioNormal) > 0 && parseFloat(vipPassPrecioVip) > 0 && (
+                            <div className="text-[10px] bg-violet-50 border border-violet-200 rounded px-2 py-1 space-y-0.5">
+                              <div className="flex justify-between text-violet-700">
+                                <span>Descuento VIP</span>
+                                <span className="font-bold">− {fmtMXN(Math.max(0, parseFloat(vipPassPrecioNormal) - parseFloat(vipPassPrecioVip)))}</span>
+                              </div>
+                              <div className="flex justify-between text-amber-700">
+                                <span>Comisión calculada sobre</span>
+                                <span className="font-bold">{fmtMXN(parseFloat(vipPassPrecioNormal))}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <Button
+                            size="sm"
+                            className="w-full h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1"
+                            onClick={handleAplicarVipPass}
+                            disabled={!vipPassPrecioNormal || !vipPassPrecioVip}
+                          >
+                            <Crown className="h-3 w-3" /> Aplicar VIP Pass
+                          </Button>
+                        </>
+                      )}
                     </TabsContent>
                   </Tabs>
                 )}
@@ -934,6 +1083,41 @@ export function CajaDialog({
                       <X className="h-2.5 w-2.5" />
                     </Button>
                   </div>
+                )}
+
+                {/* VIP Pass como método de pago — aparece cuando se aplicó en la sección de descuentos */}
+                {vipPassId && (
+                  <>
+                    <div className="flex items-center gap-1.5">
+                      <div className={cn("p-1 rounded", vipNum > 0 ? "text-amber-600" : "text-muted-foreground")}>
+                        <Crown className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-xs w-20 flex-shrink-0 font-medium text-amber-700">VIP Pass</span>
+                      <div className="relative flex-1">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
+                        <Input
+                          type="number" min="0" step="any"
+                          value={pagoVipPass}
+                          onChange={e => setPagoVipPass(e.target.value)}
+                          placeholder="0"
+                          className="h-7 text-xs pl-5"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between ml-8 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      <div className="text-[10px] text-amber-800">
+                        <span className="font-semibold">{vipPassCodigo}</span>
+                        <span className="ml-1 text-amber-600">· saldo: {fmtMXN(vipPassSaldo)}</span>
+                        {vipNum > 0 && vipPassSaldo >= vipNum && (
+                          <span className="ml-1 text-emerald-600">→ queda: {fmtMXN(vipPassSaldo - vipNum)}</span>
+                        )}
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-4 w-4"
+                        onClick={limpiarDescuento}>
+                        <X className="h-2.5 w-2.5" />
+                      </Button>
+                    </div>
+                  </>
                 )}
               </div>
 
