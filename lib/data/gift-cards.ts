@@ -9,33 +9,50 @@ export function generarCodigoGiftCard(): string {
   return `GC-${part1}-${part2}`
 }
 
-// Obtener gift cards desde Supabase
+// Obtener gift cards desde Supabase (pagina automáticamente para traer todos los registros)
 export async function getGiftCardsFromDB(sucursalId?: string): Promise<GiftCard[]> {
   try {
-    let query = supabase
-      .from('gift_cards')
-      .select(`
-        *,
-        cliente:clientes(nombre, apellido),
-        sucursal:sucursales(nombre),
-        empleado:empleados(nombre, apellido)
-      `)
-      .order('fecha_emision', { ascending: false })
-    
-    if (sucursalId) {
-      query = query.eq('sucursal_id', sucursalId)
+    const PAGE_SIZE = 1000
+    let allData: any[] = []
+    let page = 0
+    let keepGoing = true
+
+    while (keepGoing) {
+      const from = page * PAGE_SIZE
+      const to = from + PAGE_SIZE - 1
+
+      let query = supabase
+        .from('gift_cards')
+        .select(`
+          *,
+          cliente:clientes(nombre, apellido),
+          sucursal:sucursales(nombre),
+          empleado:empleados(nombre, apellido)
+        `)
+        .order('fecha_emision', { ascending: false })
+        .range(from, to)
+
+      if (sucursalId) {
+        query = query.eq('sucursal_id', sucursalId)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        console.error('Error obteniendo gift cards:', error)
+        return []
+      }
+
+      if (!data || data.length === 0) {
+        keepGoing = false
+      } else {
+        allData = allData.concat(data)
+        keepGoing = data.length === PAGE_SIZE
+        page++
+      }
     }
-    
-    const { data, error } = await query
-    
-    if (error) {
-      console.error('Error obteniendo gift cards:', error)
-      return []
-    }
-    
-    if (!data) return []
-    
-    return data.map((gc: any) => ({
+
+    return allData.map((gc: any) => ({
       id: gc.id,
       codigo: gc.codigo,
       saldoInicial: Number(gc.monto_inicial) || 0,

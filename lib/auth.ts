@@ -6,7 +6,7 @@ export interface User {
   id: string
   email: string
   name: string
-  role: "admin" | "manager" | "staff"
+  role: "superadmin" | "admin" | "manager" | "staff"
   sucursalId?: string
 }
 
@@ -118,6 +118,6 @@ export async function refreshSession(): Promise<User | null> {
 
 export function checkPermission(user: User | null, requiredRole: User["role"]): boolean {
   if (!user) return false
-  const roleHierarchy = { admin: 3, manager: 2, staff: 1 }
+  const roleHierarchy = { superadmin: 4, admin: 3, manager: 2, staff: 1 }
   return roleHierarchy[user.role] >= roleHierarchy[requiredRole]
 }
