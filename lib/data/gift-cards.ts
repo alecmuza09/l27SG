@@ -1,6 +1,12 @@
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { supabase } from '@/lib/supabase/client'
 
+// Fecha local (no UTC) para evitar desfase después de las 6 PM
+const fechaLocal = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
 // Generador de código único para gift cards
 export function generarCodigoGiftCard(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -330,7 +336,7 @@ export async function crearGiftCard(datos: {
 }): Promise<{ success: boolean; gc?: GiftCard; error?: string }> {
   try {
     const codigo = datos.codigoPersonalizado?.trim().toUpperCase() || generarCodigoGiftCard()
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = fechaLocal()
 
     const { data: gcData, error: gcError } = await supabase
       .from('gift_cards')
@@ -392,7 +398,7 @@ export async function activarGiftCard(
   giftCardId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = fechaLocal()
 
     const { data: gc, error: fetchError } = await supabase
       .from('gift_cards')
@@ -462,7 +468,7 @@ export async function canjearGiftCard(
       saldo_anterior: saldoAnterior,
       saldo_nuevo: saldoNuevo,
       empleado_id: empleadoId || null,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: fechaLocal(),
       notas: notas || 'Canje de saldo',
     })
 
@@ -509,7 +515,7 @@ export async function recargarGiftCard(
       saldo_anterior: saldoAnterior,
       saldo_nuevo: saldoNuevo,
       empleado_id: empleadoId || null,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: fechaLocal(),
       notas: notas || 'Recarga de saldo',
     })
 
@@ -546,7 +552,7 @@ export async function cancelarGiftCard(
       monto: Number(gc.saldo_actual),
       saldo_anterior: Number(gc.saldo_actual),
       saldo_nuevo: 0,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: fechaLocal(),
       notas: motivo || 'Cancelación de gift card',
     })
 

@@ -361,7 +361,8 @@ export async function registrarPago(
 ): Promise<{ success: boolean; pagoId?: string; error?: string }> {
   try {
     const now = new Date()
-    const fecha = now.toISOString().split('T')[0]
+    // Usar fecha local para que pagos después de las 6 PM no queden en el día siguiente (UTC)
+    const fecha = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
     const hora = now.toTimeString().slice(0, 8)
 
     // 1. Crear registro en tabla pagos
@@ -597,7 +598,8 @@ export async function getResumenCajaDiarioFromDB(
 export async function getResumenCajaAyerFromDB(
   sucursalId?: string
 ): Promise<Pick<ResumenCajaDiario, 'totalVentas' | 'cantidadTransacciones' | 'ticketPromedio'>> {
-  const ayer = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+  const ayerDate = new Date(Date.now() - 86400000)
+  const ayer = `${ayerDate.getFullYear()}-${String(ayerDate.getMonth() + 1).padStart(2, "0")}-${String(ayerDate.getDate()).padStart(2, "0")}`
   try {
     let query = supabase
       .from('pagos')
