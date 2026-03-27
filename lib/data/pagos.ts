@@ -192,30 +192,28 @@ export async function getPagosFromDB(sucursalId?: string, fecha?: string): Promi
     let query = supabase
       .from('pagos')
       .select(`
-        *,
+        id, cita_id, cliente_id, empleado_id, sucursal_id,
+        monto, metodo_pago, estado, fecha, hora, servicios,
+        notas, referencia, subtotal,
+        descuento_monto, descuento_tipo, descuento_codigo,
+        propina, monto_efectivo, monto_tarjeta,
         cliente:clientes(nombre, apellido),
         empleado:empleados(nombre, apellido)
       `)
-      .order('fecha', { ascending: false })
       .order('hora', { ascending: false })
-    
-    if (sucursalId) {
-      query = query.eq('sucursal_id', sucursalId)
-    }
 
-    if (fecha) {
-      query = query.eq('fecha', fecha)
-    }
-    
+    if (sucursalId) query = query.eq('sucursal_id', sucursalId)
+    if (fecha)      query = query.eq('fecha', fecha)
+
     const { data, error } = await query
-    
+
     if (error) {
       console.error('Error obteniendo pagos:', error)
       return []
     }
-    
+
     if (!data) return []
-    
+
     return data.map((pago: any) => ({
       id: pago.id,
       citaId: pago.cita_id || '',
@@ -244,6 +242,38 @@ export async function getPagosFromDB(sucursalId?: string, fecha?: string): Promi
     console.error('Error inesperado obteniendo pagos:', error)
     return []
   }
+}
+
+// Calcula el resumen de caja directamente desde los pagos ya cargados (sin extra roundtrip a DB)
+export function calcularResumenDesdePagos(pagos: Pago[], fecha: string): ResumenCajaDiario {
+  const completados = pagos.filter(p => p.estado === 'completado')
+  const resumen: ResumenCajaDiario = {
+    fecha,
+    totalVentas: 0,
+    cantidadTransacciones: completados.length,
+    ticketPromedio: 0,
+    totalPropinas: 0,
+    totalDescuentos: 0,
+    porMetodo: { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 },
+    porMetodoCantidad: { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 },
+  }
+  for (const p of completados) {
+    const metodo = (p.metodoPago || 'otro') as keyof ResumenCajaDiario['porMetodo']
+    resumen.totalVentas += p.monto
+    resumen.totalPropinas += p.propina ?? 0
+    resumen.totalDescuentos += p.descuentoMonto ?? 0
+    if (metodo in resumen.porMetodo) {
+      resumen.porMetodo[metodo] += p.monto
+      resumen.porMetodoCantidad[metodo] += 1
+    } else {
+      resumen.porMetodo.otro += p.monto
+      resumen.porMetodoCantidad.otro += 1
+    }
+  }
+  resumen.ticketPromedio = resumen.cantidadTransacciones > 0
+    ? resumen.totalVentas / resumen.cantidadTransacciones
+    : 0
+  return resumen
 }
 
 // Obtener pagos pendientes desde BD

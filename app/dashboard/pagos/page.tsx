@@ -14,7 +14,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  getPagosFromDB, getResumenCajaDiarioFromDB, updatePago,
+  getPagosFromDB, calcularResumenDesdePagos, updatePago,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { getCitasByDateAndSucursalFromDB, updateCita, updateCitaEstado, type Cita } from "@/lib/data/citas"
@@ -111,21 +111,30 @@ export default function PagosPage() {
     try {
       const sidFiltro = sucursalId !== "todas" ? sucursalId : undefined
 
-      const [sucData, pagosData, resData] = await Promise.all([
+      // Determinamos el sucursalId para citas antes del fetch (evita fetch secuencial)
+      const citasSucursalId = sucursalId !== "todas" ? sucursalId : null
+
+      const [sucData, pagosData, citasData] = await Promise.all([
         isAdmin ? getSucursalesActivasFromDB() : Promise.resolve([] as Sucursal[]),
         getPagosFromDB(sidFiltro, fecha),
-        getResumenCajaDiarioFromDB(sidFiltro, fecha),
+        citasSucursalId
+          ? getCitasByDateAndSucursalFromDB(fecha, citasSucursalId)
+          : Promise.resolve([] as Cita[]),
       ])
-      if (isAdmin) setSucursales(sucData)
-      setPagos(pagosData)
-      setResumen(resData)
 
-      if (sucursalId !== "todas") {
-        const citasData = await getCitasByDateAndSucursalFromDB(fecha, sucursalId)
+      // Sucursales
+      if (isAdmin) setSucursales(sucData)
+
+      // Pagos + resumen calculado en cliente (sin roundtrip extra a DB)
+      setPagos(pagosData)
+      setResumen(calcularResumenDesdePagos(pagosData, fecha))
+
+      // Citas: si era "todas" y ahora tenemos sucursales, cargamos la primera
+      if (citasSucursalId) {
         setCitas(citasData)
       } else if (isAdmin && sucData.length > 0) {
-        const citasData = await getCitasByDateAndSucursalFromDB(fecha, sucData[0].id)
-        setCitas(citasData)
+        const primerasCitas = await getCitasByDateAndSucursalFromDB(fecha, sucData[0].id)
+        setCitas(primerasCitas)
       }
     } catch (e) {
       console.error(e)
