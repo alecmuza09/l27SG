@@ -227,6 +227,29 @@ export async function getSucursalesActivasFromDB(): Promise<Sucursal[]> {
   }
 }
 
+// Obtener varias sucursales por lista de IDs
+export async function getSucursalesByIdsFromDB(ids: string[]): Promise<Sucursal[]> {
+  if (!ids || ids.length === 0) return []
+  try {
+    const { data, error } = await supabase
+      .from('sucursales')
+      .select('*')
+      .in('id', ids)
+      .eq('activa', true)
+      .order('nombre')
+
+    if (error) {
+      console.error('Error obteniendo sucursales por IDs:', error)
+      return []
+    }
+
+    return data.map(transformSucursal)
+  } catch (error) {
+    console.error('Error inesperado obteniendo sucursales por IDs:', error)
+    return []
+  }
+}
+
 // Obtener una sucursal por ID desde Supabase
 export async function getSucursalByIdFromDB(id: string): Promise<Sucursal | null> {
   try {

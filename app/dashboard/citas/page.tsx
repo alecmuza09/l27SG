@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
-import { getSucursalesActivasFromDB, getSucursalByIdFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, type User } from "@/lib/auth"
 
 export default function CitasPage() {
@@ -27,7 +27,7 @@ export default function CitasPage() {
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
-  const userSucursalId = currentUser?.sucursalId
+  const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -42,18 +42,18 @@ export default function CitasPage() {
         if (sucursalesData.length > 0) {
           setSucursalId(sucursalesData[0].id)
         }
-      } else if (userSucursalId) {
-        const sucursal = await getSucursalByIdFromDB(userSucursalId)
-        if (sucursal) {
-          setSucursales([sucursal])
-          setSucursalId(userSucursalId)
+      } else if (userSucursalIds.length > 0) {
+        const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
+        if (sucursalesData.length > 0) {
+          setSucursales(sucursalesData)
+          setSucursalId(sucursalesData[0].id)
         }
       }
     }
     if (currentUser) {
       loadSucursales()
     }
-  }, [currentUser, isAdmin, userSucursalId])
+  }, [currentUser, isAdmin, userSucursalIds.join(',')])
 
   return (
     <div className="space-y-6">

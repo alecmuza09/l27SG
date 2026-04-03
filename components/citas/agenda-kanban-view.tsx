@@ -26,7 +26,7 @@ import { CajaDialog } from "./caja-dialog"
 import { getVacaciones } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
 import { getCurrentUser, type User } from "@/lib/auth"
-import { getSucursalByIdFromDB } from "@/lib/data/sucursales"
+import { getSucursalesByIdsFromDB } from "@/lib/data/sucursales"
 import {
   getAusenciasFromDB, createAusencia, aprobarAusencia, rechazarAusencia, cancelarAusencia,
   TIPO_AUSENCIA_LABELS, ESTATUS_AUSENCIA_COLORS, ESTATUS_AUSENCIA_LABELS, TIPO_AUSENCIA_COLORS,
@@ -223,7 +223,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
-  const userSucursalId = currentUser?.sucursalId
+  const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -242,19 +242,20 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         if (sucursalesData.length > 0 && !isControlledSucursal && !selectedSucursalState) {
           setSelectedSucursalState(sucursalesData[0].id)
         }
-      } else if (userSucursalId) {
-        const sucursal = await getSucursalByIdFromDB(userSucursalId)
-        if (sucursal) {
-          setSucursales([sucursal])
-          if (onSucursalChange) onSucursalChange(userSucursalId)
-          else setSelectedSucursalState(userSucursalId)
+      } else if (userSucursalIds.length > 0) {
+        const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
+        if (sucursalesData.length > 0) {
+          setSucursales(sucursalesData)
+          const firstId = sucursalesData[0].id
+          if (onSucursalChange) onSucursalChange(firstId)
+          else setSelectedSucursalState(firstId)
         }
       }
     }
     if (currentUser) {
       loadSucursales()
     }
-  }, [currentUser, isAdmin, userSucursalId])
+  }, [currentUser, isAdmin, userSucursalIds.join(',')])
 
   useEffect(() => {
     async function loadEmpleados() {
