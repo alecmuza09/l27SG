@@ -46,6 +46,7 @@ const USUARIOS: Array<{ email: string; password: string; rol: 'admin' | 'manager
   { email: 'vialuz@luna27.mx',         password: 'Vialuz26+',          rol: 'manager', nombre: 'Manager Vía La Luz' },
   { email: 'carrizalejo@luna27.mx',    password: 'Carrizalejo26+',     rol: 'manager', nombre: 'Manager Carrizalejo' },
   { email: 'aurora@luna72.mx',         password: 'Aurora26+',          rol: 'manager', nombre: 'Manager La Aurora' },
+  { email: 'aurora@luna27.mx',         password: 'Aurora27+',          rol: 'manager', nombre: 'Suc. La Aurora' },
 ]
 
 // Usuarios a eliminar definitivamente
