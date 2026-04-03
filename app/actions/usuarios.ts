@@ -3,16 +3,46 @@
 import { supabaseAdmin } from '@/lib/supabase/server'
 
 function mapUsuario(u: any) {
+  const rows: Array<{ sucursal_id: string; sucursal?: { id: string; nombre: string } }> =
+    Array.isArray(u.usuario_sucursales) ? u.usuario_sucursales : []
+
+  const sucursalIds = rows.map((r) => r.sucursal_id).filter(Boolean)
+  const sucursalesNombres = rows.map((r) => r.sucursal?.nombre).filter(Boolean) as string[]
+
+  // Fallback para registros sin junction table todavía
+  if (sucursalIds.length === 0 && u.sucursal_id) {
+    sucursalIds.push(u.sucursal_id)
+    const nombre = (u.sucursal as any)?.nombre as string | undefined
+    if (nombre) sucursalesNombres.push(nombre)
+  }
+
   return {
     id: u.id as string,
     email: u.email as string,
     nombre: u.nombre as string,
     rol: u.rol as 'admin' | 'manager' | 'staff',
-    sucursalId: (u.sucursal_id as string | null) || null,
-    sucursalNombre: (u.sucursal as any)?.nombre as string | undefined,
+    sucursalId: sucursalIds[0] ?? (u.sucursal_id as string | null) ?? null,
+    sucursalNombre: sucursalesNombres[0] as string | undefined,
+    sucursalIds,
+    sucursalesNombres,
     activo: (u.activo as boolean) ?? true,
     createdAt: u.created_at as string,
     updatedAt: u.updated_at as string,
+  }
+}
+
+const USUARIO_SELECT = `
+  id, email, nombre, rol, sucursal_id, activo, created_at, updated_at,
+  sucursal:sucursales(nombre),
+  usuario_sucursales(sucursal_id, sucursal:sucursales(id, nombre))
+`
+
+async function syncSucursales(usuarioId: string, sucursalIds: string[]) {
+  await supabaseAdmin.from('usuario_sucursales').delete().eq('usuario_id', usuarioId)
+  if (sucursalIds.length > 0) {
+    await supabaseAdmin.from('usuario_sucursales').insert(
+      sucursalIds.map((sid) => ({ usuario_id: usuarioId, sucursal_id: sid }))
+    )
   }
 }
 
@@ -22,10 +52,7 @@ export async function getUsuariosAction(): Promise<{
 }> {
   const { data, error } = await supabaseAdmin
     .from('usuarios')
-    .select(`
-      id, email, nombre, rol, sucursal_id, activo, created_at, updated_at,
-      sucursal:sucursales(nombre)
-    `)
+    .select(USUARIO_SELECT)
     .order('created_at', { ascending: false })
 
   if (error) return { usuarios: [], error: error.message }
@@ -37,9 +64,12 @@ export async function createUsuarioAction(datos: {
   nombre: string
   rol: 'admin' | 'manager' | 'staff'
   sucursalId?: string | null
+  sucursalIds?: string[]
   password: string
 }): Promise<{ success: boolean; usuario?: ReturnType<typeof mapUsuario>; error?: string }> {
-  const { email, nombre, rol, sucursalId, password } = datos
+  const { email, nombre, rol, password } = datos
+  const sucursalIds = datos.sucursalIds ?? (datos.sucursalId ? [datos.sucursalId] : [])
+  const primarySucursalId = sucursalIds[0] ?? null
 
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
@@ -54,18 +84,8 @@ export async function createUsuarioAction(datos: {
 
   const { data: usuarioData, error: dbError } = await supabaseAdmin
     .from('usuarios')
-    .insert({
-      id: authData.user.id,
-      email,
-      nombre,
-      rol,
-      sucursal_id: sucursalId || null,
-      activo: true,
-    })
-    .select(`
-      id, email, nombre, rol, sucursal_id, activo, created_at, updated_at,
-      sucursal:sucursales(nombre)
-    `)
+    .insert({ id: authData.user.id, email, nombre, rol, sucursal_id: primarySucursalId, activo: true })
+    .select(USUARIO_SELECT)
     .single()
 
   if (dbError) {
@@ -73,7 +93,15 @@ export async function createUsuarioAction(datos: {
     return { success: false, error: dbError.message }
   }
 
-  return { success: true, usuario: mapUsuario(usuarioData) }
+  await syncSucursales(authData.user.id, sucursalIds)
+
+  const { data: finalData } = await supabaseAdmin
+    .from('usuarios')
+    .select(USUARIO_SELECT)
+    .eq('id', authData.user.id)
+    .single()
+
+  return { success: true, usuario: mapUsuario(finalData ?? usuarioData) }
 }
 
 export async function updateUsuarioAction(
@@ -82,27 +110,43 @@ export async function updateUsuarioAction(
     nombre?: string
     rol?: 'admin' | 'manager' | 'staff'
     sucursalId?: string | null
+    sucursalIds?: string[]
     activo?: boolean
   }
 ): Promise<{ success: boolean; usuario?: ReturnType<typeof mapUsuario>; error?: string }> {
+  const sucursalIds =
+    datos.sucursalIds !== undefined
+      ? datos.sucursalIds
+      : datos.sucursalId !== undefined
+        ? datos.sucursalId ? [datos.sucursalId] : []
+        : undefined
+
   const updateData: Record<string, any> = { updated_at: new Date().toISOString() }
   if (datos.nombre !== undefined) updateData.nombre = datos.nombre
   if (datos.rol !== undefined) updateData.rol = datos.rol
-  if (datos.sucursalId !== undefined) updateData.sucursal_id = datos.sucursalId
+  if (sucursalIds !== undefined) updateData.sucursal_id = sucursalIds[0] ?? null
   if (datos.activo !== undefined) updateData.activo = datos.activo
 
   const { data, error } = await supabaseAdmin
     .from('usuarios')
     .update(updateData)
     .eq('id', usuarioId)
-    .select(`
-      id, email, nombre, rol, sucursal_id, activo, created_at, updated_at,
-      sucursal:sucursales(nombre)
-    `)
+    .select(USUARIO_SELECT)
     .single()
 
   if (error || !data) return { success: false, error: error?.message || 'Error actualizando usuario' }
-  return { success: true, usuario: mapUsuario(data) }
+
+  if (sucursalIds !== undefined) {
+    await syncSucursales(usuarioId, sucursalIds)
+  }
+
+  const { data: finalData } = await supabaseAdmin
+    .from('usuarios')
+    .select(USUARIO_SELECT)
+    .eq('id', usuarioId)
+    .single()
+
+  return { success: true, usuario: mapUsuario(finalData ?? data) }
 }
 
 export async function deleteUsuarioAction(

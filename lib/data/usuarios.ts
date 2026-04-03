@@ -14,6 +14,8 @@ export interface Usuario {
   rol: 'admin' | 'manager' | 'staff'
   sucursalId: string | null
   sucursalNombre?: string
+  sucursalIds: string[]
+  sucursalesNombres: string[]
   activo: boolean
   createdAt: string
   updatedAt: string
@@ -97,6 +99,7 @@ export async function updateUsuarioFromDB(
     nombre?: string
     rol?: 'admin' | 'manager' | 'staff'
     sucursalId?: string | null
+    sucursalIds?: string[]
     activo?: boolean
   }
 ): Promise<{ success: boolean; usuario?: Usuario; error?: string }> {

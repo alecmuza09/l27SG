@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Checkbox } from "@/components/ui/checkbox"
 import { 
   Dialog, 
   DialogContent, 
@@ -29,7 +31,7 @@ import {
 } from "@/app/actions/usuarios"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { normalizeEmail } from "@/lib/utils"
-import { Plus, Edit, Trash2, Loader2, UserPlus, Shield, UserCog, AlertCircle, Key } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2, UserPlus, Shield, UserCog, AlertCircle, Key, ChevronsUpDown, Check } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ConfiguracionPage() {
@@ -47,7 +49,8 @@ export default function ConfiguracionPage() {
   const [formEmail, setFormEmail] = useState("")
   const [formNombre, setFormNombre] = useState("")
   const [formRol, setFormRol] = useState<'admin' | 'manager' | 'staff'>('staff')
-  const [formSucursalId, setFormSucursalId] = useState<string>("")
+  const [formSucursalIds, setFormSucursalIds] = useState<string[]>([])
+  const [sucursalPopoverOpen, setSucursalPopoverOpen] = useState(false)
   const [formPassword, setFormPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -82,14 +85,20 @@ export default function ConfiguracionPage() {
     loadData()
   }, [])
 
+  const toggleSucursal = (id: string) => {
+    setFormSucursalIds((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    )
+  }
+
   const handleCreateUsuario = async () => {
     if (!formEmail || !formNombre || !formPassword || !formRol) {
       toast.error('Completa todos los campos requeridos')
       return
     }
 
-    if (formRol !== 'admin' && !formSucursalId) {
-      toast.error('Selecciona una sucursal para managers y staff')
+    if (formRol !== 'admin' && formSucursalIds.length === 0) {
+      toast.error('Selecciona al menos una sucursal para managers y staff')
       return
     }
 
@@ -106,7 +115,7 @@ export default function ConfiguracionPage() {
         email: emailNormalizado,
         nombre: formNombre,
         rol: formRol,
-        sucursalId: formRol === 'admin' ? null : formSucursalId,
+        sucursalIds: formRol === 'admin' ? [] : formSucursalIds,
         password: formPassword,
       })
 
@@ -131,8 +140,8 @@ export default function ConfiguracionPage() {
       return
     }
 
-    if (formRol !== 'admin' && !formSucursalId) {
-      toast.error('Selecciona una sucursal para managers y staff')
+    if (formRol !== 'admin' && formSucursalIds.length === 0) {
+      toast.error('Selecciona al menos una sucursal para managers y staff')
       return
     }
 
@@ -140,7 +149,7 @@ export default function ConfiguracionPage() {
       const result = await updateUsuarioAction(editingUsuario.id, {
         nombre: formNombre,
         rol: formRol,
-        sucursalId: formRol === 'admin' ? null : formSucursalId,
+        sucursalIds: formRol === 'admin' ? [] : formSucursalIds,
       })
 
       if (result.success && result.usuario) {
@@ -222,7 +231,8 @@ export default function ConfiguracionPage() {
     setFormEmail("")
     setFormNombre("")
     setFormRol('staff')
-    setFormSucursalId("")
+    setFormSucursalIds([])
+    setSucursalPopoverOpen(false)
     setFormPassword("")
     setEditingUsuario(null)
   }
@@ -231,9 +241,9 @@ export default function ConfiguracionPage() {
     setEditingUsuario(usuario)
     setFormNombre(usuario.nombre)
     setFormRol(usuario.rol)
-    setFormSucursalId(usuario.sucursalId || "")
+    setFormSucursalIds(usuario.sucursalIds ?? (usuario.sucursalId ? [usuario.sucursalId] : []))
     setFormEmail(usuario.email)
-    setFormPassword("") // No mostrar contraseña
+    setFormPassword("")
     setIsUserDialogOpen(true)
   }
 
@@ -325,7 +335,15 @@ export default function ConfiguracionPage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {usuario.sucursalNombre || (
+                            {usuario.sucursalesNombres && usuario.sucursalesNombres.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {usuario.sucursalesNombres.map((nombre) => (
+                                  <Badge key={nombre} variant="outline" className="text-xs font-normal">
+                                    {nombre}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
                               <span className="text-muted-foreground">Todas</span>
                             )}
                           </TableCell>
@@ -443,19 +461,75 @@ export default function ConfiguracionPage() {
                   </div>
                   {formRol !== 'admin' && (
                     <div className="grid gap-2">
-                      <Label htmlFor="sucursal">Sucursal *</Label>
-                      <Select value={formSucursalId} onValueChange={setFormSucursalId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleccionar sucursal" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sucursales.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.nombre}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Label>Sucursales *</Label>
+                      <Popover open={sucursalPopoverOpen} onOpenChange={setSucursalPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <span className="truncate text-left">
+                              {formSucursalIds.length === 0
+                                ? <span className="text-muted-foreground">Seleccionar sucursales...</span>
+                                : formSucursalIds.length === 1
+                                  ? sucursales.find((s) => s.id === formSucursalIds[0])?.nombre
+                                  : `${formSucursalIds.length} sucursales seleccionadas`}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
+                          <div className="max-h-56 overflow-y-auto">
+                            {sucursales.map((s) => {
+                              const selected = formSucursalIds.includes(s.id)
+                              return (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => toggleSucursal(s.id)}
+                                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                                >
+                                  <Checkbox
+                                    checked={selected}
+                                    className="pointer-events-none"
+                                    aria-hidden
+                                  />
+                                  <span className="flex-1 text-left">{s.nombre}</span>
+                                  {selected && <Check className="h-3.5 w-3.5 text-primary" />}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          {formSucursalIds.length > 0 && (
+                            <div className="border-t pt-1 mt-1">
+                              <button
+                                type="button"
+                                onClick={() => setFormSucursalIds([])}
+                                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+                              >
+                                Limpiar selección
+                              </button>
+                            </div>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                      {formSucursalIds.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {formSucursalIds.map((id) => {
+                            const s = sucursales.find((x) => x.id === id)
+                            return s ? (
+                              <Badge
+                                key={id}
+                                variant="secondary"
+                                className="cursor-pointer text-xs"
+                                onClick={() => toggleSucursal(id)}
+                              >
+                                {s.nombre} ×
+                              </Badge>
+                            ) : null
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                   {!editingUsuario && (
@@ -487,7 +561,7 @@ export default function ConfiguracionPage() {
                       !formNombre || 
                       !formRol || 
                       (!editingUsuario && (!formEmail || !formPassword)) ||
-                      (formRol !== 'admin' && !formSucursalId)
+                      (formRol !== 'admin' && formSucursalIds.length === 0)
                     }
                   >
                     {editingUsuario ? "Guardar Cambios" : "Crear Usuario"}

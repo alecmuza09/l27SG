@@ -8,6 +8,7 @@ export interface User {
   name: string
   role: "superadmin" | "admin" | "manager" | "staff"
   sucursalId?: string
+  sucursalIds?: string[]
 }
 
 export interface AuthState {
@@ -26,12 +27,22 @@ export async function login(email: string, password: string): Promise<User> {
   }
 
   // 2. Obtener datos del usuario desde la tabla usuarios
-  const { data: usuarioData } = await supabase
+  const { data: usuarioRaw } = await supabase
     .from("usuarios")
-    .select("*")
+    .select("*, usuario_sucursales(sucursal_id)")
     .eq("email", email)
     .eq("activo", true)
     .maybeSingle()
+
+  const usuarioData = usuarioRaw as any
+
+  const sucursalIds: string[] = usuarioData?.usuario_sucursales
+    ? (usuarioData.usuario_sucursales as Array<{ sucursal_id: string }>)
+        .map((r: { sucursal_id: string }) => r.sucursal_id)
+        .filter(Boolean)
+    : usuarioData?.sucursal_id
+      ? [usuarioData.sucursal_id]
+      : []
 
   const user: User = usuarioData
     ? {
@@ -39,7 +50,8 @@ export async function login(email: string, password: string): Promise<User> {
         email: usuarioData.email,
         name: usuarioData.nombre,
         role: (usuarioData.rol as User["role"]) || "staff",
-        sucursalId: usuarioData.sucursal_id || undefined,
+        sucursalId: sucursalIds[0] ?? usuarioData.sucursal_id ?? undefined,
+        sucursalIds,
       }
     : {
         id: authData.user.id,
@@ -87,20 +99,31 @@ export async function refreshSession(): Promise<User | null> {
   }
 
   const email = data.session.user.email!
-  const { data: usuarioData } = await supabase
+  const { data: usuarioRefreshRaw } = await supabase
     .from("usuarios")
-    .select("*")
+    .select("*, usuario_sucursales(sucursal_id)")
     .eq("email", email)
     .eq("activo", true)
     .maybeSingle()
 
-  const user: User = usuarioData
+  const usuarioRefresh = usuarioRefreshRaw as any
+
+  const sucursalIds: string[] = usuarioRefresh?.usuario_sucursales
+    ? (usuarioRefresh.usuario_sucursales as Array<{ sucursal_id: string }>)
+        .map((r: { sucursal_id: string }) => r.sucursal_id)
+        .filter(Boolean)
+    : usuarioRefresh?.sucursal_id
+      ? [usuarioRefresh.sucursal_id]
+      : []
+
+  const user: User = usuarioRefresh
     ? {
-        id: usuarioData.id,
-        email: usuarioData.email,
-        name: usuarioData.nombre,
-        role: (usuarioData.rol as User["role"]) || "staff",
-        sucursalId: usuarioData.sucursal_id || undefined,
+        id: usuarioRefresh.id,
+        email: usuarioRefresh.email,
+        name: usuarioRefresh.nombre,
+        role: (usuarioRefresh.rol as User["role"]) || "staff",
+        sucursalId: sucursalIds[0] ?? usuarioRefresh.sucursal_id ?? undefined,
+        sucursalIds,
       }
     : {
         id: data.session.user.id,
