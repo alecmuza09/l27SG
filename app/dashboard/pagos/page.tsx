@@ -18,7 +18,7 @@ import {
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { getCitasByDateAndSucursalFromDB, updateCita, updateCitaEstado, type Cita } from "@/lib/data/citas"
-import { getSucursalesActivasFromDB, getSucursalById, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, getSucursalById, type Sucursal } from "@/lib/data/sucursales"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -72,6 +72,10 @@ export default function PagosPage() {
   const isAdmin     = currentUser?.role === "admin" || currentUser?.role === "superadmin"
   const isSuperAdmin = currentUser?.role === "superadmin"
 
+  // Sucursales asignadas al usuario (para managers con múltiples sucursales)
+  const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
+  const hasMultipleSucursales = isAdmin || userSucursalIds.length > 1
+
   const [fecha, setFecha]                       = useState(hoy())
   const [sucursales, setSucursales]             = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId]             = useState<string>(
@@ -110,29 +114,32 @@ export default function PagosPage() {
     setIsLoading(true)
     try {
       const sidFiltro = sucursalId !== "todas" ? sucursalId : undefined
-
-      // Determinamos el sucursalId para citas antes del fetch (evita fetch secuencial)
       const citasSucursalId = sucursalId !== "todas" ? sucursalId : null
 
       const [sucData, pagosData, citasData] = await Promise.all([
-        isAdmin ? getSucursalesActivasFromDB() : Promise.resolve([] as Sucursal[]),
+        isAdmin
+          ? getSucursalesActivasFromDB()
+          : userSucursalIds.length > 1
+            ? getSucursalesByIdsFromDB(userSucursalIds)
+            : Promise.resolve([] as Sucursal[]),
         getPagosFromDB(sidFiltro, fecha),
         citasSucursalId
           ? getCitasByDateAndSucursalFromDB(fecha, citasSucursalId)
           : Promise.resolve([] as Cita[]),
       ])
 
-      // Sucursales
-      if (isAdmin) setSucursales(sucData)
+      // Sucursales — admins ven todas; managers multi-sucursal ven las suyas
+      if (isAdmin || userSucursalIds.length > 1) setSucursales(sucData)
 
-      // Pagos + resumen calculado en cliente (sin roundtrip extra a DB)
+      // Pagos + resumen
       setPagos(pagosData)
       setResumen(calcularResumenDesdePagos(pagosData, fecha))
 
-      // Citas: si era "todas" y ahora tenemos sucursales, cargamos la primera
+      // Citas
       if (citasSucursalId) {
         setCitas(citasData)
-      } else if (isAdmin && sucData.length > 0) {
+      } else if (sucData.length > 0) {
+        // Admin con "todas" → cargar primera sucursal de la lista
         const primerasCitas = await getCitasByDateAndSucursalFromDB(fecha, sucData[0].id)
         setCitas(primerasCitas)
       }
@@ -141,7 +148,7 @@ export default function PagosPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [fecha, sucursalId, isAdmin])
+  }, [fecha, sucursalId, isAdmin, userSucursalIds.join(',')])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 
@@ -342,24 +349,26 @@ export default function PagosPage() {
         <div className="p-4 border-b bg-white">
           <h2 className="font-bold text-base text-foreground mb-3">Cobros Luna27</h2>
 
-          {/* Sucursal — solo admins pueden cambiarla */}
-          {isAdmin ? (
+          {/* Sucursal — selector para admins y managers con múltiples sucursales */}
+          {hasMultipleSucursales ? (
             <Select value={sucursalId} onValueChange={setSucursalId}>
               <SelectTrigger className="h-8 text-xs mb-2">
                 <SelectValue placeholder="Sucursal…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todas">Todas las sucursales</SelectItem>
+                {isAdmin && (
+                  <SelectItem value="todas">Todas las sucursales</SelectItem>
+                )}
                 {sucursales.map(s => (
                   <SelectItem key={s.id} value={s.id}>
-                    {s.nombre.replace("Luna27 ", "")}
+                    {s.nombre.replace("Luna 27 ", "").replace("Luna27 ", "")}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           ) : (
             <div className="h-8 text-xs mb-2 flex items-center px-2 rounded-md border bg-muted/40 text-muted-foreground font-medium truncate">
-              {getSucursalById(sucursalId)?.nombre.replace("Luna27 ", "") ?? "Mi sucursal"}
+              {getSucursalById(sucursalId)?.nombre.replace("Luna 27 ", "").replace("Luna27 ", "") ?? "Mi sucursal"}
             </div>
           )}
 

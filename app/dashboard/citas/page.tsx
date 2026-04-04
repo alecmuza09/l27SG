@@ -39,14 +39,18 @@ export default function CitasPage() {
       if (isAdmin) {
         const sucursalesData = await getSucursalesActivasFromDB()
         setSucursales(sucursalesData)
-        if (sucursalesData.length > 0) {
-          setSucursalId(sucursalesData[0].id)
-        }
+        // Default: sucursal propia si existe, sino la primera de la lista
+        const primaryId = currentUser?.sucursalId
+        const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0]?.id
+        if (defaultId) setSucursalId(defaultId)
       } else if (userSucursalIds.length > 0) {
         const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
-          setSucursalId(sucursalesData[0].id)
+          // Default: siempre la sucursal principal del usuario
+          const primaryId = currentUser?.sucursalId
+          const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
+          setSucursalId(defaultId)
         }
       }
     }

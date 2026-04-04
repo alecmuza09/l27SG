@@ -236,19 +236,24 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   useEffect(() => {
     async function loadSucursales() {
+      const primaryId = currentUser?.sucursalId
+
       if (isAdmin) {
         const sucursalesData = await getSucursalesActivasFromDB()
         setSucursales(sucursalesData)
         if (sucursalesData.length > 0 && !isControlledSucursal && !selectedSucursalState) {
-          setSelectedSucursalState(sucursalesData[0].id)
+          // Default: sucursal propia si existe, sino la primera
+          const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
+          setSelectedSucursalState(defaultId)
         }
       } else if (userSucursalIds.length > 0) {
         const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
-          const firstId = sucursalesData[0].id
-          if (onSucursalChange) onSucursalChange(firstId)
-          else setSelectedSucursalState(firstId)
+          // Default: siempre la sucursal principal del usuario
+          const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
+          if (onSucursalChange) onSucursalChange(defaultId)
+          else setSelectedSucursalState(defaultId)
         }
       }
     }
