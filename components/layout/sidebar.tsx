@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Receipt,
   UserX,
+  FileSpreadsheet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { logout, getCurrentUser } from "@/lib/auth"
@@ -56,6 +57,11 @@ const newModules = [
 
 const settingsNav = [{ name: "Configuración", href: "/dashboard/configuracion", icon: Settings }]
 
+// Rutas exclusivas para superadmin
+const superAdminNav = [
+  { name: "Nóminas", href: "/dashboard/nominas", icon: FileSpreadsheet },
+]
+
 interface SidebarProps {
   isCollapsed?: boolean
   onToggle?: () => void
@@ -66,7 +72,8 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const router = useRouter()
 
   const currentUser = getCurrentUser()
-  const isAdmin = currentUser?.role === "admin"
+  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "superadmin"
+  const isSuperAdmin = currentUser?.role === "superadmin"
 
   const visibleNav = isAdmin ? navigation : navigation.filter(i => !ADMIN_ONLY.has(i.href))
   const visibleModules = isAdmin ? newModules : newModules.filter(i => !ADMIN_ONLY.has(i.href))
@@ -143,6 +150,37 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
             </Link>
           )
         })}
+
+        {isSuperAdmin && (
+          <>
+            <div className="my-4 border-t border-border" />
+            {!isCollapsed && (
+              <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Superadmin
+              </p>
+            )}
+            {superAdminNav.map((item) => {
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    isCollapsed && "justify-center"
+                  )}
+                  title={isCollapsed ? item.name : undefined}
+                >
+                  <item.icon className="h-5 w-5 flex-shrink-0" />
+                  {!isCollapsed && <span>{item.name}</span>}
+                </Link>
+              )
+            })}
+          </>
+        )}
 
         {settingsNav.length > 0 && (
           <>
