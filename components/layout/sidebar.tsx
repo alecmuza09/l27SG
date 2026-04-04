@@ -151,12 +151,12 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
           )
         })}
 
-        {isSuperAdmin && (
+        {isAdmin && (
           <>
             <div className="my-4 border-t border-border" />
             {!isCollapsed && (
               <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Superadmin
+                Finanzas
               </p>
             )}
             {superAdminNav.map((item) => {
