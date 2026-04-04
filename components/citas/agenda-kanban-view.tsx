@@ -688,7 +688,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </Button>
         </div>
 
-        {isAdmin && (
+        {sucursales.length > 1 ? (
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
             <Select value={selectedSucursal} onValueChange={setSelectedSucursal}>
@@ -704,13 +704,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
               </SelectContent>
             </Select>
           </div>
-        )}
-        {!isAdmin && sucursales.length > 0 && (
+        ) : sucursales.length === 1 ? (
           <div className="flex items-center gap-2 px-3 py-2 border rounded-md bg-muted/50">
             <MapPin className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">{sucursales[0]?.nombre}</span>
           </div>
-        )}
+        ) : null}
       </div>
 
       {empleadosDeVacacionesHoy.length > 0 && (
