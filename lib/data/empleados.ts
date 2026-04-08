@@ -384,6 +384,9 @@ export async function updateEmpleado(
 
     if (error) {
       console.error('Error actualizando empleado:', error)
+      if (error.code === '23505' && error.message.includes('empleados_email_key')) {
+        return { success: false, error: 'Este email ya está registrado en otra empleada.' }
+      }
       return { success: false, error: error.message }
     }
 

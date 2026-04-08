@@ -783,22 +783,20 @@ function EditarEmpleadoDialog({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="edit-email">Email *</Label>
+          <Label htmlFor="edit-email">Email</Label>
           <Input
             id="edit-email"
             type="email"
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            required
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="edit-telefono">Teléfono *</Label>
+          <Label htmlFor="edit-telefono">Teléfono</Label>
           <Input
             id="edit-telefono"
             value={formData.telefono}
             onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
-            required
           />
         </div>
       </div>
