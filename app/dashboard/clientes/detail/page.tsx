@@ -24,6 +24,7 @@ import { getClienteById, type Cliente } from "@/lib/data/clientes"
 import { getCitasByClienteIdFromDB, type Cita } from "@/lib/data/citas"
 import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
+import { getCurrentUser } from "@/lib/auth"
 
 function ClienteDetailContent() {
   const searchParams = useSearchParams()
@@ -32,6 +33,7 @@ function ClienteDetailContent() {
   const [historialCitas, setHistorialCitas] = useState<Cita[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const isManager = getCurrentUser()?.role === 'manager'
 
   useEffect(() => {
     if (!id) { setError("ID de cliente no especificado"); setIsLoading(false); return }
@@ -232,22 +234,24 @@ function ClienteDetailContent() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <DollarSign className="h-4 w-4" />
-                  Total Gastado
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">${(cliente.totalGastado || 0).toLocaleString()}</div>
-                {cliente.totalVisitas > 0 && cliente.totalGastado > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Promedio: ${Math.round(cliente.totalGastado / cliente.totalVisitas).toLocaleString()}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            {!isManager && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" />
+                    Total Gastado
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">${(cliente.totalGastado || 0).toLocaleString()}</div>
+                  {cliente.totalVisitas > 0 && cliente.totalGastado > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Promedio: ${Math.round(cliente.totalGastado / cliente.totalVisitas).toLocaleString()}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader className="pb-2">

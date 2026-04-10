@@ -529,7 +529,7 @@ export default function ClientesPage() {
                   <TableHead>Cliente</TableHead>
                   <TableHead>Contacto</TableHead>
                   <TableHead>Visitas</TableHead>
-                  <TableHead>Total Gastado</TableHead>
+                  {currentUser?.role !== 'manager' && <TableHead>Total Gastado</TableHead>}
                   <TableHead>Puntos</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
@@ -538,7 +538,7 @@ export default function ClientesPage() {
               <TableBody>
                 {clientes.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={currentUser?.role === 'manager' ? 6 : 7} className="text-center py-8 text-muted-foreground">
                       {searchQuery ? 'No se encontraron clientes con ese criterio de búsqueda' : 'No hay clientes registrados'}
                     </TableCell>
                   </TableRow>
@@ -573,12 +573,14 @@ export default function ClientesPage() {
                         <span className="font-medium">{cliente.totalVisitas}</span>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">${cliente.totalGastado.toLocaleString()}</span>
-                      </div>
-                    </TableCell>
+                    {currentUser?.role !== 'manager' && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <DollarSign className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium">${cliente.totalGastado.toLocaleString()}</span>
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Award className="h-4 w-4 text-muted-foreground" />
