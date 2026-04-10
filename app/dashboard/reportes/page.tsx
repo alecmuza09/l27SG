@@ -46,8 +46,11 @@ export default function ReportesPage() {
 
         setVentasPorDia(ventasPorDiaArray)
 
+        const hoy = new Date()
+        const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+
         const [servicios, empleados] = await Promise.all([
-          getServiciosPopulares(5, sucursalFiltro),
+          getServiciosPopulares(5, sucursalFiltro, isManager ? fechaHoy : undefined),
           getTopEmpleadosFromDB(4, sucursalFiltro),
         ])
 
@@ -248,7 +251,9 @@ export default function ReportesPage() {
           <Card>
             <CardHeader>
               <CardTitle>Servicios Más Vendidos</CardTitle>
-              <CardDescription>Top 5 servicios del mes</CardDescription>
+              <CardDescription>
+                {isManager ? 'Top 5 servicios de hoy · tu sucursal' : 'Top 5 servicios del mes'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {serviciosMasVendidos.length === 0 ? (

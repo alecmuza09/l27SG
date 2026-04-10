@@ -199,7 +199,7 @@ export async function getProximasCitas(limit: number = 4, sucursalId?: string): 
 }
 
 // Obtener servicios populares
-export async function getServiciosPopulares(limit: number = 4, sucursalId?: string): Promise<ServicioPopular[]> {
+export async function getServiciosPopulares(limit: number = 4, sucursalId?: string, fecha?: string): Promise<ServicioPopular[]> {
   try {
     let citasQuery = supabase
       .from('citas')
@@ -213,6 +213,10 @@ export async function getServiciosPopulares(limit: number = 4, sucursalId?: stri
     
     if (sucursalId && sucursalId !== 'all') {
       citasQuery = citasQuery.eq('sucursal_id', sucursalId)
+    }
+
+    if (fecha) {
+      citasQuery = citasQuery.eq('fecha', fecha)
     }
     
     const { data: citas } = await citasQuery

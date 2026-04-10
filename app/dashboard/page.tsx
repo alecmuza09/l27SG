@@ -48,12 +48,16 @@ export default function DashboardPage() {
         const sucursalId = !isAdmin && userSucursalId 
           ? userSucursalId 
           : (selectedSucursal === 'all' ? undefined : selectedSucursal)
+
+        const isManager = currentUser?.role === 'manager'
+        const hoy = new Date()
+        const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
         
         const [statsData, estadoCitasData, proximasCitasData, serviciosPopularesData, resumenSucursalesData] = await Promise.all([
           getDashboardStats(sucursalId),
           getEstadoCitas(sucursalId),
           getProximasCitas(4, sucursalId),
-          getServiciosPopulares(4, sucursalId),
+          getServiciosPopulares(4, sucursalId, isManager ? fechaHoy : undefined),
           isAdmin ? getResumenSucursales(sucursalId) : Promise.resolve([]) // Solo admin ve resumen de todas
         ])
         
@@ -277,6 +281,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Servicios Populares</CardTitle>
+            {currentUser?.role === 'manager' && (
+              <p className="text-xs text-muted-foreground">Solo servicios de hoy · tu sucursal</p>
+            )}
           </CardHeader>
           <CardContent>
             {serviciosPopulares.length === 0 ? (
