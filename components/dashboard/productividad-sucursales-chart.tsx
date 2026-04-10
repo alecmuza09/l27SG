@@ -37,7 +37,11 @@ const chartConfig = {
   },
 }
 
-export function ProductividadSucursalesChart() {
+interface ProductividadSucursalesChartProps {
+  isManager?: boolean
+}
+
+export function ProductividadSucursalesChart({ isManager = false }: ProductividadSucursalesChartProps) {
   const [data, setData] = useState<ProductividadSucursal[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -46,7 +50,7 @@ export function ProductividadSucursalesChart() {
       try {
         setIsLoading(true)
         const productividad = await getProductividadSucursalesFromDB()
-        setData(productividad.sort((a, b) => b.ingresos - a.ingresos))
+        setData(productividad.sort((a, b) => b.citas - a.citas))
       } catch (err) {
         console.error('Error cargando productividad de sucursales:', err)
       } finally {
@@ -75,7 +79,7 @@ export function ProductividadSucursalesChart() {
       <Card className="col-span-full">
         <CardHeader>
           <CardTitle className="text-xl font-bold">Productividad por Sucursal</CardTitle>
-          <CardDescription>Comparativa de ingresos, citas y ocupación por sucursal</CardDescription>
+          <CardDescription>Comparativa de citas y ocupación por sucursal</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-center py-12 text-muted-foreground">
@@ -86,7 +90,6 @@ export function ProductividadSucursalesChart() {
     )
   }
 
-  // Formatear nombres de sucursales para el gráfico
   const chartData = data.map((sucursal) => ({
     nombre: sucursal.nombre.replace("Luna27 ", ""),
     ingresos: sucursal.ingresos,
@@ -104,17 +107,21 @@ export function ProductividadSucursalesChart() {
           <div>
             <CardTitle className="text-xl font-bold">Productividad por Sucursal</CardTitle>
             <CardDescription className="mt-1">
-              Comparativa de ingresos, citas y ocupación por sucursal
+              {isManager
+                ? "Comparativa de citas y ocupación por sucursal"
+                : "Comparativa de ingresos, citas y ocupación por sucursal"}
             </CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-6">
-          {/* Gráfico de barras - Ingresos */}
+          {/* Gráfico de barras */}
           <div>
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Ingresos por Sucursal</h3>
+              <h3 className="text-sm font-semibold text-foreground">
+                {isManager ? "Citas por Sucursal" : "Ingresos por Sucursal"}
+              </h3>
               <span className="text-xs text-muted-foreground">Último período</span>
             </div>
             <ChartContainer config={chartConfig} className="h-[300px]">
@@ -131,40 +138,46 @@ export function ProductividadSucursalesChart() {
                 <YAxis
                   tick={{ fontSize: 12 }}
                   className="text-muted-foreground"
-                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                  tickFormatter={isManager
+                    ? (value) => `${value}`
+                    : (value) => `$${(value / 1000).toFixed(0)}k`}
                 />
                 <ChartTooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null
-                    const data = payload[0].payload
+                    const d = payload[0].payload
                     return (
                       <div className="rounded-lg border bg-background p-3 shadow-lg">
-                        <div className="font-semibold mb-2">{data.fullName}</div>
+                        <div className="font-semibold mb-2">{d.fullName}</div>
                         <div className="space-y-1 text-sm">
-                          <div className="flex justify-between gap-4">
-                            <span className="text-muted-foreground">Ingresos:</span>
-                            <span className="font-semibold">${data.ingresos.toLocaleString()}</span>
-                          </div>
+                          {!isManager && (
+                            <div className="flex justify-between gap-4">
+                              <span className="text-muted-foreground">Ingresos:</span>
+                              <span className="font-semibold">${d.ingresos.toLocaleString()}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between gap-4">
                             <span className="text-muted-foreground">Citas:</span>
-                            <span className="font-semibold">{data.citas}</span>
+                            <span className="font-semibold">{d.citas}</span>
                           </div>
-                          <div className="flex justify-between gap-4">
-                            <span className="text-muted-foreground">Ticket Promedio:</span>
-                            <span className="font-semibold">${data.promedioTicket}</span>
-                          </div>
+                          {!isManager && (
+                            <div className="flex justify-between gap-4">
+                              <span className="text-muted-foreground">Ticket Promedio:</span>
+                              <span className="font-semibold">${d.promedioTicket}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between gap-4 items-center">
                             <span className="text-muted-foreground">Tendencia:</span>
                             <Badge
-                              variant={data.tendencia >= 0 ? "default" : "destructive"}
+                              variant={d.tendencia >= 0 ? "default" : "destructive"}
                               className="gap-1"
                             >
-                              {data.tendencia >= 0 ? (
+                              {d.tendencia >= 0 ? (
                                 <TrendingUp className="h-3 w-3" />
                               ) : (
                                 <TrendingDown className="h-3 w-3" />
                               )}
-                              {Math.abs(data.tendencia).toFixed(1)}%
+                              {Math.abs(d.tendencia).toFixed(1)}%
                             </Badge>
                           </div>
                         </div>
@@ -172,7 +185,7 @@ export function ProductividadSucursalesChart() {
                     )
                   }}
                 />
-                <Bar dataKey="ingresos" fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]}>
+                <Bar dataKey={isManager ? "citas" : "ingresos"} fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]}>
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
@@ -198,10 +211,12 @@ export function ProductividadSucursalesChart() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Ingresos</span>
-                    <span className="text-sm font-bold">${sucursal.ingresos.toLocaleString()}</span>
-                  </div>
+                  {!isManager && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Ingresos</span>
+                      <span className="text-sm font-bold">${sucursal.ingresos.toLocaleString()}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">Ocupación</span>
                     <div className="flex items-center gap-2">
@@ -230,8 +245,3 @@ export function ProductividadSucursalesChart() {
     </Card>
   )
 }
-
-
-
-
-

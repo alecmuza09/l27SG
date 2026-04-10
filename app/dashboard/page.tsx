@@ -130,10 +130,10 @@ export default function DashboardPage() {
       </div>
 
       {/* Gráfico de Productividad por Sucursales */}
-      <ProductividadSucursalesChart />
+      <ProductividadSucursalesChart isManager={currentUser?.role === 'manager'} />
 
       {/* Top 10 Empleados */}
-      <TopEmpleados />
+      <TopEmpleados isManager={currentUser?.role === 'manager'} />
 
       {/* Cards de información adicional */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

@@ -20,7 +20,11 @@ const RANK_ICONS = {
   3: "🥉",
 }
 
-export function TopEmpleados() {
+interface TopEmpleadosProps {
+  isManager?: boolean
+}
+
+export function TopEmpleados({ isManager = false }: TopEmpleadosProps) {
   const [topEmpleados, setTopEmpleados] = useState<ProductividadEmpleado[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -61,7 +65,9 @@ export function TopEmpleados() {
             <Trophy className="h-5 w-5 text-yellow-500" />
             Top 10 Empleados
           </CardTitle>
-          <CardDescription>Ranking por productividad e ingresos generados</CardDescription>
+          <CardDescription>
+            {isManager ? "Ranking por productividad" : "Ranking por productividad e ingresos generados"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-center py-12 text-muted-foreground">
@@ -71,6 +77,8 @@ export function TopEmpleados() {
       </Card>
     )
   }
+
+  const maxCitas = topEmpleados[0]?.citas ?? 1
 
   return (
     <Card>
@@ -82,7 +90,7 @@ export function TopEmpleados() {
               Top 10 Empleados
             </CardTitle>
             <CardDescription className="mt-1">
-              Ranking por productividad e ingresos generados
+              {isManager ? "Ranking por productividad" : "Ranking por productividad e ingresos generados"}
             </CardDescription>
           </div>
         </div>
@@ -132,7 +140,7 @@ export function TopEmpleados() {
                     </div>
                   </div>
 
-                  {/* Métricas */}
+                  {/* Métricas — escritorio */}
                   <div className="hidden md:flex items-center gap-6">
                     {/* Rating */}
                     <div className="flex items-center gap-1">
@@ -140,13 +148,15 @@ export function TopEmpleados() {
                       <span className="text-sm font-semibold">{empleado.rating}</span>
                     </div>
 
-                    {/* Ingresos */}
-                    <div className="flex items-center gap-1.5 min-w-[100px]">
-                      <DollarSign className="h-4 w-4 text-green-600" />
-                      <span className="text-sm font-bold text-green-600">
-                        ${empleado.ingresos.toLocaleString()}
-                      </span>
-                    </div>
+                    {/* Ingresos — solo para no-managers */}
+                    {!isManager && (
+                      <div className="flex items-center gap-1.5 min-w-[100px]">
+                        <DollarSign className="h-4 w-4 text-green-600" />
+                        <span className="text-sm font-bold text-green-600">
+                          ${empleado.ingresos.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Citas */}
                     <div className="flex items-center gap-1.5 min-w-[60px]">
@@ -169,19 +179,21 @@ export function TopEmpleados() {
                     </div>
                   </div>
 
-                  {/* Métricas móvil */}
+                  {/* Métricas — móvil */}
                   <div className="md:hidden flex flex-col gap-2">
                     <div className="flex items-center gap-4 text-xs">
                       <div className="flex items-center gap-1">
                         <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
                         <span className="font-semibold">{empleado.rating}</span>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <DollarSign className="h-3 w-3 text-green-600" />
-                        <span className="font-bold text-green-600">
-                          ${empleado.ingresos.toLocaleString()}
-                        </span>
-                      </div>
+                      {!isManager && (
+                        <div className="flex items-center gap-1">
+                          <DollarSign className="h-3 w-3 text-green-600" />
+                          <span className="font-bold text-green-600">
+                            ${empleado.ingresos.toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-4 text-xs">
                       <div className="flex items-center gap-1">
@@ -196,36 +208,42 @@ export function TopEmpleados() {
                   </div>
                 </div>
 
-                  {/* Barra de progreso visual adicional */}
-                  {topEmpleados.length > 0 && topEmpleados[0].ingresos > 0 && (
-                    <div className="mt-3 pt-3 border-t">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                        <span>Productividad</span>
-                        <span>Ticket Promedio: ${empleado.promedioTicket}</span>
-                      </div>
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-primary via-indigo-500 to-purple-500 rounded-full transition-all"
-                          style={{
-                            width: `${Math.min(100, (empleado.ingresos / topEmpleados[0].ingresos) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
+                {/* Barra de progreso */}
+                <div className="mt-3 pt-3 border-t">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                    <span>Productividad</span>
+                    {!isManager && (
+                      <span>Ticket Promedio: ${empleado.promedioTicket}</span>
+                    )}
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-primary via-indigo-500 to-purple-500 rounded-full transition-all"
+                      style={{
+                        width: isManager
+                          ? `${Math.min(100, (empleado.citas / maxCitas) * 100)}%`
+                          : topEmpleados[0].ingresos > 0
+                            ? `${Math.min(100, (empleado.ingresos / topEmpleados[0].ingresos) * 100)}%`
+                            : "0%",
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             )
           })}
         </div>
 
         {/* Resumen al final */}
-        <div className="mt-6 pt-4 border-t grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-primary">
-              ${topEmpleados.reduce((sum, e) => sum + e.ingresos, 0).toLocaleString()}
+        <div className={`mt-6 pt-4 border-t grid gap-4 ${isManager ? 'grid-cols-3' : 'grid-cols-2 md:grid-cols-4'}`}>
+          {!isManager && (
+            <div className="text-center">
+              <div className="text-2xl font-bold text-primary">
+                ${topEmpleados.reduce((sum, e) => sum + e.ingresos, 0).toLocaleString()}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Ingresos Totales</div>
             </div>
-            <div className="text-xs text-muted-foreground mt-1">Ingresos Totales</div>
-          </div>
+          )}
           <div className="text-center">
             <div className="text-2xl font-bold text-blue-600">
               {topEmpleados.reduce((sum, e) => sum + e.citas, 0)}
@@ -254,8 +272,3 @@ export function TopEmpleados() {
     </Card>
   )
 }
-
-
-
-
-
