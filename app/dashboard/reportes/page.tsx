@@ -14,11 +14,13 @@ import { getCurrentUser } from "@/lib/auth"
 export default function ReportesPage() {
   const currentUser = getCurrentUser()
   const isAdmin = currentUser?.role === "admin"
+  const isManager = currentUser?.role === "manager"
   const sucursalFiltro = isAdmin ? undefined : (currentUser?.sucursalId ?? undefined)
+
   const [isLoading, setIsLoading] = useState(true)
   const [ventasPorDia, setVentasPorDia] = useState<Array<{ dia: string; ventas: number }>>([])
   const [serviciosMasVendidos, setServiciosMasVendidos] = useState<Array<{ name: string; count: number; revenue: number }>>([])
-  const [empleadosTop, setEmpleadosTop] = useState<Array<{ nombre: string; apellido: string; citas: number; ingresos: number }>>([])
+  const [empleadosTop, setEmpleadosTop] = useState<Array<{ nombre: string; apellido: string; citas: number; ingresos: number; comision: number }>>([])
   const [stats, setStats] = useState({ ingresosTotales: 0, totalServicios: 0, nuevosClientes: 0, ticketPromedio: 0 })
   const [clientesStats, setClientesStats] = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
 
@@ -26,64 +28,60 @@ export default function ReportesPage() {
     async function loadReportes() {
       try {
         setIsLoading(true)
-        
-        // Filtrar por sucursal si el usuario no es admin
+
         const pagos = await getPagosFromDB(sucursalFiltro)
         const hoy = new Date()
         const ventasPorDiaArray = []
-        
+
         for (let i = 6; i >= 0; i--) {
           const fecha = new Date(hoy)
           fecha.setDate(fecha.getDate() - i)
           const fechaStr = fecha.toISOString().split('T')[0]
           const diaNombre = fecha.toLocaleDateString('es-MX', { weekday: 'short' })
-          
           const ventasDia = pagos
             .filter(p => p.fecha === fechaStr && p.estado === 'completado')
             .reduce((sum, p) => sum + p.monto, 0)
-          
           ventasPorDiaArray.push({ dia: diaNombre, ventas: ventasDia })
         }
-        
+
         setVentasPorDia(ventasPorDiaArray)
-        
-        // Servicios populares y empleados top (filtrado por sucursal si aplica)
+
         const [servicios, empleados] = await Promise.all([
           getServiciosPopulares(5, sucursalFiltro),
-          getTopEmpleadosFromDB(4)
+          getTopEmpleadosFromDB(4, sucursalFiltro),
         ])
-        
+
         setServiciosMasVendidos(servicios.map(s => ({
           name: s.name,
           cantidad: s.count,
-          ingresos: s.revenue
+          ingresos: s.revenue,
         })))
-        
+
         setEmpleadosTop(empleados.map(e => ({
           nombre: e.nombre,
           apellido: e.apellido,
           servicios: e.citas,
           ingresos: e.ingresos,
-          comision: Math.round(e.ingresos * 0.4)
+          comision: Math.round(e.ingresos * 0.4),
         })))
-        
-        const dashboardStats = await getDashboardStats(sucursalFiltro)
+
+        await getDashboardStats(sucursalFiltro)
         const clientesData = await getClientesStats()
-        
+
         const ingresosTotales = pagos
           .filter(p => p.estado === 'completado')
           .reduce((sum, p) => sum + p.monto, 0)
-        
+
         const totalServicios = pagos.filter(p => p.estado === 'completado').length
         const ticketPromedio = totalServicios > 0 ? ingresosTotales / totalServicios : 0
-        
+
         setStats({
           ingresosTotales,
           totalServicios,
           nuevosClientes: clientesData.nuevos,
-          ticketPromedio: Math.round(ticketPromedio)
+          ticketPromedio: Math.round(ticketPromedio),
         })
-        
+
         setClientesStats(clientesData)
       } catch (err) {
         console.error('Error cargando reportes:', err)
@@ -96,6 +94,7 @@ export default function ReportesPage() {
   }, [])
 
   const maxVentas = ventasPorDia.length > 0 ? Math.max(...ventasPorDia.map((d) => d.ventas)) : 1
+  const maxCitas = empleadosTop.length > 0 ? Math.max(...empleadosTop.map(e => (e as any).servicios ?? 0)) : 1
 
   if (isLoading) {
     return (
@@ -113,7 +112,11 @@ export default function ReportesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Reportes</h1>
-          <p className="text-muted-foreground">Análisis y estadísticas del negocio</p>
+          <p className="text-muted-foreground">
+            {isManager
+              ? "Análisis y estadísticas de tu sucursal"
+              : "Análisis y estadísticas del negocio"}
+          </p>
         </div>
         <div className="flex gap-2">
           <Select defaultValue="mes">
@@ -134,27 +137,26 @@ export default function ReportesPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Ingresos Totales</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${stats.ingresosTotales.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Ingresos totales
-            </p>
-          </CardContent>
-        </Card>
+      {/* KPI cards — managers no ven ingresos ni ticket promedio */}
+      <div className={`grid gap-4 ${isManager ? 'md:grid-cols-2' : 'md:grid-cols-4'}`}>
+        {!isManager && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Ingresos Totales</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${stats.ingresosTotales.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Ingresos totales</p>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Servicios</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalServicios}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Servicios completados
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">Servicios completados</p>
           </CardContent>
         </Card>
         <Card>
@@ -163,103 +165,52 @@ export default function ReportesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.nuevosClientes}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Últimos 30 días
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">Últimos 30 días</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Ticket Promedio</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${stats.ticketPromedio.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Promedio por servicio
-            </p>
-          </CardContent>
-        </Card>
+        {!isManager && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Ticket Promedio</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${stats.ticketPromedio.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Promedio por servicio</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      <Tabs defaultValue="ventas" className="space-y-4">
+      <Tabs defaultValue={isManager ? "servicios" : "ventas"} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="ventas">Ventas</TabsTrigger>
+          {/* La pestaña Ventas solo es visible para no-managers */}
+          {!isManager && <TabsTrigger value="ventas">Ventas</TabsTrigger>}
           <TabsTrigger value="servicios">Servicios</TabsTrigger>
           <TabsTrigger value="empleados">Empleados</TabsTrigger>
           <TabsTrigger value="clientes">Clientes</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="ventas" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Ventas por Día</CardTitle>
-              <CardDescription>Ingresos diarios de la última semana</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {ventasPorDia.map((dia) => (
-                  <div key={dia.dia} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{dia.dia}</span>
-                      <span className="font-semibold">${dia.ventas.toLocaleString()}</span>
-                    </div>
-                    <div className="h-3 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary rounded-full transition-all"
-                        style={{ width: `${(dia.ventas / maxVentas) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-4 md:grid-cols-2">
+        {/* ── Ventas (solo admins / staff) ── */}
+        {!isManager && (
+          <TabsContent value="ventas" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Métodos de Pago</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>Los métodos de pago se calcularán desde los datos de pagos</p>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Ventas por Sucursal</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>Las ventas por sucursal se calcularán desde los datos de pagos</p>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* Métodos de pago - placeholder */}
-            <Card className="md:col-span-2" style={{ display: 'none' }}>
-              <CardHeader>
-                <CardTitle className="text-base">Métodos de Pago</CardTitle>
+                <CardTitle>Ventas por Día</CardTitle>
+                <CardDescription>Ingresos diarios de la última semana</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    { metodo: "Tarjeta", porcentaje: 0, monto: 0 },
-                    { metodo: "Efectivo", porcentaje: 0, monto: 0 },
-                    { metodo: "Transferencia", porcentaje: 0, monto: 0 },
-                  ].map((item) => (
-                    <div key={item.metodo} className="space-y-2">
+                  {ventasPorDia.map((dia) => (
+                    <div key={dia.dia} className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{item.metodo}</span>
-                        <div className="flex gap-3">
-                          <span className="text-muted-foreground">{item.porcentaje}%</span>
-                          <span className="font-semibold">${item.monto.toLocaleString()}</span>
-                        </div>
+                        <span className="font-medium">{dia.dia}</span>
+                        <span className="font-semibold">${dia.ventas.toLocaleString()}</span>
                       </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${item.porcentaje}%` }} />
+                      <div className="h-3 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full transition-all"
+                          style={{ width: `${maxVentas > 0 ? (dia.ventas / maxVentas) * 100 : 0}%` }}
+                        />
                       </div>
                     </div>
                   ))}
@@ -267,9 +218,32 @@ export default function ReportesPage() {
               </CardContent>
             </Card>
 
-          </div>
-        </TabsContent>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Métodos de Pago</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>Los métodos de pago se calcularán desde los datos de pagos</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Ventas por Sucursal</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>Las ventas por sucursal se calcularán desde los datos de pagos</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        )}
 
+        {/* ── Servicios ── */}
         <TabsContent value="servicios">
           <Card>
             <CardHeader>
@@ -282,35 +256,44 @@ export default function ReportesPage() {
                   <p>No hay datos de servicios disponibles aún</p>
                 </div>
               ) : (
-              <div className="space-y-4">
-                {serviciosMasVendidos.map((servicio, index) => (
-                  <div key={servicio.nombre} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary font-bold">
-                      {index + 1}
+                <div className="space-y-4">
+                  {serviciosMasVendidos.map((servicio, index) => (
+                    <div key={(servicio as any).name} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary font-bold">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">{(servicio as any).name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {(servicio as any).cantidad} servicios realizados
+                        </p>
+                      </div>
+                      {!isManager && (
+                        <div className="text-right">
+                          <p className="font-semibold text-lg">${(servicio as any).ingresos.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">
+                            ${(servicio as any).cantidad > 0
+                              ? Math.round((servicio as any).ingresos / (servicio as any).cantidad)
+                              : 0} promedio
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium">{servicio.nombre}</p>
-                      <p className="text-sm text-muted-foreground">{servicio.cantidad} servicios realizados</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-lg">${servicio.ingresos.toLocaleString()}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ${Math.round(servicio.ingresos / servicio.cantidad)} promedio
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* ── Empleados ── */}
         <TabsContent value="empleados">
           <Card>
             <CardHeader>
               <CardTitle>Rendimiento de Empleados</CardTitle>
-              <CardDescription>Top empleados del mes</CardDescription>
+              <CardDescription>
+                {isManager ? "Top empleados de tu sucursal" : "Top empleados del mes"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {empleadosTop.length === 0 ? (
@@ -318,36 +301,56 @@ export default function ReportesPage() {
                   <p>No hay datos de empleados disponibles aún</p>
                 </div>
               ) : (
-              <div className="space-y-4">
-                {empleadosTop.map((empleado, index) => (
-                  <div key={empleado.nombre} className="p-4 rounded-lg border bg-card">
-                    <div className="flex items-center gap-4 mb-3">
-                      <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10">
-                        <span className="text-lg font-bold text-primary">#{index + 1}</span>
+                <div className="space-y-4">
+                  {empleadosTop.map((empleado, index) => (
+                    <div key={empleado.nombre} className="p-4 rounded-lg border bg-card">
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10">
+                          <span className="text-lg font-bold text-primary">#{index + 1}</span>
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-lg">{empleado.nombre} {empleado.apellido}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {(empleado as any).servicios} servicios realizados
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <p className="font-semibold text-lg">{empleado.nombre}</p>
-                        <p className="text-sm text-muted-foreground">{empleado.servicios} servicios realizados</p>
+
+                      {/* Barra de progreso relativa */}
+                      <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-primary to-indigo-500 rounded-full transition-all"
+                          style={{
+                            width: isManager
+                              ? `${maxCitas > 0 ? Math.min(100, ((empleado as any).servicios / maxCitas) * 100) : 0}%`
+                              : `${empleadosTop[0]?.ingresos > 0 ? Math.min(100, (empleado.ingresos / empleadosTop[0].ingresos) * 100) : 0}%`,
+                          }}
+                        />
                       </div>
+
+                      {!isManager && (
+                        <div className="grid grid-cols-2 gap-4 pt-3 mt-3 border-t">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Ingresos Generados</p>
+                            <p className="font-semibold text-lg">${empleado.ingresos.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Comisión Estimada</p>
+                            <p className="font-semibold text-lg text-green-600">
+                              ${empleado.comision.toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="grid grid-cols-2 gap-4 pt-3 border-t">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Ingresos Generados</p>
-                        <p className="font-semibold text-lg">${empleado.ingresos.toLocaleString()}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Comisión Estimada</p>
-                        <p className="font-semibold text-lg text-green-600">${(empleado as any).comision?.toLocaleString() || '0'}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* ── Clientes ── */}
         <TabsContent value="clientes">
           <div className="grid gap-4 md:grid-cols-2">
             <Card>

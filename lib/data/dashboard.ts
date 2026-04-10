@@ -444,9 +444,9 @@ export async function getProductividadSucursalesFromDB(): Promise<ProductividadS
 }
 
 // Obtener top empleados desde BD
-export async function getTopEmpleadosFromDB(limit: number = 10): Promise<ProductividadEmpleado[]> {
+export async function getTopEmpleadosFromDB(limit: number = 10, sucursalId?: string): Promise<ProductividadEmpleado[]> {
   try {
-    const empleados = await getEmpleadosFromDB()
+    const empleados = await getEmpleadosFromDB(sucursalId)
     const hoy = new Date()
     const mesActual = hoy.toISOString().slice(0, 7)
     
