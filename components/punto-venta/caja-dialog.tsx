@@ -146,6 +146,11 @@ export function CajaDialog({
   const [searchServicio, setSearchServicio] = useState("")
   const [searchProducto, setSearchProducto] = useState("")
 
+  // ── Producto personalizado ─────────────────────────────────────────────
+  const [showProductoCustom, setShowProductoCustom] = useState(false)
+  const [productoCustomNombre, setProductoCustomNombre] = useState("")
+  const [productoCustomPrecio, setProductoCustomPrecio] = useState("")
+
   // ── Descuento ──────────────────────────────────────────────────────────
   const [codigoCupon, setCodigoCupon]       = useState("")
   const [codigoGC, setCodigoGC]             = useState("")
@@ -200,6 +205,7 @@ export function CajaDialog({
     setVipPassInput(""); setVipPassId(""); setVipPassCodigo(""); setVipPassSaldo(0)
     setVipPassDiferencia(""); setPagoVipPass("")
     setSucursalId(sucursalIdInicial || "")
+    setShowProductoCustom(false); setProductoCustomNombre(""); setProductoCustomPrecio("")
 
     // Pre-cargar citas seleccionadas como items del carrito
     if (citasIniciales.length > 0) {
@@ -231,7 +237,7 @@ export function CajaDialog({
       .then(([cls, svcs, prods, sucs]) => {
         setClientes(cls)
         setServicios(svcs)
-        setProductos(prods.filter(p => (p.precioVenta ?? 0) > 0 && p.stockActual > 0))
+        setProductos(prods)
         setSucursales(sucs)
         // Auto-seleccionar: prioriza la sucursal del padre, sino la única disponible
         if (!sucursalIdInicial && sucs.length === 1) setSucursalId(sucs[0].id)
@@ -667,6 +673,69 @@ export function CajaDialog({
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                       <Input placeholder="Buscar producto…" value={searchProducto} onChange={e => setSearchProducto(e.target.value)} className="pl-8 h-8 text-sm" />
                     </div>
+
+                    {/* Producto personalizado */}
+                    {!showProductoCustom ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowProductoCustom(true)}
+                        className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground border border-dashed rounded-lg px-3 py-2 hover:border-emerald-400 hover:text-emerald-600 transition-colors"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Agregar producto no registrado
+                      </button>
+                    ) : (
+                      <div className="border rounded-lg p-2.5 space-y-2 bg-muted/30">
+                        <p className="text-[10px] font-semibold uppercase text-muted-foreground">Producto personalizado</p>
+                        <Input
+                          placeholder="Nombre del producto"
+                          value={productoCustomNombre}
+                          onChange={e => setProductoCustomNombre(e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                        <Input
+                          type="number"
+                          placeholder="Precio ($)"
+                          value={productoCustomPrecio}
+                          onChange={e => setProductoCustomPrecio(e.target.value)}
+                          className="h-8 text-sm"
+                          min="0"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 text-xs flex-1"
+                            onClick={() => {
+                              const precio = parseFloat(productoCustomPrecio)
+                              if (!productoCustomNombre.trim() || isNaN(precio) || precio <= 0) {
+                                toast.error("Ingresa nombre y precio válidos")
+                                return
+                              }
+                              addToCart({
+                                id: `custom-${Date.now()}`,
+                                tipo: "producto",
+                                nombre: productoCustomNombre.trim(),
+                                precio,
+                              })
+                              setProductoCustomNombre("")
+                              setProductoCustomPrecio("")
+                              setShowProductoCustom(false)
+                            }}
+                          >
+                            Agregar al carrito
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => { setShowProductoCustom(false); setProductoCustomNombre(""); setProductoCustomPrecio("") }}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Sugerencias basadas en servicios */}
                     {productosSugeridos.length > 0 && (

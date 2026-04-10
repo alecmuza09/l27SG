@@ -100,19 +100,21 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Cards con colores mejorados */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className={`grid gap-4 md:grid-cols-2 ${currentUser?.role === 'manager' ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
         <StatsCard
           title="Citas Hoy"
           value={stats.citasHoy}
           icon={Calendar}
           color="primary"
         />
-        <StatsCard
-          title="Clientes Activos"
-          value={stats.clientesActivos.toLocaleString()}
-          icon={Users}
-          color="success"
-        />
+        {currentUser?.role !== 'manager' && (
+          <StatsCard
+            title="Clientes Activos"
+            value={stats.clientesActivos.toLocaleString()}
+            icon={Users}
+            color="success"
+          />
+        )}
         <StatsCard
           title="Ingresos Hoy"
           value={`$${stats.ingresosHoy.toLocaleString()}`}

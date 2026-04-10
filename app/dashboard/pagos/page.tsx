@@ -391,7 +391,7 @@ export default function PagosPage() {
             Nuevo gasto
           </button>
           <button
-            onClick={() => { setCitaSeleccionada(null); setCajaOpen(true) }}
+            onClick={() => { setCitasSeleccionadas(new Set()); setCajaOpen(true) }}
             className="w-full flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg px-3 py-2.5 transition-colors"
           >
             <ShoppingBag className="h-3.5 w-3.5 flex-shrink-0" />
