@@ -120,6 +120,7 @@ export default function DashboardPage() {
           value={`$${stats.ingresosHoy.toLocaleString()}`}
           icon={DollarSign}
           color="success"
+          description={currentUser?.role === 'manager' ? 'Tu sucursal · hoy' : undefined}
         />
         <StatsCard
           title="Ocupación"

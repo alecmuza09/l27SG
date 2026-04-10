@@ -268,16 +268,16 @@ export default function ReportesPage() {
                           {(servicio as any).cantidad} servicios realizados
                         </p>
                       </div>
-                      {!isManager && (
-                        <div className="text-right">
-                          <p className="font-semibold text-lg">${(servicio as any).ingresos.toLocaleString()}</p>
+                      <div className="text-right">
+                        <p className="font-semibold text-lg">${(servicio as any).ingresos.toLocaleString()}</p>
+                        {!isManager && (
                           <p className="text-xs text-muted-foreground">
                             ${(servicio as any).cantidad > 0
                               ? Math.round((servicio as any).ingresos / (servicio as any).cantidad)
                               : 0} promedio
                           </p>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
