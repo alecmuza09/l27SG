@@ -31,6 +31,7 @@ export default function ReportesPage() {
 
         const pagos = await getPagosFromDB(sucursalFiltro)
         const hoy = new Date()
+        const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
         const ventasPorDiaArray = []
 
         for (let i = 6; i >= 0; i--) {
@@ -45,9 +46,6 @@ export default function ReportesPage() {
         }
 
         setVentasPorDia(ventasPorDiaArray)
-
-        const hoy = new Date()
-        const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
 
         const [servicios, empleados] = await Promise.all([
           getServiciosPopulares(5, sucursalFiltro, isManager ? fechaHoy : undefined),
