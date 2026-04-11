@@ -18,6 +18,11 @@ const ADMIN_ONLY_ROUTES = [
   "/dashboard/promociones",
 ]
 
+// Rutas bloqueadas para managers
+const MANAGER_BLOCKED_ROUTES = [
+  "/dashboard/reportes",
+]
+
 export default function DashboardLayout({
   children,
 }: {
@@ -39,7 +44,17 @@ export default function DashboardLayout({
       if (user.role !== "admin") {
         const isAdminRoute = ADMIN_ONLY_ROUTES.some(r => pathname.startsWith(r))
         if (isAdminRoute) {
-          router.replace("/dashboard")
+          router.replace("/dashboard/citas")
+          return
+        }
+      }
+      // Redirigir managers si intentan acceder a dashboard principal o reportes
+      if (user.role === "manager") {
+        const isManagerBlocked =
+          pathname === "/dashboard" ||
+          MANAGER_BLOCKED_ROUTES.some(r => pathname.startsWith(r))
+        if (isManagerBlocked) {
+          router.replace("/dashboard/citas")
           return
         }
       }

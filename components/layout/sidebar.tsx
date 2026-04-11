@@ -36,6 +36,12 @@ const ADMIN_ONLY = new Set([
   "/dashboard/promociones",
 ])
 
+// Rutas ocultas específicamente para managers
+const MANAGER_HIDDEN = new Set([
+  "/dashboard",
+  "/dashboard/reportes",
+])
+
 const navigation = [
   { name: "Dashboard",  href: "/dashboard",           icon: BarChart3  },
   { name: "Citas",      href: "/dashboard/citas",      icon: Calendar   },
@@ -74,8 +80,15 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const currentUser = getCurrentUser()
   const isAdmin = currentUser?.role === "admin" || currentUser?.role === "superadmin"
   const isSuperAdmin = currentUser?.role === "superadmin"
+  const isManager = currentUser?.role === "manager"
 
-  const visibleNav = isAdmin ? navigation : navigation.filter(i => !ADMIN_ONLY.has(i.href))
+  const visibleNav = isAdmin
+    ? navigation
+    : navigation.filter(i => {
+        if (ADMIN_ONLY.has(i.href)) return false
+        if (isManager && MANAGER_HIDDEN.has(i.href)) return false
+        return true
+      })
   const visibleModules = isAdmin ? newModules : newModules.filter(i => !ADMIN_ONLY.has(i.href))
 
   const handleLogout = async () => {
