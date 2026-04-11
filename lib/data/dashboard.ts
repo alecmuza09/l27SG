@@ -374,9 +374,12 @@ export async function getResumenSucursales(sucursalId?: string): Promise<Array<{
 }
 
 // Obtener productividad por sucursal desde BD
-export async function getProductividadSucursalesFromDB(): Promise<ProductividadSucursal[]> {
+export async function getProductividadSucursalesFromDB(sucursalId?: string): Promise<ProductividadSucursal[]> {
   try {
-    const sucursales = await getSucursalesActivasFromDB()
+    const todasSucursales = await getSucursalesActivasFromDB()
+    const sucursales = sucursalId
+      ? todasSucursales.filter(s => s.id === sucursalId)
+      : todasSucursales
     const hoy = new Date()
     const mesActual = hoy.toISOString().slice(0, 7)
     const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toISOString().slice(0, 7)

@@ -135,10 +135,16 @@ export default function DashboardPage() {
       </div>
 
       {/* Gráfico de Productividad por Sucursales */}
-      <ProductividadSucursalesChart isManager={currentUser?.role === 'manager'} />
+      <ProductividadSucursalesChart
+        isManager={currentUser?.role === 'manager'}
+        sucursalId={currentUser?.sucursalId ?? undefined}
+      />
 
       {/* Top 10 Empleados */}
-      <TopEmpleados isManager={currentUser?.role === 'manager'} />
+      <TopEmpleados
+        isManager={currentUser?.role === 'manager'}
+        sucursalId={currentUser?.sucursalId ?? undefined}
+      />
 
       {/* Cards de información adicional */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

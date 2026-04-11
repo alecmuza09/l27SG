@@ -39,9 +39,10 @@ const chartConfig = {
 
 interface ProductividadSucursalesChartProps {
   isManager?: boolean
+  sucursalId?: string
 }
 
-export function ProductividadSucursalesChart({ isManager = false }: ProductividadSucursalesChartProps) {
+export function ProductividadSucursalesChart({ isManager = false, sucursalId }: ProductividadSucursalesChartProps) {
   const [data, setData] = useState<ProductividadSucursal[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -49,7 +50,7 @@ export function ProductividadSucursalesChart({ isManager = false }: Productivida
     async function loadData() {
       try {
         setIsLoading(true)
-        const productividad = await getProductividadSucursalesFromDB()
+        const productividad = await getProductividadSucursalesFromDB(isManager ? sucursalId : undefined)
         setData(productividad.sort((a, b) => b.citas - a.citas))
       } catch (err) {
         console.error('Error cargando productividad de sucursales:', err)
