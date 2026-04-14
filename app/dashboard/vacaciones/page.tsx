@@ -23,20 +23,17 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns"
 import { es } from "date-fns/locale"
-import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Lock, Edit, Loader2 } from "lucide-react"
+import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Edit, Loader2 } from "lucide-react"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
   getVacacionesFromDB,
   getSaldosVacaciones,
-  getPeriodosBloqueadosFromDB,
   calcularDias,
   verificarConflictoVacaciones,
-  type Vacacion,
-  type SaldoVacaciones,
-  type PeriodoBloqueado,
+  createVacacionInDB,
 } from "@/lib/data/vacaciones"
-import type { Vacacion, SaldoVacaciones, PeriodoBloqueado } from "@/lib/types/vacaciones"
+import type { Vacacion, SaldoVacaciones } from "@/lib/types/vacaciones"
 
 const estadoColors: Record<Vacacion["estado"], string> = {
   pendiente: "bg-yellow-100 text-yellow-800",
@@ -48,7 +45,7 @@ const estadoColors: Record<Vacacion["estado"], string> = {
 export default function VacacionesPage() {
   const [vacaciones, setVacaciones] = useState<Vacacion[]>([])
   const [saldos, setSaldos] = useState<SaldoVacaciones[]>([])
-  const [periodos, setPeriodos] = useState<PeriodoBloqueado[]>([])
+
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [filterSucursal, setFilterSucursal] = useState<string>("todos")
@@ -59,7 +56,7 @@ export default function VacacionesPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false)
   const [isEditSaldoDialogOpen, setIsEditSaldoDialogOpen] = useState(false)
-  const [isBlockPeriodDialogOpen, setIsBlockPeriodDialogOpen] = useState(false)
+
   const [selectedVacacion, setSelectedVacacion] = useState<Vacacion | null>(null)
   const [selectedSaldo, setSelectedSaldo] = useState<SaldoVacaciones | null>(null)
 
@@ -72,10 +69,6 @@ export default function VacacionesPage() {
   const [rejectMotivo, setRejectMotivo] = useState("")
   const [editDiasCorrespondientes, setEditDiasCorrespondientes] = useState("")
   const [editDiasTomados, setEditDiasTomados] = useState("")
-  const [blockFechaInicio, setBlockFechaInicio] = useState<Date>()
-  const [blockFechaFin, setBlockFechaFin] = useState<Date>()
-  const [blockMotivo, setBlockMotivo] = useState("")
-  const [blockSucursal, setBlockSucursal] = useState("all")
   const [error, setError] = useState("")
 
   // Calendar view
@@ -85,16 +78,14 @@ export default function VacacionesPage() {
     async function loadData() {
       try {
         setIsLoading(true)
-        const [vacacionesData, saldosData, periodosData, empleadosData, sucursalesData] = await Promise.all([
+        const [vacacionesData, saldosData, empleadosData, sucursalesData] = await Promise.all([
           getVacacionesFromDB(),
           getSaldosVacaciones(),
-          getPeriodosBloqueadosFromDB(),
           getEmpleadosFromDB(),
           getSucursalesActivasFromDB()
         ])
         setVacaciones(vacacionesData)
         setSaldos(saldosData)
-        setPeriodos(periodosData)
         setEmpleados(empleadosData)
         setSucursales(sucursalesData)
       } catch (err) {
@@ -160,11 +151,22 @@ export default function VacacionesPage() {
       return
     }
 
-    // TODO: Implementar creación de vacación en Supabase
-    // Por ahora recargamos desde BD
+    const nuevaVacacion = await createVacacionInDB({
+      empleadoId: formEmpleado,
+      fechaInicio: fechaInicioStr,
+      fechaFin: fechaFinStr,
+      diasSolicitados: calcularDias(fechaInicioStr, fechaFinStr),
+      notas: formNotas || undefined,
+    })
+
+    if (!nuevaVacacion) {
+      setError("Error al guardar la solicitud. Intenta de nuevo.")
+      return
+    }
+
     const updatedVacaciones = await getVacacionesFromDB()
     setVacaciones(updatedVacaciones)
-    
+
     resetForm()
     setIsCreateDialogOpen(false)
   }
@@ -203,21 +205,6 @@ export default function VacacionesPage() {
     
     setIsEditSaldoDialogOpen(false)
     setSelectedSaldo(null)
-  }
-
-  const handleBlockPeriod = async () => {
-    if (!blockFechaInicio || !blockFechaFin || !blockMotivo) return
-
-    // TODO: Implementar creación de periodo bloqueado en Supabase
-    // Por ahora recargamos desde BD
-    const updatedPeriodos = await getPeriodosBloqueadosFromDB()
-    setPeriodos(updatedPeriodos)
-    
-    setBlockFechaInicio(undefined)
-    setBlockFechaFin(undefined)
-    setBlockMotivo("")
-    setBlockSucursal("all")
-    setIsBlockPeriodDialogOpen(false)
   }
 
   // Generar días del mes para el calendario visual
@@ -296,16 +283,6 @@ export default function VacacionesPage() {
             <p className="text-xs text-muted-foreground">con vacaciones programadas</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Periodos Bloqueados</CardTitle>
-            <Lock className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{periodos.length}</div>
-            <p className="text-xs text-muted-foreground">configurados</p>
-          </CardContent>
-        </Card>
       </div>
 
       <Tabs defaultValue="solicitudes" className="space-y-4">
@@ -320,7 +297,6 @@ export default function VacacionesPage() {
           </TabsTrigger>
           <TabsTrigger value="calendario">Calendario</TabsTrigger>
           <TabsTrigger value="saldos">Saldos</TabsTrigger>
-          <TabsTrigger value="periodos">Periodos Bloqueados</TabsTrigger>
         </TabsList>
 
         {/* Tab: Solicitudes */}
@@ -545,39 +521,6 @@ export default function VacacionesPage() {
           </Card>
         </TabsContent>
 
-        {/* Tab: Periodos Bloqueados */}
-        <TabsContent value="periodos">
-          <Card>
-            <CardHeader>
-              <CardTitle>Periodos Bloqueados</CardTitle>
-              <CardDescription>Fechas donde no se permiten vacaciones</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Sucursal</TableHead>
-                    <TableHead>Periodo</TableHead>
-                    <TableHead>Motivo</TableHead>
-                    <TableHead>Creado por</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {periodos.map((periodo) => (
-                    <TableRow key={periodo.id}>
-                      <TableCell>{periodo.sucursalNombre}</TableCell>
-                      <TableCell>
-                        {formatDate(periodo.fechaInicio)} - {formatDate(periodo.fechaFin)}
-                      </TableCell>
-                      <TableCell>{periodo.motivo}</TableCell>
-                      <TableCell>{periodo.creadoPorNombre}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       {/* Dialog: Nueva Solicitud */}
@@ -755,77 +698,6 @@ export default function VacacionesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Bloquear Periodo */}
-      <Dialog open={isBlockPeriodDialogOpen} onOpenChange={setIsBlockPeriodDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Bloquear Periodo</DialogTitle>
-            <DialogDescription>Define un periodo donde no se permiten vacaciones</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Sucursal</Label>
-              <Select value={blockSucursal} onValueChange={setBlockSucursal}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las Sucursales</SelectItem>
-                  {sucursales.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Fecha Inicio *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="justify-start bg-transparent">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {blockFechaInicio ? format(blockFechaInicio, "dd/MM/yyyy") : "Seleccionar"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={blockFechaInicio} onSelect={setBlockFechaInicio} locale={es} />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="grid gap-2">
-                <Label>Fecha Fin *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="justify-start bg-transparent">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {blockFechaFin ? format(blockFechaFin, "dd/MM/yyyy") : "Seleccionar"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={blockFechaFin} onSelect={setBlockFechaFin} locale={es} />
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Motivo *</Label>
-              <Input
-                value={blockMotivo}
-                onChange={(e) => setBlockMotivo(e.target.value)}
-                placeholder="Ej: Temporada alta, evento especial..."
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsBlockPeriodDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleBlockPeriod}>Bloquear Periodo</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

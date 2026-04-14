@@ -236,6 +236,61 @@ export function getVacacionesEnRango(fechaInicio: string, fechaFin: string, sucu
   })
 }
 
+// Crear una vacación en Supabase
+export async function createVacacionInDB(data: {
+  empleadoId: string
+  fechaInicio: string
+  fechaFin: string
+  diasSolicitados: number
+  notas?: string
+}): Promise<Vacacion | null> {
+  try {
+    const { data: rawRow, error } = await (supabase as any)
+      .from('vacaciones')
+      .insert({
+        empleado_id: data.empleadoId,
+        fecha_inicio: data.fechaInicio,
+        fecha_fin: data.fechaFin,
+        dias_solicitados: data.diasSolicitados,
+        estado: 'aprobada',
+        notas: data.notas || null,
+        fecha_solicitud: new Date().toISOString(),
+      })
+      .select(`
+        *,
+        empleado:empleados(nombre, apellido, sucursal:sucursales(id, nombre))
+      `)
+      .single()
+
+    if (error) {
+      console.error('Error creando vacación:', error)
+      return null
+    }
+
+    const row = rawRow as any
+    return {
+      id: row.id,
+      empleadoId: row.empleado_id,
+      empleadoNombre: row.empleado ? `${row.empleado.nombre} ${row.empleado.apellido}` : '',
+      sucursalId: row.empleado?.sucursal?.id || '',
+      sucursalNombre: row.empleado?.sucursal?.nombre || '',
+      fechaInicio: row.fecha_inicio,
+      fechaFin: row.fecha_fin,
+      diasSolicitados: row.dias_solicitados || 0,
+      estado: row.estado,
+      motivoRechazo: null,
+      aprobadoPorId: null,
+      aprobadoPorNombre: null,
+      fechaSolicitud: row.fecha_solicitud || row.created_at,
+      fechaResolucion: null,
+      notas: row.notas || null,
+    }
+  } catch (error) {
+    console.error('Error inesperado creando vacación:', error)
+    return null
+  }
+}
+
 // Obtener vacaciones desde Supabase
 export async function getVacacionesFromDB(sucursalId?: string): Promise<Vacacion[]> {
   try {
