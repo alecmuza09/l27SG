@@ -120,8 +120,18 @@ export default function VacacionesPage() {
   const empleadosConVacaciones = new Set(vacaciones.filter((v) => v.estado === "aprobada").map((v) => v.empleadoId))
     .size
 
+  // Parsea "YYYY-MM-DD" como fecha local (evita el desfase UTC)
+  const parseLocalDate = (dateStr: string): Date => {
+    const clean = dateStr.split("T")[0] // ignorar parte horaria si la hay
+    const [y, m, d] = clean.split("-").map(Number)
+    return new Date(y, m - 1, d)
+  }
+
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("es-MX", {
+    // Para timestamps ISO completos usamos Date directamente (la hora ya tiene info de TZ)
+    // Para cadenas solo-fecha usamos parseLocalDate para evitar desfase UTC
+    const date = dateString.length === 10 ? parseLocalDate(dateString) : new Date(dateString)
+    return date.toLocaleDateString("es-MX", {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -184,8 +194,8 @@ export default function VacacionesPage() {
 
   const openEditDialog = (vac: Vacacion) => {
     setSelectedVacacion(vac)
-    setEditFechaInicio(new Date(vac.fechaInicio + "T12:00:00"))
-    setEditFechaFin(new Date(vac.fechaFin + "T12:00:00"))
+    setEditFechaInicio(parseLocalDate(vac.fechaInicio))
+    setEditFechaFin(parseLocalDate(vac.fechaFin))
     setEditNotas(vac.notas || "")
     setEditError("")
     setIsEditVacacionDialogOpen(true)
@@ -312,8 +322,8 @@ export default function VacacionesPage() {
   const getVacacionesForDay = (day: Date) => {
     return vacaciones.filter((vac) => {
       if (vac.estado !== "aprobada") return false
-      const inicio = new Date(vac.fechaInicio)
-      const fin = new Date(vac.fechaFin)
+      const inicio = parseLocalDate(vac.fechaInicio)
+      const fin = parseLocalDate(vac.fechaFin)
       return isWithinInterval(day, { start: inicio, end: fin })
     })
   }
