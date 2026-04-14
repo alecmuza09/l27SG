@@ -300,6 +300,15 @@ export default function VacacionesPage() {
     return eachDayOfInterval({ start: firstDay, end: lastDay })
   }
 
+  // Celdas vacías de relleno al inicio (grid Lun–Dom, offset en base-lunes)
+  const getLeadingEmptyCells = () => {
+    const year = calendarMonth.getFullYear()
+    const month = calendarMonth.getMonth()
+    const firstDayOfWeek = new Date(year, month, 1).getDay() // 0=Dom … 6=Sáb
+    // Convertir a base-lunes: Lun=0, Mar=1, … Dom=6
+    return (firstDayOfWeek + 6) % 7
+  }
+
   const getVacacionesForDay = (day: Date) => {
     return vacaciones.filter((vac) => {
       if (vac.estado !== "aprobada") return false
@@ -526,7 +535,11 @@ export default function VacacionesPage() {
                     {day}
                   </div>
                 ))}
-                {getDaysInMonth().map((day, index) => {
+                {/* Celdas vacías para alinear el primer día en su columna correcta */}
+                {Array.from({ length: getLeadingEmptyCells() }).map((_, i) => (
+                  <div key={`empty-${i}`} className="min-h-24" />
+                ))}
+                {getDaysInMonth().map((day) => {
                   const vacacionesDelDia = getVacacionesForDay(day)
                   const isToday = isSameDay(day, new Date())
                   return (
