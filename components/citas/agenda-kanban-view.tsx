@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
 import { EditarCitaDialog } from "./editar-cita-dialog"
 import { CajaDialog } from "./caja-dialog"
-import { getVacaciones } from "@/lib/data/vacaciones"
+import { getVacacionesFromDB } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
 import { getCurrentUser, type User } from "@/lib/auth"
 import { getSucursalesByIdsFromDB } from "@/lib/data/sucursales"
@@ -231,8 +231,16 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   }, [])
 
   useEffect(() => {
-    setVacaciones(getVacaciones())
-  }, [])
+    async function loadVacaciones() {
+      try {
+        const data = await getVacacionesFromDB(selectedSucursal || undefined)
+        setVacaciones(data)
+      } catch {
+        // silencioso — vacaciones no críticas para cargar la vista
+      }
+    }
+    loadVacaciones()
+  }, [selectedSucursal, selectedDate])
 
   useEffect(() => {
     async function loadSucursales() {

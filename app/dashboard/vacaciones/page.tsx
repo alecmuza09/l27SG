@@ -64,6 +64,7 @@ export default function VacacionesPage() {
   const [selectedSaldo, setSelectedSaldo] = useState<SaldoVacaciones | null>(null)
 
   // Form states
+  const [formSucursal, setFormSucursal] = useState("")
   const [formEmpleado, setFormEmpleado] = useState("")
   const [formFechaInicio, setFormFechaInicio] = useState<Date>()
   const [formFechaFin, setFormFechaFin] = useState<Date>()
@@ -125,7 +126,12 @@ export default function VacacionesPage() {
     })
   }
 
+  const empleadosFiltradosPorSucursal = formSucursal
+    ? empleados.filter((e) => e.sucursalId === formSucursal)
+    : empleados
+
   const resetForm = () => {
+    setFormSucursal("")
     setFormEmpleado("")
     setFormFechaInicio(undefined)
     setFormFechaFin(undefined)
@@ -251,10 +257,6 @@ export default function VacacionesPage() {
           <p className="text-muted-foreground">Administra los periodos de descanso del personal</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setIsBlockPeriodDialogOpen(true)}>
-            <Lock className="mr-2 h-4 w-4" />
-            Bloquear Periodo
-          </Button>
           <Button onClick={() => setIsCreateDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Nueva Solicitud
@@ -587,15 +589,37 @@ export default function VacacionesPage() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label>Empleado *</Label>
-              <Select value={formEmpleado} onValueChange={setFormEmpleado}>
+              <Label>Sucursal *</Label>
+              <Select
+                value={formSucursal}
+                onValueChange={(v) => { setFormSucursal(v); setFormEmpleado("") }}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar empleado" />
+                  <SelectValue placeholder="Seleccionar sucursal" />
                 </SelectTrigger>
                 <SelectContent>
-                  {empleados.map((emp) => (
+                  {sucursales.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Empleado *</Label>
+              <Select
+                value={formEmpleado}
+                onValueChange={setFormEmpleado}
+                disabled={!formSucursal}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={formSucursal ? "Seleccionar empleado" : "Primero selecciona una sucursal"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {empleadosFiltradosPorSucursal.map((emp) => (
                     <SelectItem key={emp.id} value={emp.id}>
-                      {emp.nombre}
+                      {emp.nombre} {emp.apellido}
                     </SelectItem>
                   ))}
                 </SelectContent>
