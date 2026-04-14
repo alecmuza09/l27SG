@@ -291,6 +291,52 @@ export async function createVacacionInDB(data: {
   }
 }
 
+// Actualizar fechas de una vacación en Supabase
+export async function updateVacacionInDB(
+  id: string,
+  data: { fechaInicio: string; fechaFin: string; diasSolicitados: number; notas?: string }
+): Promise<boolean> {
+  try {
+    const { error } = await (supabase as any)
+      .from('vacaciones')
+      .update({
+        fecha_inicio: data.fechaInicio,
+        fecha_fin: data.fechaFin,
+        dias_solicitados: data.diasSolicitados,
+        notas: data.notas ?? null,
+      })
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error actualizando vacación:', error)
+      return false
+    }
+    return true
+  } catch (error) {
+    console.error('Error inesperado actualizando vacación:', error)
+    return false
+  }
+}
+
+// Eliminar una vacación en Supabase
+export async function deleteVacacionInDB(id: string): Promise<boolean> {
+  try {
+    const { error } = await (supabase as any)
+      .from('vacaciones')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error eliminando vacación:', error)
+      return false
+    }
+    return true
+  } catch (error) {
+    console.error('Error inesperado eliminando vacación:', error)
+    return false
+  }
+}
+
 // Obtener vacaciones desde Supabase
 export async function getVacacionesFromDB(sucursalId?: string): Promise<Vacacion[]> {
   try {

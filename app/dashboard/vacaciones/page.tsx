@@ -23,7 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns"
 import { es } from "date-fns/locale"
-import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Edit, Loader2 } from "lucide-react"
+import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Edit, Trash2, Loader2 } from "lucide-react"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
@@ -32,6 +32,8 @@ import {
   calcularDias,
   verificarConflictoVacaciones,
   createVacacionInDB,
+  updateVacacionInDB,
+  deleteVacacionInDB,
 } from "@/lib/data/vacaciones"
 import type { Vacacion, SaldoVacaciones } from "@/lib/types/vacaciones"
 
@@ -56,6 +58,8 @@ export default function VacacionesPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false)
   const [isEditSaldoDialogOpen, setIsEditSaldoDialogOpen] = useState(false)
+  const [isEditVacacionDialogOpen, setIsEditVacacionDialogOpen] = useState(false)
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
 
   const [selectedVacacion, setSelectedVacacion] = useState<Vacacion | null>(null)
   const [selectedSaldo, setSelectedSaldo] = useState<SaldoVacaciones | null>(null)
@@ -70,6 +74,13 @@ export default function VacacionesPage() {
   const [editDiasCorrespondientes, setEditDiasCorrespondientes] = useState("")
   const [editDiasTomados, setEditDiasTomados] = useState("")
   const [error, setError] = useState("")
+
+  // Edit vacation form states
+  const [editFechaInicio, setEditFechaInicio] = useState<Date>()
+  const [editFechaFin, setEditFechaFin] = useState<Date>()
+  const [editNotas, setEditNotas] = useState("")
+  const [editError, setEditError] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
 
   // Calendar view
   const [calendarMonth, setCalendarMonth] = useState(new Date())
@@ -169,6 +180,79 @@ export default function VacacionesPage() {
 
     resetForm()
     setIsCreateDialogOpen(false)
+  }
+
+  const openEditDialog = (vac: Vacacion) => {
+    setSelectedVacacion(vac)
+    setEditFechaInicio(new Date(vac.fechaInicio + "T12:00:00"))
+    setEditFechaFin(new Date(vac.fechaFin + "T12:00:00"))
+    setEditNotas(vac.notas || "")
+    setEditError("")
+    setIsEditVacacionDialogOpen(true)
+  }
+
+  const handleEditVacacion = async () => {
+    if (!selectedVacacion || !editFechaInicio || !editFechaFin) {
+      setEditError("Selecciona las fechas de inicio y fin")
+      return
+    }
+    if (editFechaFin < editFechaInicio) {
+      setEditError("La fecha de fin no puede ser anterior a la de inicio")
+      return
+    }
+
+    const fechaInicioStr = format(editFechaInicio, "yyyy-MM-dd")
+    const fechaFinStr = format(editFechaFin, "yyyy-MM-dd")
+
+    const conflicto = await verificarConflictoVacaciones(
+      selectedVacacion.empleadoId,
+      fechaInicioStr,
+      fechaFinStr,
+      selectedVacacion.id,
+    )
+    if (conflicto) {
+      setEditError(
+        `El empleado ya tiene vacaciones del ${formatDate(conflicto.fechaInicio)} al ${formatDate(conflicto.fechaFin)}`,
+      )
+      return
+    }
+
+    setIsSaving(true)
+    const ok = await updateVacacionInDB(selectedVacacion.id, {
+      fechaInicio: fechaInicioStr,
+      fechaFin: fechaFinStr,
+      diasSolicitados: calcularDias(fechaInicioStr, fechaFinStr),
+      notas: editNotas || undefined,
+    })
+    setIsSaving(false)
+
+    if (!ok) {
+      setEditError("Error al guardar los cambios. Intenta de nuevo.")
+      return
+    }
+
+    const updated = await getVacacionesFromDB()
+    setVacaciones(updated)
+    setIsEditVacacionDialogOpen(false)
+    setSelectedVacacion(null)
+  }
+
+  const handleDeleteVacacion = async () => {
+    if (!selectedVacacion) return
+    setIsSaving(true)
+    const ok = await deleteVacacionInDB(selectedVacacion.id)
+    setIsSaving(false)
+
+    if (!ok) {
+      setEditError("Error al eliminar la solicitud. Intenta de nuevo.")
+      return
+    }
+
+    const updated = await getVacacionesFromDB()
+    setVacaciones(updated)
+    setIsDeleteConfirmOpen(false)
+    setIsEditVacacionDialogOpen(false)
+    setSelectedVacacion(null)
   }
 
   const handleAprobarVacacion = async (vac: Vacacion) => {
@@ -368,29 +452,40 @@ export default function VacacionesPage() {
                       </TableCell>
                       <TableCell>{formatDate(vac.fechaSolicitud)}</TableCell>
                       <TableCell className="text-right">
-                        {vac.estado === "pendiente" && (
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-green-600 bg-transparent"
-                              onClick={() => handleAprobarVacacion(vac)}
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-600 bg-transparent"
-                              onClick={() => {
-                                setSelectedVacacion(vac)
-                                setIsRejectDialogOpen(true)
-                              }}
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        )}
+                        <div className="flex justify-end gap-2 flex-wrap">
+                          {vac.estado === "pendiente" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-green-600 bg-transparent"
+                                onClick={() => handleAprobarVacacion(vac)}
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600 bg-transparent"
+                                onClick={() => {
+                                  setSelectedVacacion(vac)
+                                  setIsRejectDialogOpen(true)
+                                }}
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="bg-transparent"
+                            onClick={() => openEditDialog(vac)}
+                            title="Editar solicitud"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </div>
                         {vac.motivoRechazo && <p className="text-xs text-red-600 mt-1">{vac.motivoRechazo}</p>}
                       </TableCell>
                     </TableRow>
@@ -694,6 +789,112 @@ export default function VacacionesPage() {
               Cancelar
             </Button>
             <Button onClick={handleEditSaldo}>Guardar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Editar Solicitud de Vacaciones */}
+      <Dialog open={isEditVacacionDialogOpen} onOpenChange={(open) => { if (!open) { setIsEditVacacionDialogOpen(false); setSelectedVacacion(null) } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Solicitud de Vacaciones</DialogTitle>
+            <DialogDescription>
+              {selectedVacacion?.empleadoNombre} · modifica las fechas o elimina esta solicitud
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Fecha Inicio *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="justify-start bg-transparent">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {editFechaInicio ? format(editFechaInicio, "dd/MM/yyyy") : "Seleccionar"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar mode="single" selected={editFechaInicio} onSelect={setEditFechaInicio} locale={es} />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="grid gap-2">
+                <Label>Fecha Fin *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="justify-start bg-transparent">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {editFechaFin ? format(editFechaFin, "dd/MM/yyyy") : "Seleccionar"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar mode="single" selected={editFechaFin} onSelect={setEditFechaFin} locale={es} />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+            {editFechaInicio && editFechaFin && (
+              <p className="text-sm text-muted-foreground">
+                {calcularDias(format(editFechaInicio, "yyyy-MM-dd"), format(editFechaFin, "yyyy-MM-dd"))} día(s)
+              </p>
+            )}
+            <div className="grid gap-2">
+              <Label>Notas</Label>
+              <Textarea
+                value={editNotas}
+                onChange={(e) => setEditNotas(e.target.value)}
+                placeholder="Observaciones opcionales..."
+                rows={2}
+              />
+            </div>
+            {editError && (
+              <p className="text-sm text-red-600 flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" /> {editError}
+              </p>
+            )}
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="destructive"
+              className="mr-auto"
+              onClick={() => setIsDeleteConfirmOpen(true)}
+              disabled={isSaving}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Eliminar
+            </Button>
+            <Button variant="outline" onClick={() => setIsEditVacacionDialogOpen(false)} disabled={isSaving}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditVacacion} disabled={isSaving}>
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Confirmar eliminación */}
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Eliminar solicitud?</DialogTitle>
+            <DialogDescription>
+              Esta acción eliminará permanentemente las vacaciones de{" "}
+              <strong>{selectedVacacion?.empleadoNombre}</strong> del{" "}
+              {selectedVacacion && formatDate(selectedVacacion.fechaInicio)} al{" "}
+              {selectedVacacion && formatDate(selectedVacacion.fechaFin)}. La agenda se actualizará
+              automáticamente.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteConfirmOpen(false)} disabled={isSaving}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteVacacion} disabled={isSaving}>
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Eliminar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
