@@ -54,6 +54,7 @@ export interface RegistrarPagoParams {
   descuentoMonto: number
   descuentoTipo?: string
   descuentoCodigo?: string
+  descuentoGcId?: string    // ID de la gift card usada como descuento (evita búsqueda por código)
   propina: number
   total: number
   metodoPago: 'efectivo' | 'tarjeta' | 'transferencia' | 'otro'
@@ -365,20 +366,43 @@ export async function validarGiftCard(
   codigo: string
 ): Promise<{ valida: boolean; gc?: GiftCardValidada; error?: string }> {
   try {
-    const { data, error } = await supabase
-      .from('gift_cards')
-      .select('id, codigo, saldo_actual, estado')
-      .eq('codigo', codigo.toUpperCase().trim())
-      .single()
+    const codigoLimpio = codigo.trim()
+    if (!codigoLimpio) return { valida: false, error: 'Ingresa un código de gift card' }
 
-    if (error || !data) return { valida: false, error: 'Gift card no encontrada' }
-    if (data.estado === 'cancelada') return { valida: false, error: 'Gift card cancelada' }
-    if (data.estado === 'expirada') return { valida: false, error: 'Gift card expirada' }
-    if (Number(data.saldo_actual) <= 0) return { valida: false, error: 'Gift card sin saldo disponible' }
+    // ilike = búsqueda case-insensitive; evita que códigos con minúsculas fallen
+    // .limit(1) en lugar de .single() para no lanzar error cuando no existe
+    const { data, error } = await (supabase as any)
+      .from('gift_cards')
+      .select('id, codigo, saldo_actual, estado, fecha_vencimiento')
+      .ilike('codigo', codigoLimpio)
+      .limit(1)
+
+    if (error) {
+      console.error('Error consultando gift card:', error)
+      return { valida: false, error: 'Error al consultar la gift card' }
+    }
+
+    const row = Array.isArray(data) ? data[0] : null
+    if (!row) return { valida: false, error: 'Gift card no encontrada' }
+
+    if (row.estado === 'pendiente') return { valida: false, error: 'Gift card pendiente de activación' }
+    if (row.estado === 'cancelada') return { valida: false, error: 'Gift card cancelada' }
+    if (row.estado === 'expirada')  return { valida: false, error: 'Gift card expirada' }
+    if (row.estado === 'agotada')   return { valida: false, error: 'Gift card sin saldo disponible' }
+
+    // Verificar vencimiento por fecha aunque el estado no sea 'expirada' aún
+    if (row.fecha_vencimiento) {
+      const hoy = new Date()
+      hoy.setHours(0, 0, 0, 0)
+      const vence = new Date(row.fecha_vencimiento + 'T00:00:00')
+      if (vence < hoy) return { valida: false, error: 'Gift card vencida' }
+    }
+
+    if (Number(row.saldo_actual) <= 0) return { valida: false, error: 'Gift card sin saldo disponible' }
 
     return {
       valida: true,
-      gc: { id: data.id, codigo: data.codigo, saldoActual: Number(data.saldo_actual) },
+      gc: { id: row.id, codigo: row.codigo, saldoActual: Number(row.saldo_actual) },
     }
   } catch (err) {
     return { valida: false, error: 'Error al consultar la gift card' }
@@ -449,34 +473,37 @@ export async function registrarPago(
     }
 
     // 4. Descontar saldo de gift card usada como descuento
-    if (params.descuentoTipo === 'gift_card' && params.descuentoCodigo) {
-      const { data: gc } = await supabase
-        .from('gift_cards')
-        .select('saldo_actual')
-        .eq('codigo', params.descuentoCodigo)
-        .single()
-      if (gc) {
-        const nuevoSaldo = Math.max(0, Number(gc.saldo_actual) - params.descuentoMonto)
-        await supabase
+    if (params.descuentoTipo === 'gift_card' && (params.descuentoGcId || params.descuentoCodigo)) {
+      // Preferir búsqueda por ID (exacto); fallback por código con ilike
+      let gcRow: any = null
+      if (params.descuentoGcId) {
+        const { data } = await (supabase as any)
+          .from('gift_cards').select('id, saldo_actual').eq('id', params.descuentoGcId).maybeSingle()
+        gcRow = data
+      } else {
+        const { data } = await (supabase as any)
+          .from('gift_cards').select('id, saldo_actual').ilike('codigo', params.descuentoCodigo!).limit(1)
+        gcRow = Array.isArray(data) ? data[0] : null
+      }
+      if (gcRow) {
+        const nuevoSaldo = Math.max(0, Number(gcRow.saldo_actual) - params.descuentoMonto)
+        await (supabase as any)
           .from('gift_cards')
-          .update({
-            saldo_actual: nuevoSaldo,
-            estado: nuevoSaldo === 0 ? 'agotada' : undefined,
-          })
-          .eq('codigo', params.descuentoCodigo)
+          .update({ saldo_actual: nuevoSaldo, estado: nuevoSaldo === 0 ? 'agotada' : undefined })
+          .eq('id', gcRow.id)
       }
     }
 
     // 5. Descontar saldo de gift card usada como método de pago (pago mixto)
     if (params.giftCardId && (params.montoGiftCard ?? 0) > 0) {
-      const { data: gcPago } = await supabase
+      const { data: gcPago } = await (supabase as any)
         .from('gift_cards')
         .select('saldo_actual')
         .eq('id', params.giftCardId)
-        .single()
+        .maybeSingle()
       if (gcPago) {
         const nuevoSaldo = Math.max(0, Number(gcPago.saldo_actual) - (params.montoGiftCard ?? 0))
-        await supabase
+        await (supabase as any)
           .from('gift_cards')
           .update({
             saldo_actual: nuevoSaldo,
@@ -528,7 +555,8 @@ export async function getGiftCardActivaClienteFromDB(
   clienteId: string
 ): Promise<GiftCardValidada | null> {
   try {
-    const { data, error } = await supabase
+    // .maybeSingle() no lanza error cuando hay 0 filas (a diferencia de .single())
+    const { data, error } = await (supabase as any)
       .from('gift_cards')
       .select('id, codigo, saldo_actual')
       .eq('cliente_id', clienteId)
@@ -536,7 +564,7 @@ export async function getGiftCardActivaClienteFromDB(
       .gt('saldo_actual', 0)
       .order('saldo_actual', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
 
     if (error || !data) return null
 

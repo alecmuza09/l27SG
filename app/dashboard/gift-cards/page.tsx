@@ -463,64 +463,94 @@ export default function GiftCardsPage() {
             </p>
           )}
 
-          {consultaCard && (
-            <div className="mt-3 rounded-lg border bg-white p-4 flex flex-col sm:flex-row sm:items-center gap-4">
-              {/* Info */}
-              <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Código</p>
-                  <p className="font-mono font-bold text-sm">{consultaCard.codigo}</p>
+          {consultaCard && (() => {
+            const esValida = consultaCard.estado === 'activa' && consultaCard.saldoActual > 0
+            return (
+              <div className={cn(
+                "mt-3 rounded-lg border p-4 flex flex-col gap-3",
+                esValida ? "bg-emerald-50 border-emerald-200" : "bg-white"
+              )}>
+                {/* Badge de estado de validez */}
+                <div className="flex items-center gap-2">
+                  {esValida ? (
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+                      <CheckCircle className="h-4 w-4" /> Gift card válida — lista para usar
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-700">
+                      <XCircle className="h-4 w-4" /> Gift card {estadoConfig[consultaCard.estado]?.label ?? consultaCard.estado} — no disponible para cobro
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Saldo actual</p>
-                  <p className={cn(
-                    "font-bold text-lg leading-tight",
-                    consultaCard.saldoActual > 0 ? "text-emerald-600" : "text-red-500"
-                  )}>
-                    {fmtMXN(consultaCard.saldoActual)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Carga total</p>
-                  <p className="font-semibold text-sm">{fmtMXN(consultaCard.saldoInicial)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Estado</p>
-                  <Badge className={`${estadoConfig[consultaCard.estado].className} border text-xs mt-0.5`}>
-                    {estadoConfig[consultaCard.estado].label}
-                  </Badge>
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  {/* Info */}
+                  <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Código</p>
+                      <p className="font-mono font-bold text-sm">{consultaCard.codigo}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Saldo disponible</p>
+                      <p className={cn(
+                        "font-bold text-lg leading-tight",
+                        consultaCard.saldoActual > 0 ? "text-emerald-600" : "text-red-500"
+                      )}>
+                        {fmtMXN(consultaCard.saldoActual)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Carga original</p>
+                      <p className="font-semibold text-sm">{fmtMXN(consultaCard.saldoInicial)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Vence</p>
+                      <p className="text-sm font-medium">
+                        {consultaCard.fechaExpiracion
+                          ? new Date(consultaCard.fechaExpiracion + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
+                          : <span className="text-muted-foreground">Sin vencimiento</span>}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Cliente</p>
+                      <p className="text-sm font-medium">
+                        {consultaCard.clienteNombre ?? <span className="text-muted-foreground">Sin asignar</span>}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Acciones */}
+                  <div className="flex gap-2 sm:flex-col">
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 flex-1 sm:flex-none"
+                      disabled={consultaCard.estado === 'cancelada' || consultaCard.estado === 'expirada'}
+                      onClick={() => { setSelectedCard(consultaCard); setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(true) }}
+                    >
+                      <ArrowUpCircle className="h-4 w-4" /> Agregar saldo
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={esValida ? "default" : "outline"}
+                      className={cn("gap-1.5 flex-1 sm:flex-none", esValida && "bg-primary")}
+                      disabled={!esValida}
+                      onClick={() => { setSelectedCard(consultaCard); setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(true) }}
+                    >
+                      <ArrowDownCircle className="h-4 w-4" /> Cobrar / Descontar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5 flex-1 sm:flex-none text-muted-foreground"
+                      onClick={() => handleVerDetalles(consultaCard)}
+                    >
+                      <Eye className="h-4 w-4" /> Ver historial
+                    </Button>
+                  </div>
                 </div>
               </div>
-              {/* Acciones */}
-              <div className="flex gap-2 sm:flex-col">
-                <Button
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 flex-1 sm:flex-none"
-                  disabled={consultaCard.estado === 'cancelada' || consultaCard.estado === 'expirada'}
-                  onClick={() => { setSelectedCard(consultaCard); setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(true) }}
-                >
-                  <ArrowUpCircle className="h-4 w-4" /> Agregar saldo
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 flex-1 sm:flex-none"
-                  disabled={consultaCard.estado !== 'activa' || consultaCard.saldoActual <= 0}
-                  onClick={() => { setSelectedCard(consultaCard); setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(true) }}
-                >
-                  <ArrowDownCircle className="h-4 w-4" /> Descontar saldo
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="gap-1.5 flex-1 sm:flex-none text-muted-foreground"
-                  onClick={() => handleVerDetalles(consultaCard)}
-                >
-                  <Eye className="h-4 w-4" /> Ver historial
-                </Button>
-              </div>
-            </div>
-          )}
+            )
+          })()}
         </CardContent>
       </Card>
 

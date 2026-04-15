@@ -506,6 +506,7 @@ export function CajaDialog({
       descuentoMonto: descuento,
       descuentoTipo:  descuentoTipoFinal,
       descuentoCodigo: descuentoAplicado?.codigo,
+      descuentoGcId: descuentoAplicado?.tipo === 'gift_card' ? descuentoAplicado.gcId : undefined,
       propina: propinaNum,
       total,
       metodoPago: metodoPrincipal,
