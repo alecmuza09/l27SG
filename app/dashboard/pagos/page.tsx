@@ -9,14 +9,15 @@ import { Label } from "@/components/ui/label"
 import {
   CreditCard, Banknote, ArrowLeftRight, Plus, ShoppingBag,
   RefreshCw, Receipt, Search, Gift, Loader2, Wallet,
-  Eye, Pencil, X, Check, Star, ChevronDown,
+  Eye, Pencil, X, Check, Star, ChevronDown, Trash2, AlertTriangle,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  getPagosFromDB, calcularResumenDesdePagos, updatePago,
+  getPagosFromDB, calcularResumenDesdePagos, updatePago, deletePago,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
+import { searchClientes, type Cliente } from "@/lib/data/clientes"
 import { getCitasByDateAndSucursalFromDB, updateCita, updateCitaEstado, type Cita } from "@/lib/data/citas"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, getSucursalById, type Sucursal } from "@/lib/data/sucursales"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -107,6 +108,15 @@ export default function PagosPage() {
   const [editMontoEfectivo, setEditMontoEfectivo]       = useState("")
   const [editMontoTarjeta, setEditMontoTarjeta]         = useState("")
   const [editMotivo, setEditMotivo]                     = useState("")
+  const [editMonto, setEditMonto]                       = useState("")
+  const [editFecha, setEditFecha]                       = useState("")
+  const [editServicio, setEditServicio]                 = useState("")
+  const [editClienteId, setEditClienteId]               = useState("")
+  const [editClienteNombre, setEditClienteNombre]       = useState("")
+  const [editClienteBusqueda, setEditClienteBusqueda]   = useState("")
+  const [editClienteResultados, setEditClienteResultados] = useState<Cliente[]>([])
+  const [editClienteBuscando, setEditClienteBuscando]   = useState(false)
+  const [isDeletePagoOpen, setIsDeletePagoOpen]         = useState(false)
   const [isSavingPago, setIsSavingPago]                 = useState(false)
 
   // ── carga de datos ──────────────────────────────────────────────────────────
@@ -275,6 +285,13 @@ export default function PagosPage() {
     setEditMontoEfectivo(String(pago.montoEfectivo ?? 0))
     setEditMontoTarjeta(String(pago.montoTarjeta ?? 0))
     setEditMotivo("")
+    setEditMonto(String(pago.monto))
+    setEditFecha(pago.fecha)
+    setEditServicio(pago.servicios.join(", "))
+    setEditClienteId(pago.clienteId ?? "")
+    setEditClienteNombre(pago.clienteNombre)
+    setEditClienteBusqueda("")
+    setEditClienteResultados([])
   }
 
   const handleGuardarEdicion = async () => {
@@ -287,27 +304,61 @@ export default function PagosPage() {
     const notaFinal = [editNotas.trim(), auditSuffix].filter(Boolean).join(" | ")
 
     const res = await updatePago(pagoDetalle.id, {
-      propina:       Number(editPropina) || 0,
-      notas:         notaFinal || undefined,
-      referencia:    editReferencia.trim() || undefined,
-      metodo_pago:   editMetodoPago,
+      monto:          Number(editMonto) || pagoDetalle.monto,
+      subtotal:       Number(editMonto) || pagoDetalle.monto,
+      propina:        Number(editPropina) || 0,
+      notas:          notaFinal || undefined,
+      referencia:     editReferencia.trim() || undefined,
+      metodo_pago:    editMetodoPago,
       monto_efectivo: Number(editMontoEfectivo) || 0,
       monto_tarjeta:  Number(editMontoTarjeta) || 0,
+      fecha:          editFecha || pagoDetalle.fecha,
+      servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
+      cliente_id:     editClienteId || pagoDetalle.clienteId,
     })
     setIsSavingPago(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
 
     const updated = {
+      monto:          Number(editMonto) || pagoDetalle.monto,
       propina:        Number(editPropina) || 0,
       notas:          notaFinal || undefined,
       referencia:     editReferencia.trim() || undefined,
       metodoPago:     editMetodoPago as any,
       montoEfectivo:  Number(editMontoEfectivo) || 0,
       montoTarjeta:   Number(editMontoTarjeta) || 0,
+      fecha:          editFecha || pagoDetalle.fecha,
+      servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
+      clienteId:      editClienteId || pagoDetalle.clienteId,
+      clienteNombre:  editClienteNombre || pagoDetalle.clienteNombre,
     }
     setPagos(prev => prev.map(p => p.id === pagoDetalle.id ? { ...p, ...updated } : p))
     setPagoDetalle(prev => prev ? { ...prev, ...updated } : null)
     setEditando(false)
+  }
+
+  const handleBuscarClienteEdicion = useCallback(async (query: string) => {
+    setEditClienteBusqueda(query)
+    if (!query.trim()) { setEditClienteResultados([]); return }
+    setEditClienteBuscando(true)
+    try {
+      const res = await searchClientes(query, 8)
+      setEditClienteResultados(res)
+    } finally {
+      setEditClienteBuscando(false)
+    }
+  }, [])
+
+  const handleEliminarPago = async () => {
+    if (!pagoDetalle) return
+    setIsSavingPago(true)
+    const res = await deletePago(pagoDetalle.id)
+    setIsSavingPago(false)
+    if (!res.success) { alert(`Error: ${res.error}`); return }
+    setPagos(prev => prev.filter(p => p.id !== pagoDetalle.id))
+    setResumen(prev => prev ? calcularResumenDesdePagos(pagos.filter(p => p.id !== pagoDetalle.id), fecha) : null)
+    setIsDeletePagoOpen(false)
+    setPagoDetalle(null)
   }
 
   // ── acciones ────────────────────────────────────────────────────────────────
@@ -1040,18 +1091,67 @@ export default function PagosPage() {
             <div className="space-y-4 text-sm">
               {/* Info principal */}
               <div className="grid grid-cols-2 gap-3 bg-muted/40 rounded-lg p-3">
-                <div>
+                {/* Cliente — editable */}
+                <div className="col-span-2 sm:col-span-1">
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Cliente</p>
-                  <p className="font-medium">{pagoDetalle.clienteNombre}</p>
+                  {editando ? (
+                    <div className="mt-0.5 relative">
+                      <Input
+                        value={editClienteBusqueda || editClienteNombre}
+                        onChange={e => {
+                          setEditClienteNombre(e.target.value)
+                          handleBuscarClienteEdicion(e.target.value)
+                        }}
+                        className="h-8 text-sm pr-7"
+                        placeholder="Buscar cliente…"
+                      />
+                      {editClienteBuscando && <Loader2 className="absolute right-2 top-2 h-4 w-4 animate-spin text-muted-foreground" />}
+                      {editClienteResultados.length > 0 && (
+                        <div className="absolute z-50 w-full bg-white border rounded-md shadow-md mt-1 max-h-40 overflow-y-auto">
+                          {editClienteResultados.map(c => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50"
+                              onClick={() => {
+                                setEditClienteId(c.id)
+                                setEditClienteNombre(`${c.nombre} ${c.apellido}`)
+                                setEditClienteBusqueda("")
+                                setEditClienteResultados([])
+                              }}
+                            >
+                              {c.nombre} {c.apellido}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="font-medium">{pagoDetalle.clienteNombre}</p>
+                  )}
                 </div>
+
                 <div>
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Empleada</p>
                   <p className="font-medium">{pagoDetalle.empleadoNombre}</p>
                 </div>
+
+                {/* Fecha — editable */}
                 <div>
-                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Fecha y hora</p>
-                  <p className="font-medium tabular-nums">{pagoDetalle.fecha} · {pagoDetalle.hora?.slice(0, 5)}</p>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Fecha</p>
+                  {editando ? (
+                    <input
+                      type="date"
+                      value={editFecha}
+                      onChange={e => setEditFecha(e.target.value)}
+                      className="mt-0.5 w-full h-8 rounded-md border border-input bg-background px-2 text-sm"
+                    />
+                  ) : (
+                    <p className="font-medium tabular-nums">{pagoDetalle.fecha} · {pagoDetalle.hora?.slice(0, 5)}</p>
+                  )}
                 </div>
+
+                {/* Método de pago — editable */}
                 <div>
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Método de pago</p>
                   {editando ? (
@@ -1076,10 +1176,19 @@ export default function PagosPage() {
                 </div>
               </div>
 
-              {/* Servicios */}
+              {/* Concepto / Servicios — editable */}
               <div>
-                <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Servicios / Productos</p>
-                <p className="text-sm">{pagoDetalle.servicios.join(", ")}</p>
+                <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">Concepto / Servicios</p>
+                {editando ? (
+                  <Input
+                    value={editServicio}
+                    onChange={e => setEditServicio(e.target.value)}
+                    className="h-8 text-sm"
+                    placeholder="Ej: Corte, Tinte, Masaje…"
+                  />
+                ) : (
+                  <p className="text-sm">{pagoDetalle.servicios.join(", ")}</p>
+                )}
               </div>
 
               <Separator />
@@ -1111,9 +1220,21 @@ export default function PagosPage() {
                 </div>
 
                 <Separator />
-                <div className="flex justify-between font-bold text-base">
+                <div className="flex justify-between font-bold text-base items-center">
                   <span>Total</span>
-                  <span className="text-emerald-700">{fmtMXN(pagoDetalle.monto)}</span>
+                  {editando ? (
+                    <div className="relative w-36">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                      <Input
+                        type="number" min="0" step="any"
+                        value={editMonto}
+                        onChange={e => setEditMonto(e.target.value)}
+                        className="h-8 text-sm pl-6 text-right font-bold"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-emerald-700">{fmtMXN(pagoDetalle.monto)}</span>
+                  )}
                 </div>
               </div>
 
@@ -1196,7 +1317,7 @@ export default function PagosPage() {
               )}
 
               {/* Botones */}
-              <div className="flex gap-2 pt-1">
+              <div className="flex gap-2 pt-1 flex-wrap">
                 {editando ? (
                   <>
                     <Button variant="outline" className="flex-1" onClick={() => setEditando(false)} disabled={isSavingPago}>
@@ -1204,7 +1325,7 @@ export default function PagosPage() {
                     </Button>
                     <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleGuardarEdicion} disabled={isSavingPago}>
                       {isSavingPago ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Check className="h-4 w-4 mr-1.5" />}
-                      Guardar corrección
+                      Guardar cambios
                     </Button>
                   </>
                 ) : (
@@ -1212,13 +1333,68 @@ export default function PagosPage() {
                     <Button variant="outline" className="flex-1" onClick={() => setPagoDetalle(null)}>
                       Cerrar
                     </Button>
-                    {isSuperAdmin && (
-                      <Button className="flex-1 bg-violet-600 hover:bg-violet-700 text-white" onClick={() => setEditando(true)}>
-                        <Pencil className="h-4 w-4 mr-1.5" /> Editar pago
-                      </Button>
+                    {isAdmin && (
+                      <>
+                        <Button
+                          variant="outline"
+                          className="text-red-600 hover:bg-red-50 border-red-200"
+                          onClick={() => setIsDeletePagoOpen(true)}
+                          title="Eliminar cobro"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <Button className="flex-1 bg-violet-600 hover:bg-violet-700 text-white" onClick={() => setEditando(true)}>
+                          <Pencil className="h-4 w-4 mr-1.5" /> Editar cobro
+                        </Button>
+                      </>
                     )}
                   </>
                 )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ DIALOG CONFIRMAR ELIMINACIÓN DE COBRO ═══════════════════════════ */}
+      <Dialog open={isDeletePagoOpen} onOpenChange={setIsDeletePagoOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> ¿Eliminar este cobro?
+            </DialogTitle>
+          </DialogHeader>
+          {pagoDetalle && (
+            <div className="space-y-4 pt-1 text-sm">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+                <p><span className="text-muted-foreground">Cliente:</span> <strong>{pagoDetalle.clienteNombre}</strong></p>
+                <p><span className="text-muted-foreground">Concepto:</span> {pagoDetalle.servicios.join(", ")}</p>
+                <p><span className="text-muted-foreground">Fecha:</span> {pagoDetalle.fecha} · {pagoDetalle.hora?.slice(0, 5)}</p>
+                <p><span className="text-muted-foreground">Total:</span> <strong className="text-red-700">{fmtMXN(pagoDetalle.monto)}</strong></p>
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Esta acción eliminará el cobro de forma permanente y no se puede deshacer.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setIsDeletePagoOpen(false)}
+                  disabled={isSavingPago}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={handleEliminarPago}
+                  disabled={isSavingPago}
+                >
+                  {isSavingPago
+                    ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    : <Trash2 className="h-4 w-4 mr-1.5" />}
+                  Eliminar cobro
+                </Button>
               </div>
             </div>
           )}

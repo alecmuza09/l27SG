@@ -683,18 +683,38 @@ export async function getResumenCajaAyerFromDB(
 export async function updatePago(
   pagoId: string,
   datos: {
+    monto?: number
+    subtotal?: number
     propina?: number
     notas?: string
     referencia?: string
     metodo_pago?: string
     monto_efectivo?: number
     monto_tarjeta?: number
+    fecha?: string
+    servicios?: string[]
+    cliente_id?: string
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('pagos')
       .update({ ...datos, updated_at: new Date().toISOString() })
+      .eq('id', pagoId)
+    if (error) return { success: false, error: error.message }
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Error desconocido' }
+  }
+}
+
+export async function deletePago(
+  pagoId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await (supabase as any)
+      .from('pagos')
+      .delete()
       .eq('id', pagoId)
     if (error) return { success: false, error: error.message }
     return { success: true }
