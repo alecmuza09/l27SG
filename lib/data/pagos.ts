@@ -709,7 +709,8 @@ export async function updatePago(
 }
 
 export async function deletePago(
-  pagoId: string
+  pagoId: string,
+  citaId?: string | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const { error } = await (supabase as any)
@@ -717,6 +718,16 @@ export async function deletePago(
       .delete()
       .eq('id', pagoId)
     if (error) return { success: false, error: error.message }
+
+    // Si hay una cita asociada, revertirla a "completada + no pagada"
+    // para que vuelva a aparecer en la lista de pendientes por cobrar
+    if (citaId) {
+      await supabase
+        .from('citas')
+        .update({ pagado: false, estado: 'completada', updated_at: new Date().toISOString() })
+        .eq('id', citaId)
+    }
+
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Error desconocido' }

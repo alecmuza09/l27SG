@@ -352,13 +352,25 @@ export default function PagosPage() {
   const handleEliminarPago = async () => {
     if (!pagoDetalle) return
     setIsSavingPago(true)
-    const res = await deletePago(pagoDetalle.id)
+    // Pasa el citaId para que la cita vuelva a pendiente-por-cobrar
+    const res = await deletePago(pagoDetalle.id, pagoDetalle.citaId || null)
     setIsSavingPago(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
-    setPagos(prev => prev.filter(p => p.id !== pagoDetalle.id))
-    setResumen(prev => prev ? calcularResumenDesdePagos(pagos.filter(p => p.id !== pagoDetalle.id), fecha) : null)
+
+    const pagosSinEliminado = pagos.filter(p => p.id !== pagoDetalle.id)
+    setPagos(pagosSinEliminado)
+    setResumen(calcularResumenDesdePagos(pagosSinEliminado, fecha))
     setIsDeletePagoOpen(false)
     setPagoDetalle(null)
+
+    // Recargar citas para que aparezca nuevamente en la lista de cobro
+    if (pagoDetalle.citaId && sucursalId !== "todas") {
+      const citasActualizadas = await getCitasByDateAndSucursalFromDB(fecha, sucursalId)
+      setCitas(citasActualizadas)
+    } else if (pagoDetalle.citaId) {
+      // Admin con "todas" — recargar datos completos
+      cargarDatos()
+    }
   }
 
   // ── acciones ────────────────────────────────────────────────────────────────
