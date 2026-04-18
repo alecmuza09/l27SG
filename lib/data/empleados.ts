@@ -295,7 +295,7 @@ export async function createEmpleado(datos: {
         horario_inicio: datos.horario_inicio || '09:00',
         horario_fin: datos.horario_fin || '18:00',
         dias_trabajo: datos.dias_trabajo ?? [1, 2, 3, 4, 5],
-        comision: datos.comision ?? 0,
+        comision: datos.comision ?? 30,
         especialidades: datos.especialidades ?? [],
       })
       .select()

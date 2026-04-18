@@ -62,11 +62,11 @@ export default function EmpleadosPage() {
     horarioInicio: "09:00",
     horarioFin: "18:00",
     diasTrabajo: [1, 2, 3, 4, 5] as number[],
-    comision: 40,
+    comision: 30,
   })
 
   // Calcular isAdmin de forma segura (siempre definido)
-  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
   const userSucursalId = currentUser?.sucursalId
 
   async function loadEmpleados() {
@@ -209,7 +209,7 @@ export default function EmpleadosPage() {
           horarioInicio: "09:00",
           horarioFin: "18:00",
           diasTrabajo: [1, 2, 3, 4, 5],
-          comision: 40,
+          comision: 30,
         })
         await loadEmpleados()
       } else {

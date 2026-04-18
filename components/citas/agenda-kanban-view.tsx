@@ -15,6 +15,8 @@ import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { updateCitaEstado, updateCita } from "@/lib/data/citas"
@@ -422,6 +424,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   // Estado para la hora actual
   const [currentTime, setCurrentTime] = useState<string>("")
   const [isToday, setIsToday] = useState(false)
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
   useEffect(() => {
     const updateCurrentTime = () => {
@@ -650,7 +653,37 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2 min-w-[300px]">
-            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
+                  title="Ir a una fecha"
+                >
+                  <CalendarIcon className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={(() => {
+                    const [y, m, d] = selectedDate.split('-').map(Number)
+                    return new Date(y, m - 1, d)
+                  })()}
+                  onSelect={(date) => {
+                    if (date) {
+                      const y = date.getFullYear()
+                      const m = String(date.getMonth() + 1).padStart(2, '0')
+                      const d = String(date.getDate()).padStart(2, '0')
+                      onDateChange(`${y}-${m}-${d}`)
+                    }
+                    setIsDatePickerOpen(false)
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
             <span className="font-medium capitalize">{formatDate(selectedDate)}</span>
             {isToday && currentTime && (
               <Badge variant="outline" className="ml-2 text-xs">
