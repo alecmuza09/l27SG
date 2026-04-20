@@ -21,6 +21,7 @@ const ADMIN_ONLY_ROUTES = [
 // Rutas bloqueadas para managers
 const MANAGER_BLOCKED_ROUTES = [
   "/dashboard/reportes",
+  "/dashboard/vacaciones",
 ]
 
 export default function DashboardLayout({

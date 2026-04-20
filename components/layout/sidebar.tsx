@@ -40,6 +40,7 @@ const ADMIN_ONLY = new Set([
 const MANAGER_HIDDEN = new Set([
   "/dashboard",
   "/dashboard/reportes",
+  "/dashboard/vacaciones",
 ])
 
 const navigation = [
