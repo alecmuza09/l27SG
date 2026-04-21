@@ -7,10 +7,8 @@ import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, type User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
 
 export default function CitasPage() {
-  // Obtener fecha actual en zona horaria local
   const getTodayLocal = () => {
     const now = new Date()
     const year = now.getFullYear()
@@ -18,17 +16,29 @@ export default function CitasPage() {
     const day = String(now.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
   }
-  
+
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [selectedDate, setSelectedDate] = useState(getTodayLocal())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId] = useState<string>("")
   const [refreshCitasKey, setRefreshCitasKey] = useState(0)
+  // Detectado en JS para nunca montar Sheet y Panel al mismo tiempo
+  const [isDesktop, setIsDesktop] = useState(false)
 
-  // Calcular isAdmin de forma segura (siempre definido)
-  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
+  const isAdmin: boolean = Boolean(
+    currentUser?.role === 'admin' || currentUser?.role === 'superadmin'
+  )
   const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
+
+  // Detectar breakpoint lg (≥1024px) en tiempo de ejecución
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    setIsDesktop(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -40,7 +50,6 @@ export default function CitasPage() {
       if (isAdmin) {
         const sucursalesData = await getSucursalesActivasFromDB()
         setSucursales(sucursalesData)
-        // Default: sucursal propia si existe, sino la primera de la lista
         const primaryId = currentUser?.sucursalId
         const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0]?.id
         if (defaultId) setSucursalId(defaultId)
@@ -48,17 +57,21 @@ export default function CitasPage() {
         const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
-          // Default: siempre la sucursal principal del usuario
           const primaryId = currentUser?.sucursalId
           const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
           setSucursalId(defaultId)
         }
       }
     }
-    if (currentUser) {
-      loadSucursales()
-    }
+    if (currentUser) loadSucursales()
   }, [currentUser, isAdmin, userSucursalIds.join(',')])
+
+  const handlePanelClose = (v: boolean) => {
+    setIsDialogOpen(v)
+    if (!v) setRefreshCitasKey(k => k + 1)
+  }
+
+  const panelOpen = isDialogOpen && !!sucursalId
 
   return (
     <div className="space-y-4">
@@ -74,13 +87,24 @@ export default function CitasPage() {
         </Button>
       </div>
 
-      {/* Layout: en desktop con panel abierto → split 65/35 */}
-      <div className={cn("flex gap-4 items-start min-h-0", isDialogOpen && "lg:flex-row")}>
-        {/* Agenda — se comprime cuando el panel está abierto */}
-        <div className={cn(
-          "min-w-0 transition-all duration-300",
-          isDialogOpen ? "flex-1 hidden lg:block" : "w-full"
-        )}>
+      {/*
+        ──────────────────────────────────────────────────────────────
+        LAYOUT SPLIT — Agenda + Panel como hermanos en flex.
+        En desktop (isDesktop=true): agenda se encoge, panel aparece al lado.
+        En móvil: sólo la agenda; el Sheet se monta por separado abajo.
+        NUNCA se renderizan Panel y Sheet al mismo tiempo.
+        ──────────────────────────────────────────────────────────────
+      */}
+      <div className="flex items-start w-full overflow-hidden">
+
+        {/* Agenda — se encoge cuando el panel lateral está visible */}
+        <div
+          style={{
+            width: panelOpen && isDesktop ? '68%' : '100%',
+            transition: 'width 300ms ease',
+            minWidth: 0,
+          }}
+        >
           <AgendaKanbanView
             selectedDate={selectedDate}
             onDateChange={setSelectedDate}
@@ -90,38 +114,39 @@ export default function CitasPage() {
           />
         </div>
 
-        {/* Panel lateral inline — solo en desktop lg+ */}
-        {isDialogOpen && sucursalId && (
-          <div className="hidden lg:flex flex-col w-[420px] xl:w-[460px] shrink-0 border rounded-xl bg-background shadow-lg overflow-hidden" style={{ maxHeight: "calc(100vh - 180px)" }}>
+        {/* Panel lateral — hermano del agenda, SIN overlay, SIN portal.
+            Solo se monta en desktop cuando el panel está abierto. */}
+        {panelOpen && isDesktop && (
+          <div
+            className="shrink-0 border-l bg-background flex flex-col overflow-hidden shadow-lg"
+            style={{
+              width: '32%',
+              maxHeight: 'calc(100vh - 160px)',
+              minHeight: '500px',
+            }}
+          >
             <NuevaCitaDialog
-              open={isDialogOpen}
-              onOpenChange={(v) => {
-                setIsDialogOpen(v)
-                if (!v) setRefreshCitasKey((k) => k + 1)
-              }}
+              open
+              onOpenChange={handlePanelClose}
               selectedDate={selectedDate}
               sucursalId={sucursalId}
-              onCitaCreada={() => setRefreshCitasKey((k) => k + 1)}
+              onCitaCreada={() => setRefreshCitasKey(k => k + 1)}
               asPanel
             />
           </div>
         )}
       </div>
 
-      {/* Sheet modal — solo en móvil (< lg) */}
-      {sucursalId && (
-        <div className="lg:hidden">
-          <NuevaCitaDialog
-            open={isDialogOpen}
-            onOpenChange={(v) => {
-              setIsDialogOpen(v)
-              if (!v) setRefreshCitasKey((k) => k + 1)
-            }}
-            selectedDate={selectedDate}
-            sucursalId={sucursalId}
-            onCitaCreada={() => setRefreshCitasKey((k) => k + 1)}
-          />
-        </div>
+      {/* Sheet para móvil — solo se monta cuando NO es desktop.
+          Esto evita que el portal del Sheet aparezca en pantallas grandes. */}
+      {panelOpen && !isDesktop && (
+        <NuevaCitaDialog
+          open
+          onOpenChange={handlePanelClose}
+          selectedDate={selectedDate}
+          sucursalId={sucursalId}
+          onCitaCreada={() => setRefreshCitasKey(k => k + 1)}
+        />
       )}
     </div>
   )

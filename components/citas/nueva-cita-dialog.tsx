@@ -19,7 +19,7 @@ import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleado
 import { createCita } from "@/lib/data/citas"
 import {
   Plus, Search, User, Loader2, ChevronsUpDown, Trash2,
-  Clock, DollarSign, ChevronDown, CheckCircle2, AlertCircle,
+  Clock, DollarSign, ChevronDown, CheckCircle2, AlertCircle, X,
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "sonner"
@@ -668,8 +668,8 @@ export function NuevaCitaDialog({
         <div className="px-5 pt-5 pb-3 border-b flex-shrink-0 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Nueva Cita</h2>
           <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => onOpenChange(false)}>
+            <X className="h-4 w-4" />
             <span className="sr-only">Cerrar</span>
-            ✕
           </Button>
         </div>
         {formContent}
