@@ -189,6 +189,7 @@ export default function PagosPage() {
   const totalTransf     = pagos.filter(p => p.metodoPago === "transferencia").reduce((s, p) => s + p.monto, 0)
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
   const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf
+  const totalNeto       = totalGeneral - totalGastos
 
   // ── helpers de selección ────────────────────────────────────────────────────
   const toggleCita = (id: string) => {
@@ -493,7 +494,7 @@ export default function PagosPage() {
 
           <StatRow label="Total Efectivo"    value={fmtMXN(totalEfectivo)} highlight />
           <StatRow label="Total Tarjeta"     value={fmtMXN(totalTarjeta)} highlight />
-          <StatRow label="Total"             value={fmtMXN(totalGeneral)} highlight />
+          <StatRow label="Total"             value={fmtMXN(totalNeto)} highlight />
         </div>
 
         {/* Contador de pendientes */}
