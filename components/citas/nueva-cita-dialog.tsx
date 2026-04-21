@@ -314,7 +314,7 @@ export function NuevaCitaDialog({
                     )}
                     {!selectedCliente && (
                       <div className="border rounded-md">
-                        <ScrollArea className="h-[160px]">
+                        <ScrollArea className="h-[120px]">
                           <div className="p-2 space-y-1">
                             {isLoadingClientes ? (
                               <div className="flex items-center justify-center py-8">
@@ -449,8 +449,8 @@ export function NuevaCitaDialog({
                             )}
                           </div>
 
-                          {/* Fila: Servicio + Empleada + Hora */}
-                          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                          {/* Fila: Servicio + Empleada (fila 1) / Hora (fila 2 si el panel es estrecho) */}
+                          <div className="grid grid-cols-2 gap-2 items-end">
                             {/* Servicio */}
                             <div className="space-y-1">
                               <Label className="text-xs text-muted-foreground">Servicio *</Label>
@@ -517,30 +517,30 @@ export function NuevaCitaDialog({
                               </Select>
                             </div>
 
-                            {/* Hora */}
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">Hora *</Label>
-                              <Select
-                                value={item.horaInicio}
-                                onValueChange={(v) => updateItem(idx, { horaInicio: v })}
-                              >
-                                <SelectTrigger className="h-9 w-28 text-sm">
-                                  <SelectValue placeholder="--:--" />
-                                </SelectTrigger>
-                                <SelectContent className="max-h-60">
-                                  {Array.from({ length: 21 }, (_, i) => {
-                                    const h = Math.floor(i / 2) + 10
-                                    const m = i % 2 === 0 ? "00" : "30"
-                                    const val = `${String(h).padStart(2, "0")}:${m}`
-                                    return (
-                                      <SelectItem key={val} value={val}>
-                                        <span className="tabular-nums font-medium">{formatHora12(val)}</span>
-                                      </SelectItem>
-                                    )
-                                  })}
-                                </SelectContent>
-                              </Select>
-                            </div>
+                          </div>
+                          {/* Hora — fila independiente para evitar compresión */}
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Hora *</Label>
+                            <Select
+                              value={item.horaInicio}
+                              onValueChange={(v) => updateItem(idx, { horaInicio: v })}
+                            >
+                              <SelectTrigger className="h-9 w-full text-sm">
+                                <SelectValue placeholder="Seleccionar hora..." />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-60">
+                                {Array.from({ length: 21 }, (_, i) => {
+                                  const h = Math.floor(i / 2) + 10
+                                  const m = i % 2 === 0 ? "00" : "30"
+                                  const val = `${String(h).padStart(2, "0")}:${m}`
+                                  return (
+                                    <SelectItem key={val} value={val}>
+                                      <span className="tabular-nums font-medium">{formatHora12(val)}</span>
+                                    </SelectItem>
+                                  )
+                                })}
+                              </SelectContent>
+                            </Select>
                           </div>
 
                           {/* Info del servicio seleccionado */}
