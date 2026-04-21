@@ -121,8 +121,9 @@ export default function CitasPage() {
             className="shrink-0 border-l bg-background flex flex-col overflow-hidden shadow-lg"
             style={{
               width: '32%',
-              maxHeight: 'calc(100vh - 160px)',
-              minHeight: '500px',
+              height: 'calc(100vh - 160px)',
+              position: 'sticky',
+              top: 0,
             }}
           >
             <NuevaCitaDialog

@@ -277,7 +277,7 @@ export function NuevaCitaDialog({
   // ─── Shared form content ──────────────────────────────────────────────────
   const formContent = (
     <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden min-h-0">
-          <div className="flex-1 overflow-y-auto overscroll-contain">
+          <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
             <div className="px-6 py-6 space-y-6">
 
               {/* ── CLIENTE ─────────────────────────────────────────────────── */}
@@ -679,7 +679,7 @@ export function NuevaCitaDialog({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[580px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden">
+      <SheetContent side="right" className="w-full sm:w-[520px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden h-full">
         <SheetHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
           <SheetTitle className="text-xl">Nueva Cita</SheetTitle>
         </SheetHeader>
