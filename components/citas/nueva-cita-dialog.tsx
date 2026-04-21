@@ -23,7 +23,7 @@ import {
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "sonner"
-import { cn } from "@/lib/utils"
+import { cn, formatHora12 } from "@/lib/utils"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +42,8 @@ interface NuevaCitaDialogProps {
   selectedEmpleadoId?: string
   sucursalId: string
   onCitaCreada?: () => void
+  /** En desktop, renderiza como panel lateral inline (sin overlay) */
+  asPanel?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -67,6 +69,7 @@ export function NuevaCitaDialog({
   selectedEmpleadoId,
   sucursalId,
   onCitaCreada,
+  asPanel = false,
 }: NuevaCitaDialogProps) {
   // ── Estado: cliente ────────────────────────────────────────────────────────
   const [clienteMode, setClienteMode] = useState<"existing" | "new">("existing")
@@ -271,15 +274,9 @@ export function NuevaCitaDialog({
     }
   }
 
-  // ─── Render ────────────────────────────────────────────────────────────────
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[580px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden">
-        <SheetHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
-          <SheetTitle className="text-xl">Nueva Cita</SheetTitle>
-        </SheetHeader>
-
-        <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden min-h-0">
+  // ─── Shared form content ──────────────────────────────────────────────────
+  const formContent = (
+    <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden min-h-0">
           <div className="flex-1 overflow-y-auto overscroll-contain">
             <div className="px-6 py-6 space-y-6">
 
@@ -535,12 +532,9 @@ export function NuevaCitaDialog({
                                     const h = Math.floor(i / 2) + 10
                                     const m = i % 2 === 0 ? "00" : "30"
                                     const val = `${String(h).padStart(2, "0")}:${m}`
-                                    const period = h < 12 ? "am" : h === 12 ? "pm" : "pm"
-                                    const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h
                                     return (
                                       <SelectItem key={val} value={val}>
-                                        <span className="tabular-nums font-medium">{val}</span>
-                                        <span className="text-muted-foreground text-[10px] ml-1">{h12}:{m}{period}</span>
+                                        <span className="tabular-nums font-medium">{formatHora12(val)}</span>
                                       </SelectItem>
                                     )
                                   })}
@@ -664,6 +658,32 @@ export function NuevaCitaDialog({
             </div>
           </div>
         </form>
+  )
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+  if (asPanel) {
+    if (!open) return null
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <div className="px-5 pt-5 pb-3 border-b flex-shrink-0 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Nueva Cita</h2>
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => onOpenChange(false)}>
+            <span className="sr-only">Cerrar</span>
+            ✕
+          </Button>
+        </div>
+        {formContent}
+      </div>
+    )
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-[580px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden">
+        <SheetHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
+          <SheetTitle className="text-xl">Nueva Cita</SheetTitle>
+        </SheetHeader>
+        {formContent}
       </SheetContent>
     </Sheet>
   )

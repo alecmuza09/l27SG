@@ -17,6 +17,19 @@ export function cn(...inputs: ClassValue[]) {
  * normalizeEmail('dirección@luna27.mx') // 'direccion@luna27.mx'
  * normalizeEmail('maría.gonzález@luna27.mx') // 'maria.gonzalez@luna27.mx'
  */
+/**
+ * Convierte una hora en formato 24h "HH:MM" a formato 12h "H:MM AM/PM"
+ * @example formatHora12("14:30") → "2:30 PM"
+ * @example formatHora12("09:00") → "9:00 AM"
+ */
+export function formatHora12(hora: string): string {
+  if (!hora) return ""
+  const [h, m] = hora.substring(0, 5).split(":").map(Number)
+  const period = h >= 12 ? "PM" : "AM"
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`
+}
+
 export function normalizeEmail(email: string): string {
   if (!email) return email
   

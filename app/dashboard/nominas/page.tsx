@@ -11,6 +11,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getNominasAction, type NominasResult, type SucursalNomina } from "@/app/actions/nominas"
 import { getCurrentUser } from "@/lib/auth"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -249,6 +250,7 @@ export default function NominasPage() {
   const [result, setResult] = useState<NominasResult | null>(null)
   const [expandAll, setExpandAll] = useState(true)
   const [sucursalFiltro, setSucursalFiltro] = useState<string>("todas")
+  const [todasSucursales, setTodasSucursales] = useState<Sucursal[]>([])
 
   const handlePeriodo = (p: Periodo) => {
     setPeriodo(p)
@@ -269,12 +271,17 @@ export default function NominasPage() {
 
   useEffect(() => { cargar() }, [cargar])
 
+  // Cargar catálogo completo de sucursales para el filtro
+  useEffect(() => {
+    getSucursalesActivasFromDB().then(setTodasSucursales).catch(() => {})
+  }, [])
+
   // Sucursales filtradas para la vista
   const sucursalesVista = useMemo(() => {
     if (!result) return []
-    return sucursalFiltro === "todas"
-      ? result.sucursales
-      : result.sucursales.filter(s => s.sucursalId === sucursalFiltro)
+    if (sucursalFiltro === "todas") return result.sucursales
+    // Si la sucursal seleccionada tiene actividad, mostrarla; si no, lista vacía
+    return result.sucursales.filter(s => s.sucursalId === sucursalFiltro)
   }, [result, sucursalFiltro])
 
   // Totales derivados del filtro actual
@@ -358,19 +365,19 @@ export default function NominasPage() {
               />
             </div>
 
-            {/* Filtro por sucursal */}
-            {result && result.sucursales.length > 1 && (
+            {/* Filtro por sucursal — muestra todas las sucursales del catálogo */}
+            {todasSucursales.length > 0 && (
               <div className="flex items-center gap-2 ml-auto">
                 <Filter className="h-3.5 w-3.5 text-muted-foreground" />
                 <Select value={sucursalFiltro} onValueChange={setSucursalFiltro}>
-                  <SelectTrigger className="h-8 text-xs w-[200px]">
+                  <SelectTrigger className="h-8 text-xs w-[220px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todas">Todas las sucursales</SelectItem>
-                    {result.sucursales.map(s => (
-                      <SelectItem key={s.sucursalId} value={s.sucursalId}>
-                        {cleanNombre(s.sucursalNombre)}
+                    {todasSucursales.map(s => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {cleanNombre(s.nombre)}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { updateCitaEstado, updateCita } from "@/lib/data/citas"
 import { toast } from "sonner"
-import { cn } from "@/lib/utils"
+import { cn, formatHora12 } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
 import { EditarCitaDialog } from "./editar-cita-dialog"
 import { CajaDialog } from "./caja-dialog"
@@ -944,8 +944,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                           handleSlotClick(slot, empleado.id, true)
                                       }}
                                     >
-                                      <div className="text-[10px] text-muted-foreground pt-1 w-9 flex-shrink-0 leading-tight select-none">
-                                        {slot}
+                                      <div className="text-[10px] text-muted-foreground pt-1 w-12 flex-shrink-0 leading-tight select-none">
+                                        {formatHora12(slot)}
                                       </div>
                                       <div className="flex-1 border-l border-border/40 relative">
                                         {isComida && (
@@ -1133,8 +1133,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         )}>
                                           <span className="flex items-center gap-0.5 font-medium">
                                             <Clock className={isCompact ? "h-2 w-2 shrink-0" : "h-2.5 w-2.5 shrink-0"} />
-                                            {cita.horaInicio.substring(0, 5)}
-                                            {!isCompact && <>–{cita.horaFin.substring(0, 5)}</>}
+                                            {formatHora12(cita.horaInicio.substring(0, 5))}
+                                            {!isCompact && <>–{formatHora12(cita.horaFin.substring(0, 5))}</>}
                                           </span>
                                           {!isCompact && (
                                             <span className="font-semibold">${cita.precio}</span>
@@ -1386,7 +1386,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   <span className="font-medium">{editingDuracionCita.clienteNombre}</span>
                   {" — "}{editingDuracionCita.servicioNombre}
                   <br />
-                  <span className="text-xs">Hora inicio: {editingDuracionCita.horaInicio.substring(0, 5)}</span>
+                  <span className="text-xs">Hora inicio: {formatHora12(editingDuracionCita.horaInicio.substring(0, 5))}</span>
                 </>
               )}
             </DialogDescription>
@@ -1701,7 +1701,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     </div>
                     <div className="space-y-0.5">
                       <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Horario</p>
-                      <p className="text-sm font-semibold">{detalleCita.horaInicio.substring(0, 5)} – {detalleCita.horaFin.substring(0, 5)}</p>
+                      <p className="text-sm font-semibold">{formatHora12(detalleCita.horaInicio.substring(0, 5))} – {formatHora12(detalleCita.horaFin.substring(0, 5))}</p>
                     </div>
                     <div className="space-y-0.5">
                       <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Duración</p>
