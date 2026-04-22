@@ -15,68 +15,151 @@ export function generarCodigoGiftCard(): string {
   return `GC-${part1}-${part2}`
 }
 
-// Obtener gift cards desde Supabase (pagina automáticamente para traer todos los registros)
-export async function getGiftCardsFromDB(sucursalId?: string): Promise<GiftCard[]> {
+// ─── Helper interno de mapeo ──────────────────────────────────────────────────
+function mapGiftCard(gc: any): GiftCard {
+  return {
+    id: gc.id,
+    codigo: gc.codigo,
+    saldoInicial: Number(gc.monto_inicial) || 0,
+    saldoActual: Number(gc.saldo_actual) || 0,
+    estado: gc.estado,
+    fechaEmision: gc.fecha_emision || gc.created_at,
+    fechaActivacion: gc.fecha_activacion || null,
+    fechaExpiracion: gc.fecha_vencimiento || null,
+    clienteId: gc.cliente_id || null,
+    clienteNombre: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : null,
+    sucursalId: gc.sucursal_id,
+    sucursalNombre: gc.sucursal?.nombre || '',
+    empleadoEmisorId: gc.empleado_emisor_id || '',
+    empleadoEmisorNombre: gc.empleado ? `${gc.empleado.nombre} ${gc.empleado.apellido}` : '',
+  }
+}
+
+const GC_SELECT = `
+  *,
+  cliente:clientes(nombre, apellido),
+  sucursal:sucursales(nombre),
+  empleado:empleados(nombre, apellido)
+`
+
+// Obtener gift cards paginadas con filtros server-side
+export async function getGiftCardsFromDB(params?: {
+  sucursalId?: string
+  estado?: string
+  search?: string
+  page?: number
+  pageSize?: number
+}): Promise<{ data: GiftCard[]; total: number }> {
   try {
-    const PAGE_SIZE = 1000
-    let allData: any[] = []
-    let page = 0
-    let keepGoing = true
+    const { sucursalId, estado, search, page = 0, pageSize = 50 } = params ?? {}
 
-    while (keepGoing) {
-      const from = page * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
-
-      let query = supabase
-        .from('gift_cards')
-        .select(`
-          *,
-          cliente:clientes(nombre, apellido),
-          sucursal:sucursales(nombre),
-          empleado:empleados(nombre, apellido)
-        `)
-        .order('fecha_emision', { ascending: false })
-        .range(from, to)
-
-      if (sucursalId) {
-        query = query.eq('sucursal_id', sucursalId)
-      }
-
-      const { data, error } = await query
-
-      if (error) {
-        console.error('Error obteniendo gift cards:', error)
-        return []
-      }
-
-      if (!data || data.length === 0) {
-        keepGoing = false
-      } else {
-        allData = allData.concat(data)
-        keepGoing = data.length === PAGE_SIZE
-        page++
-      }
+    // Si hay búsqueda de texto, pre-obtener IDs de clientes que coincidan
+    let clienteIds: string[] = []
+    if (search) {
+      const { data: clientes } = await supabase
+        .from('clientes')
+        .select('id')
+        .or(`nombre.ilike.%${search}%,apellido.ilike.%${search}%`)
+        .limit(200)
+      clienteIds = (clientes ?? []).map((c: any) => c.id)
     }
 
-    return allData.map((gc: any) => ({
-      id: gc.id,
-      codigo: gc.codigo,
-      saldoInicial: Number(gc.monto_inicial) || 0,
-      saldoActual: Number(gc.saldo_actual) || 0,
-      estado: gc.estado,
-      fechaEmision: gc.fecha_emision || gc.created_at,
-      fechaActivacion: gc.fecha_activacion || null,
-      fechaExpiracion: gc.fecha_vencimiento || null,
-      clienteId: gc.cliente_id || null,
-      clienteNombre: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : null,
-      sucursalId: gc.sucursal_id,
-      sucursalNombre: gc.sucursal?.nombre || '',
-      empleadoEmisorId: gc.empleado_emisor_id || '',
-      empleadoEmisorNombre: gc.empleado ? `${gc.empleado.nombre} ${gc.empleado.apellido}` : '',
-    }))
+    let query = supabase
+      .from('gift_cards')
+      .select(GC_SELECT, { count: 'exact' })
+      .order('fecha_emision', { ascending: false })
+      .range(page * pageSize, page * pageSize + pageSize - 1)
+
+    if (sucursalId) query = query.eq('sucursal_id', sucursalId)
+    if (estado && estado !== 'todos') query = query.eq('estado', estado)
+    if (search) {
+      const orParts = [`codigo.ilike.%${search}%`]
+      if (clienteIds.length > 0) orParts.push(`cliente_id.in.(${clienteIds.join(',')})`)
+      query = query.or(orParts.join(','))
+    }
+
+    const { data, error, count } = await query
+
+    if (error) {
+      console.error('Error obteniendo gift cards:', error)
+      return { data: [], total: 0 }
+    }
+
+    return { data: (data ?? []).map(mapGiftCard), total: count ?? 0 }
   } catch (error) {
     console.error('Error inesperado obteniendo gift cards:', error)
-    return []
+    return { data: [], total: 0 }
+  }
+}
+
+// Obtener una gift card por ID (para historial/detalle)
+export async function getGiftCardByIdFromDB(id: string): Promise<GiftCard | null> {
+  try {
+    const { data, error } = await supabase
+      .from('gift_cards')
+      .select(GC_SELECT)
+      .eq('id', id)
+      .single()
+    if (error || !data) return null
+    return mapGiftCard(data)
+  } catch {
+    return null
+  }
+}
+
+// Obtener una gift card por código (búsqueda rápida, case-insensitive)
+export async function getGiftCardByCodigoFromDB(codigo: string): Promise<GiftCard | null> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('gift_cards')
+      .select(GC_SELECT)
+      .ilike('codigo', codigo)
+      .maybeSingle()
+    if (error || !data) return null
+    return mapGiftCard(data)
+  } catch {
+    return null
+  }
+}
+
+// KPIs rápidos: 4 COUNT queries en paralelo (no transfieren filas completas)
+export async function getGiftCardsKPIsFromDB(sucursalId?: string): Promise<{
+  totalEmitidas: number
+  totalActivas: number
+  totalPendientes: number
+  saldoTotal: number
+}> {
+  try {
+    const base = () => {
+      const q = supabase.from('gift_cards')
+      return sucursalId ? (q as any).eq('sucursal_id', sucursalId) : q
+    }
+
+    const [
+      { count: total },
+      { count: activas },
+      { count: pendientes },
+      { data: activasData },
+    ] = await Promise.all([
+      base().select('*', { count: 'exact', head: true }),
+      base().select('*', { count: 'exact', head: true }).eq('estado', 'activa'),
+      base().select('*', { count: 'exact', head: true }).eq('estado', 'pendiente'),
+      base().select('saldo_actual').eq('estado', 'activa'),
+    ])
+
+    const saldoTotal = (activasData ?? []).reduce(
+      (s: number, r: any) => s + Number(r.saldo_actual), 0
+    )
+
+    return {
+      totalEmitidas: total ?? 0,
+      totalActivas: activas ?? 0,
+      totalPendientes: pendientes ?? 0,
+      saldoTotal,
+    }
+  } catch (error) {
+    console.error('Error obteniendo KPIs de gift cards:', error)
+    return { totalEmitidas: 0, totalActivas: 0, totalPendientes: 0, saldoTotal: 0 }
   }
 }
 

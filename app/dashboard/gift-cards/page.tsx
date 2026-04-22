@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -57,6 +57,9 @@ import { cn } from "@/lib/utils"
 import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes"
 import {
   getGiftCardsFromDB,
+  getGiftCardsKPIsFromDB,
+  getGiftCardByIdFromDB,
+  getGiftCardByCodigoFromDB,
   getGiftCardTransaccionesFromDB,
   generarCodigoGiftCard,
   crearGiftCard,
@@ -133,9 +136,21 @@ export default function GiftCardsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
 
+  // ── KPIs ───────────────────────────────────────────────────────────────
+  const [kpis, setKpis] = useState({
+    totalEmitidas: 0, totalActivas: 0, totalPendientes: 0, saldoTotal: 0,
+  })
+
+  // ── Paginación ─────────────────────────────────────────────────────────
+  const PAGE_SIZE      = 50
+  const [currentPage, setCurrentPage]   = useState(0)
+  const [totalCount,  setTotalCount]    = useState(0)
+
   // ── Búsqueda / filtros ─────────────────────────────────────────────────
-  const [searchTerm, setSearchTerm]   = useState("")
-  const [filterEstado, setFilterEstado] = useState<string>("todos")
+  const [searchTerm, setSearchTerm]         = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [filterEstado, setFilterEstado]     = useState<string>("todos")
+  const initialized = useRef(false)
 
   // ── Modales ────────────────────────────────────────────────────────────
   const [isCreateOpen,   setIsCreateOpen]   = useState(false)
@@ -179,31 +194,72 @@ export default function GiftCardsPage() {
   const [isSearching,    setIsSearching]    = useState(false)
 
   // ── Cargar datos ───────────────────────────────────────────────────────
-  const reload = async () => {
-    const data = await getGiftCardsFromDB()
-    setGiftCards(data)
+  const loadGiftCards = async (page: number, search: string, estado: string) => {
+    const result = await getGiftCardsFromDB({
+      page,
+      pageSize: PAGE_SIZE,
+      estado: estado !== 'todos' ? estado : undefined,
+      search: search || undefined,
+    })
+    setGiftCards(result.data)
+    setTotalCount(result.total)
   }
 
+  const reload = async () => {
+    const [result, kpiData] = await Promise.all([
+      getGiftCardsFromDB({
+        page: currentPage,
+        pageSize: PAGE_SIZE,
+        estado: filterEstado !== 'todos' ? filterEstado : undefined,
+        search: debouncedSearch || undefined,
+      }),
+      getGiftCardsKPIsFromDB(),
+    ])
+    setGiftCards(result.data)
+    setTotalCount(result.total)
+    setKpis(kpiData)
+  }
+
+  // Carga inicial: sucursales + KPIs + primera página en paralelo
   useEffect(() => {
     setCurrentUser(getCurrentUser())
-    async function loadAll() {
+    async function init() {
       setIsLoading(true)
       try {
-        const [gcs, sucs] = await Promise.all([
-          getGiftCardsFromDB(),
+        const [result, kpiData, sucData] = await Promise.all([
+          getGiftCardsFromDB({ page: 0, pageSize: PAGE_SIZE }),
+          getGiftCardsKPIsFromDB(),
           getSucursalesActivasFromDB(),
         ])
-        setGiftCards(gcs)
-        setSucursales(sucs)
+        setGiftCards(result.data)
+        setTotalCount(result.total)
+        setKpis(kpiData)
+        setSucursales(sucData)
       } catch (err) {
         console.error("Error cargando datos:", err)
         toast.error("Error al cargar los datos")
       } finally {
         setIsLoading(false)
+        initialized.current = true
       }
     }
-    loadAll()
+    init()
   }, [])
+
+  // Debounce de búsqueda + reset de página
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchTerm)
+      setCurrentPage(0)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchTerm])
+
+  // Recargar tabla cuando cambian filtros o página (no en mount)
+  useEffect(() => {
+    if (!initialized.current) return
+    loadGiftCards(currentPage, debouncedSearch, filterEstado)
+  }, [currentPage, debouncedSearch, filterEstado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Búsqueda de clientes (modal Crear) ────────────────────────────────
   useEffect(() => {
@@ -223,22 +279,11 @@ export default function GiftCardsPage() {
     return () => clearTimeout(timer)
   }, [isCreateOpen, clienteMode, clienteSearchQuery])
 
-  // ── Filtrado ───────────────────────────────────────────────────────────
-  const filtered = giftCards.filter((c) => {
-    const matchSearch =
-      c.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (c.clienteNombre ?? "").toLowerCase().includes(searchTerm.toLowerCase())
-    const matchEstado = filterEstado === "todos" || c.estado === filterEstado
-    return matchSearch && matchEstado
-  })
+  // Los filtros son server-side; la tabla muestra la página actual tal cual
+  const filtered = giftCards
 
-  // ── KPIs ───────────────────────────────────────────────────────────────
-  const totalEmitidas  = giftCards.length
-  const totalActivas   = giftCards.filter((c) => c.estado === "activa").length
-  const totalPendientes = giftCards.filter((c) => c.estado === "pendiente").length
-  const saldoTotal     = giftCards
-    .filter((c) => c.estado === "activa")
-    .reduce((s, c) => s + c.saldoActual, 0)
+  // ── KPIs (desde query COUNT rápida) ───────────────────────────────────
+  const { totalEmitidas, totalActivas, totalPendientes, saldoTotal } = kpis
 
   // ─────────────────────────────────────────────────────────────────────
   // Handlers
@@ -309,15 +354,16 @@ export default function GiftCardsPage() {
 
   // Helper: recarga el historial y abre el dialog de detalles para la card dada
   const abrirHistorial = async (cardId: string) => {
-    const todas = await getGiftCardsFromDB()
-    const updated = todas.find(c => c.id === cardId) || null
+    const [updated, txns] = await Promise.all([
+      getGiftCardByIdFromDB(cardId),
+      getGiftCardTransaccionesFromDB(cardId),
+    ])
     if (updated) {
       setSelectedCard(updated)
       if (consultaCard?.id === cardId) setConsultaCard(updated)
-      const txns = await getGiftCardTransaccionesFromDB(cardId)
-      setTransacciones(txns)
-      setIsViewOpen(true)
     }
+    setTransacciones(txns)
+    setIsViewOpen(true)
   }
 
   const handleCanjear = async () => {
@@ -378,17 +424,14 @@ export default function GiftCardsPage() {
     setIsSearching(true)
     setConsultaError("")
     setConsultaCard(null)
-    // Buscar en la lista local primero, luego en DB
+    // Buscar en la página local primero (evita una llamada si ya está visible)
     const local = giftCards.find(c => c.codigo.toUpperCase() === codigo)
     if (local) {
       setConsultaCard(local)
     } else {
-      // Recargar desde DB por si acaso
-      const todas = await getGiftCardsFromDB()
-      const found = todas.find(c => c.codigo.toUpperCase() === codigo)
+      const found = await getGiftCardByCodigoFromDB(codigo)
       if (found) {
         setConsultaCard(found)
-        setGiftCards(todas)
       } else {
         setConsultaError("No se encontró una gift card con ese código")
       }
@@ -618,7 +661,7 @@ export default function GiftCardsPage() {
                 className="pl-10"
               />
             </div>
-            <Select value={filterEstado} onValueChange={setFilterEstado}>
+            <Select value={filterEstado} onValueChange={(v) => { setFilterEstado(v); setCurrentPage(0) }}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filtrar por estado" />
               </SelectTrigger>
@@ -757,6 +800,33 @@ export default function GiftCardsPage() {
               )}
             </TableBody>
           </Table>
+
+          {/* ── Paginación ────────────────────────────────────── */}
+          {totalCount > PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-3 border-t mt-2">
+              <span className="text-xs text-muted-foreground">
+                {totalCount} tarjetas · página {currentPage + 1} de {Math.ceil(totalCount / PAGE_SIZE)}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  disabled={currentPage === 0}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE) - 1}
+                >
+                  Siguiente
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
