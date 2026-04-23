@@ -655,45 +655,57 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           <Button variant="outline" size="icon" onClick={() => navigateDate("prev")}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div className="flex items-center gap-2 min-w-[300px]">
-            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
-                  title="Ir a una fecha"
-                >
-                  <CalendarIcon className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={(() => {
-                    const [y, m, d] = selectedDate.split('-').map(Number)
-                    return new Date(y, m - 1, d)
-                  })()}
-                  onSelect={(date) => {
-                    if (date) {
-                      const y = date.getFullYear()
-                      const m = String(date.getMonth() + 1).padStart(2, '0')
-                      const d = String(date.getDate()).padStart(2, '0')
-                      onDateChange(`${y}-${m}-${d}`)
-                    }
-                    setIsDatePickerOpen(false)
-                  }}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-            <span className="font-medium capitalize">{formatDate(selectedDate)}</span>
-            {isToday && currentTime && (
-              <Badge variant="outline" className="ml-2 text-xs">
-                {currentTime}
-              </Badge>
-            )}
-          </div>
+
+          {/* Fecha como botón — abre el date picker completo */}
+          <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="gap-2 font-medium capitalize px-3 h-9 min-w-[210px] justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span>{formatDate(selectedDate)}</span>
+                </div>
+                {isToday && currentTime && (
+                  <Badge variant="secondary" className="text-[10px] font-normal ml-1">
+                    {currentTime}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start" side="bottom">
+              {(() => {
+                const [y, m, d] = selectedDate.split('-').map(Number)
+                const selected = new Date(y, m - 1, d)
+                return (
+                  <Calendar
+                    mode="single"
+                    selected={selected}
+                    defaultMonth={selected}
+                    onSelect={(date) => {
+                      if (date) {
+                        const ny = date.getFullYear()
+                        const nm = String(date.getMonth() + 1).padStart(2, '0')
+                        const nd = String(date.getDate()).padStart(2, '0')
+                        onDateChange(`${ny}-${nm}-${nd}`)
+                      }
+                      setIsDatePickerOpen(false)
+                    }}
+                    captionLayout="dropdown-buttons"
+                    fromYear={2020}
+                    toYear={2030}
+                    initialFocus
+                    classNames={{
+                      caption_label: "text-sm font-medium",
+                      nav_button: "h-7 w-7 bg-transparent p-0 opacity-70 hover:opacity-100",
+                    }}
+                  />
+                )
+              })()}
+            </PopoverContent>
+          </Popover>
+
           <Button variant="outline" size="icon" onClick={() => navigateDate("next")}>
             <ChevronRight className="h-4 w-4" />
           </Button>
