@@ -625,9 +625,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     if (!editingDuracionCita || nuevaDuracion < 5) return
     setIsSavingDuracion(true)
     try {
+      const modificadoPor = currentUser ? (currentUser.name || currentUser.email || "Sistema") : "Sistema"
       const result = await updateCita(editingDuracionCita.id, {
         hora_inicio: editingDuracionCita.horaInicio,
         duracion: nuevaDuracion,
+        creadoPor: editingDuracionCita.creadoPor,
+        modificadoPor,
       })
       if (result.success) {
         toast.success(`Duración actualizada a ${nuevaDuracion} min`)
@@ -1817,50 +1820,77 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   </div>
 
                   {/* Log de auditoría */}
-                  {(detalleCita.createdAt || detalleCita.creadoPor) && (
+                  {(detalleCita.createdAt || detalleCita.creadoPor || detalleCita.modificadoPor) && (
                     <>
                       <Separator />
                       <div className="space-y-2">
                         <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1">
                           <History className="h-3 w-3" /> Registro
                         </p>
-                        <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2.5 space-y-1.5 text-xs">
-                          {detalleCita.creadoPor && (
-                            <div className="flex items-center gap-2">
-                              <User className="h-3 w-3 text-slate-400 shrink-0" />
-                              <span className="text-slate-500">Creada por</span>
-                              <span className="font-semibold text-slate-700">{detalleCita.creadoPor}</span>
-                            </div>
-                          )}
-                          {detalleCita.createdAt && (
-                            <div className="flex items-center gap-2">
-                              <Clock className="h-3 w-3 text-slate-400 shrink-0" />
-                              <span className="text-slate-500">Registrada el</span>
-                              <span className="font-medium text-slate-700">
-                                {new Date(detalleCita.createdAt).toLocaleDateString("es-MX", {
-                                  day: "numeric", month: "short", year: "numeric",
-                                })}{" "}
-                                {new Date(detalleCita.createdAt).toLocaleTimeString("es-MX", {
-                                  hour: "2-digit", minute: "2-digit",
-                                })}
-                              </span>
-                            </div>
-                          )}
+                        <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2.5 space-y-2 text-xs">
+
+                          {/* Creación */}
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Creación</p>
+                            {detalleCita.creadoPor ? (
+                              <div className="flex items-center gap-2">
+                                <User className="h-3 w-3 text-slate-400 shrink-0" />
+                                <span className="font-semibold text-slate-700">{detalleCita.creadoPor}</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <User className="h-3 w-3 text-slate-300 shrink-0" />
+                                <span className="text-slate-400 italic">Usuario no registrado</span>
+                              </div>
+                            )}
+                            {detalleCita.createdAt && (
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                                <span className="text-slate-600">
+                                  {new Date(detalleCita.createdAt).toLocaleDateString("es-MX", {
+                                    day: "numeric", month: "short", year: "numeric",
+                                  })}{" · "}
+                                  {new Date(detalleCita.createdAt).toLocaleTimeString("es-MX", {
+                                    hour: "2-digit", minute: "2-digit",
+                                  })}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Última modificación (solo si existe y difiere de creación) */}
                           {detalleCita.updatedAt && detalleCita.createdAt &&
                             detalleCita.updatedAt !== detalleCita.createdAt && (
-                            <div className="flex items-center gap-2">
-                              <Clock className="h-3 w-3 text-slate-400 shrink-0" />
-                              <span className="text-slate-500">Modificada el</span>
-                              <span className="font-medium text-slate-700">
-                                {new Date(detalleCita.updatedAt).toLocaleDateString("es-MX", {
-                                  day: "numeric", month: "short", year: "numeric",
-                                })}{" "}
-                                {new Date(detalleCita.updatedAt).toLocaleTimeString("es-MX", {
-                                  hour: "2-digit", minute: "2-digit",
-                                })}
-                              </span>
-                            </div>
+                            <>
+                              <div className="border-t border-slate-200" />
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Última modificación</p>
+                                {detalleCita.modificadoPor ? (
+                                  <div className="flex items-center gap-2">
+                                    <User className="h-3 w-3 text-slate-400 shrink-0" />
+                                    <span className="font-semibold text-slate-700">{detalleCita.modificadoPor}</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <User className="h-3 w-3 text-slate-300 shrink-0" />
+                                    <span className="text-slate-400 italic">Usuario no registrado</span>
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-2">
+                                  <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                                  <span className="text-slate-600">
+                                    {new Date(detalleCita.updatedAt).toLocaleDateString("es-MX", {
+                                      day: "numeric", month: "short", year: "numeric",
+                                    })}{" · "}
+                                    {new Date(detalleCita.updatedAt).toLocaleTimeString("es-MX", {
+                                      hour: "2-digit", minute: "2-digit",
+                                    })}
+                                  </span>
+                                </div>
+                              </div>
+                            </>
                           )}
+
                         </div>
                       </div>
                     </>

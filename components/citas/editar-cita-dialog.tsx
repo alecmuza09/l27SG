@@ -16,6 +16,7 @@ import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales
 import { updateCita, type Cita } from "@/lib/data/citas"
 import { Loader2, ChevronsUpDown } from "lucide-react"
 import { toast } from "sonner"
+import { getCurrentUser } from "@/lib/auth"
 
 interface EditarCitaDialogProps {
   open: boolean
@@ -121,6 +122,9 @@ export function EditarCitaDialog({
         return
       }
 
+      const editor = getCurrentUser()
+      const modificadoPor = editor ? (editor.name || editor.email || "Sistema") : "Sistema"
+
       const result = await updateCita(cita.id, {
         servicio_id: citaForm.servicioId,
         empleado_id: citaForm.empleadoId,
@@ -130,6 +134,8 @@ export function EditarCitaDialog({
         duracion: servicioSeleccionado.duracion,
         precio: servicioSeleccionado.precio,
         notas: citaForm.notas || undefined,
+        creadoPor: cita.creadoPor,
+        modificadoPor,
       })
 
       if (!result.success) {

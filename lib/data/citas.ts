@@ -22,31 +22,41 @@ export interface Cita {
   createdAt?: string
   updatedAt?: string
   creadoPor?: string
+  modificadoPor?: string
 }
 
-// Marcador interno para guardar quién creó la cita dentro del campo notas
+// Marcador interno para guardar auditoría dentro del campo notas
 const META_PREFIX = "||CITA_META||"
 
-/** Extrae la metadata de auditoría del campo notas y devuelve {notas limpias, creadoPor} */
-function parsearNotasMeta(rawNotas: string | null): { notas?: string; creadoPor?: string } {
+interface CitaMeta {
+  creadoPor?: string
+  modificadoPor?: string
+}
+
+/** Extrae la metadata de auditoría del campo notas y devuelve {notas limpias, meta} */
+function parsearNotasMeta(rawNotas: string | null): { notas?: string; creadoPor?: string; modificadoPor?: string } {
   if (!rawNotas) return {}
   const idx = rawNotas.lastIndexOf(`\n${META_PREFIX}`)
   if (idx === -1) return { notas: rawNotas.trim() || undefined }
   try {
-    const meta = JSON.parse(rawNotas.slice(idx + META_PREFIX.length + 1))
+    const meta: CitaMeta = JSON.parse(rawNotas.slice(idx + META_PREFIX.length + 1))
     const notas = rawNotas.slice(0, idx).trim() || undefined
-    return { notas, creadoPor: meta.creadoPor ?? undefined }
+    return { notas, creadoPor: meta.creadoPor, modificadoPor: meta.modificadoPor }
   } catch {
     return { notas: rawNotas.trim() || undefined }
   }
 }
 
 /** Construye el valor de notas embebiendo metadata de auditoría al final */
-export function construirNotasConMeta(notas: string | undefined, creadoPor: string | undefined): string | null {
+export function construirNotasConMeta(
+  notas: string | undefined,
+  meta: CitaMeta,
+): string | null {
   const base = notas?.trim() ?? ""
-  if (!creadoPor) return base || null
-  const meta = `\n${META_PREFIX}${JSON.stringify({ creadoPor })}`
-  return base ? base + meta : meta.trimStart()
+  const hayMeta = meta.creadoPor || meta.modificadoPor
+  if (!hayMeta) return base || null
+  const suffix = `\n${META_PREFIX}${JSON.stringify(meta)}`
+  return base ? base + suffix : suffix.trimStart()
 }
 
 export const MOCK_CITAS: Cita[] = [
@@ -218,7 +228,7 @@ export async function createCita(citaData: {
         duracion: citaData.duracion,
         precio: citaData.precio,
         estado: citaData.estado || 'pendiente',
-        notas: construirNotasConMeta(citaData.notas, citaData.creadoPor),
+        notas: construirNotasConMeta(citaData.notas, { creadoPor: citaData.creadoPor }),
       })
       .select()
       .single()
@@ -247,7 +257,7 @@ function normalizarHora(hora: string): string {
 
 // Función helper para transformar datos de la BD al formato de la interfaz
 function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }): Cita {
-  const { notas, creadoPor } = parsearNotasMeta(cita.notas)
+  const { notas, creadoPor, modificadoPor } = parsearNotasMeta(cita.notas)
   return {
     id: cita.id,
     clienteId: cita.cliente_id,
@@ -269,6 +279,7 @@ function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: stri
     createdAt: cita.created_at || undefined,
     updatedAt: cita.updated_at || undefined,
     creadoPor,
+    modificadoPor,
   }
 }
 
@@ -424,6 +435,9 @@ export async function updateCita(
     precio?: number
     notas?: string
     estado?: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
+    // Auditoría: nombre del creador original (para preservarlo) y del editor actual
+    creadoPor?: string
+    modificadoPor?: string
   }
 ): Promise<{ success: boolean; cita?: CitaRow; error?: string }> {
   try {
@@ -443,8 +457,15 @@ export async function updateCita(
     if (datos.empleado_id) updateData.empleado_id = datos.empleado_id
     if (datos.sucursal_id) updateData.sucursal_id = datos.sucursal_id
     if (datos.precio !== undefined) updateData.precio = datos.precio
-    if (datos.notas !== undefined) updateData.notas = datos.notas || null
     if (datos.estado) updateData.estado = datos.estado
+
+    // Reconstruir notas preservando la meta de auditoría (creadoPor original + modificadoPor nuevo)
+    if (datos.notas !== undefined || datos.creadoPor !== undefined || datos.modificadoPor !== undefined) {
+      updateData.notas = construirNotasConMeta(datos.notas, {
+        creadoPor: datos.creadoPor,
+        modificadoPor: datos.modificadoPor,
+      })
+    }
 
     const { data, error } = await supabase
       .from('citas')
