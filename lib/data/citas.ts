@@ -36,15 +36,27 @@ interface CitaMeta {
 /** Extrae la metadata de auditoría del campo notas y devuelve {notas limpias, meta} */
 function parsearNotasMeta(rawNotas: string | null): { notas?: string; creadoPor?: string; modificadoPor?: string } {
   if (!rawNotas) return {}
+
+  const parseMeta = (jsonStr: string) => {
+    try {
+      const meta: CitaMeta = JSON.parse(jsonStr)
+      return { creadoPor: meta.creadoPor, modificadoPor: meta.modificadoPor }
+    } catch {
+      return {}
+    }
+  }
+
+  // Caso 1: toda la cadena ES el marcador (sin notas de usuario)
+  if (rawNotas.startsWith(META_PREFIX)) {
+    return { notas: undefined, ...parseMeta(rawNotas.slice(META_PREFIX.length)) }
+  }
+
+  // Caso 2: el marcador va al final, separado por \n
   const idx = rawNotas.lastIndexOf(`\n${META_PREFIX}`)
   if (idx === -1) return { notas: rawNotas.trim() || undefined }
-  try {
-    const meta: CitaMeta = JSON.parse(rawNotas.slice(idx + META_PREFIX.length + 1))
-    const notas = rawNotas.slice(0, idx).trim() || undefined
-    return { notas, creadoPor: meta.creadoPor, modificadoPor: meta.modificadoPor }
-  } catch {
-    return { notas: rawNotas.trim() || undefined }
-  }
+
+  const notas = rawNotas.slice(0, idx).trim() || undefined
+  return { notas, ...parseMeta(rawNotas.slice(idx + 1 + META_PREFIX.length)) }
 }
 
 /** Construye el valor de notas embebiendo metadata de auditoría al final */
@@ -55,8 +67,9 @@ export function construirNotasConMeta(
   const base = notas?.trim() ?? ""
   const hayMeta = meta.creadoPor || meta.modificadoPor
   if (!hayMeta) return base || null
-  const suffix = `\n${META_PREFIX}${JSON.stringify(meta)}`
-  return base ? base + suffix : suffix.trimStart()
+  // Si no hay notas de usuario, el marcador ocupa toda la cadena (sin \n inicial)
+  const metaStr = `${META_PREFIX}${JSON.stringify(meta)}`
+  return base ? `${base}\n${metaStr}` : metaStr
 }
 
 export const MOCK_CITAS: Cita[] = [
