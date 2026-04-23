@@ -17,6 +17,7 @@ import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { createCita } from "@/lib/data/citas"
+import { getCurrentUser } from "@/lib/auth"
 import {
   Plus, Search, User, Loader2, ChevronsUpDown, Trash2,
   Clock, DollarSign, ChevronDown, CheckCircle2, AlertCircle, X,
@@ -236,7 +237,9 @@ export function NuevaCitaDialog({
         }
       }
 
-      // 3) Crear todas las citas en paralelo
+      // 3) Crear todas las citas en paralelo (incluye quién registró la cita)
+      const user = getCurrentUser()
+      const creadoPor = user ? (user.name || user.email || "Sistema") : "Sistema"
       const results = await Promise.all(
         serviciosItems.map((item) => {
           const svc = servicios.find((s) => s.id === item.servicioId)!
@@ -251,6 +254,7 @@ export function NuevaCitaDialog({
             precio: svc.precio,
             estado: "pendiente",
             notas: notasGenerales || undefined,
+            creadoPor,
           })
         })
       )

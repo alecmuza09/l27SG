@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle } from "lucide-react"
+import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -1815,6 +1815,56 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       <p className="text-xs text-muted-foreground italic">No se encontró la ficha del cliente</p>
                     )}
                   </div>
+
+                  {/* Log de auditoría */}
+                  {(detalleCita.createdAt || detalleCita.creadoPor) && (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1">
+                          <History className="h-3 w-3" /> Registro
+                        </p>
+                        <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2.5 space-y-1.5 text-xs">
+                          {detalleCita.creadoPor && (
+                            <div className="flex items-center gap-2">
+                              <User className="h-3 w-3 text-slate-400 shrink-0" />
+                              <span className="text-slate-500">Creada por</span>
+                              <span className="font-semibold text-slate-700">{detalleCita.creadoPor}</span>
+                            </div>
+                          )}
+                          {detalleCita.createdAt && (
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                              <span className="text-slate-500">Registrada el</span>
+                              <span className="font-medium text-slate-700">
+                                {new Date(detalleCita.createdAt).toLocaleDateString("es-MX", {
+                                  day: "numeric", month: "short", year: "numeric",
+                                })}{" "}
+                                {new Date(detalleCita.createdAt).toLocaleTimeString("es-MX", {
+                                  hour: "2-digit", minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
+                          )}
+                          {detalleCita.updatedAt && detalleCita.createdAt &&
+                            detalleCita.updatedAt !== detalleCita.createdAt && (
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                              <span className="text-slate-500">Modificada el</span>
+                              <span className="font-medium text-slate-700">
+                                {new Date(detalleCita.updatedAt).toLocaleDateString("es-MX", {
+                                  day: "numeric", month: "short", year: "numeric",
+                                })}{" "}
+                                {new Date(detalleCita.updatedAt).toLocaleTimeString("es-MX", {
+                                  hour: "2-digit", minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <Separator />

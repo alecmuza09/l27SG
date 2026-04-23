@@ -18,6 +18,35 @@ export interface Cita {
   notas?: string
   metodoPago?: string
   pagado: boolean
+  // Auditoría
+  createdAt?: string
+  updatedAt?: string
+  creadoPor?: string
+}
+
+// Marcador interno para guardar quién creó la cita dentro del campo notas
+const META_PREFIX = "||CITA_META||"
+
+/** Extrae la metadata de auditoría del campo notas y devuelve {notas limpias, creadoPor} */
+function parsearNotasMeta(rawNotas: string | null): { notas?: string; creadoPor?: string } {
+  if (!rawNotas) return {}
+  const idx = rawNotas.lastIndexOf(`\n${META_PREFIX}`)
+  if (idx === -1) return { notas: rawNotas.trim() || undefined }
+  try {
+    const meta = JSON.parse(rawNotas.slice(idx + META_PREFIX.length + 1))
+    const notas = rawNotas.slice(0, idx).trim() || undefined
+    return { notas, creadoPor: meta.creadoPor ?? undefined }
+  } catch {
+    return { notas: rawNotas.trim() || undefined }
+  }
+}
+
+/** Construye el valor de notas embebiendo metadata de auditoría al final */
+export function construirNotasConMeta(notas: string | undefined, creadoPor: string | undefined): string | null {
+  const base = notas?.trim() ?? ""
+  if (!creadoPor) return base || null
+  const meta = `\n${META_PREFIX}${JSON.stringify({ creadoPor })}`
+  return base ? base + meta : meta.trimStart()
 }
 
 export const MOCK_CITAS: Cita[] = [
@@ -171,6 +200,7 @@ export async function createCita(citaData: {
   precio: number
   estado?: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
   notas?: string
+  creadoPor?: string
 }): Promise<{ success: boolean; cita?: CitaRow; error?: string }> {
   try {
     const hora_fin = calcularHoraFin(citaData.hora_inicio, citaData.duracion)
@@ -188,7 +218,7 @@ export async function createCita(citaData: {
         duracion: citaData.duracion,
         precio: citaData.precio,
         estado: citaData.estado || 'pendiente',
-        notas: citaData.notas || null,
+        notas: construirNotasConMeta(citaData.notas, citaData.creadoPor),
       })
       .select()
       .single()
@@ -217,6 +247,7 @@ function normalizarHora(hora: string): string {
 
 // Función helper para transformar datos de la BD al formato de la interfaz
 function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }): Cita {
+  const { notas, creadoPor } = parsearNotasMeta(cita.notas)
   return {
     id: cita.id,
     clienteId: cita.cliente_id,
@@ -232,9 +263,12 @@ function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: stri
     duracion: cita.duracion,
     precio: Number(cita.precio),
     estado: cita.estado,
-    notas: cita.notas || undefined,
+    notas,
     metodoPago: cita.metodo_pago || undefined,
     pagado: cita.pagado,
+    createdAt: cita.created_at || undefined,
+    updatedAt: cita.updated_at || undefined,
+    creadoPor,
   }
 }
 
