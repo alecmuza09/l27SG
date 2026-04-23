@@ -199,7 +199,13 @@ export async function getProximasCitas(limit: number = 4, sucursalId?: string): 
 }
 
 // Obtener servicios populares
-export async function getServiciosPopulares(limit: number = 4, sucursalId?: string, fecha?: string): Promise<ServicioPopular[]> {
+export async function getServiciosPopulares(
+  limit: number = 4,
+  sucursalId?: string,
+  fecha?: string,
+  fechaDesde?: string,
+  fechaHasta?: string,
+): Promise<ServicioPopular[]> {
   try {
     let citasQuery = supabase
       .from('citas')
@@ -215,9 +221,9 @@ export async function getServiciosPopulares(limit: number = 4, sucursalId?: stri
       citasQuery = citasQuery.eq('sucursal_id', sucursalId)
     }
 
-    if (fecha) {
-      citasQuery = citasQuery.eq('fecha', fecha)
-    }
+    if (fecha)      { citasQuery = citasQuery.eq('fecha', fecha) }
+    if (fechaDesde) { citasQuery = citasQuery.gte('fecha', fechaDesde) }
+    if (fechaHasta) { citasQuery = citasQuery.lte('fecha', fechaHasta) }
     
     const { data: citas } = await citasQuery
     
@@ -451,21 +457,28 @@ export async function getProductividadSucursalesFromDB(sucursalId?: string): Pro
 }
 
 // Obtener top empleados desde BD
-export async function getTopEmpleadosFromDB(limit: number = 10, sucursalId?: string): Promise<ProductividadEmpleado[]> {
+export async function getTopEmpleadosFromDB(
+  limit: number = 10,
+  sucursalId?: string,
+  fechaDesde?: string,
+  fechaHasta?: string,
+): Promise<ProductividadEmpleado[]> {
   try {
     const empleados = await getEmpleadosFromDB(sucursalId)
     const hoy = new Date()
     const mesActual = hoy.toISOString().slice(0, 7)
-    
+    const desde = fechaDesde ?? `${mesActual}-01`
+    const hasta = fechaHasta ?? hoy.toISOString().split('T')[0]
+
     const productividad = await Promise.all(
       empleados.map(async (empleado) => {
-        // Citas del empleado en el mes actual
         const { data: citasMes, count: citasCount } = await supabase
           .from('citas')
           .select('precio, duracion')
           .eq('empleado_id', empleado.id)
           .eq('estado', 'completada')
-          .gte('fecha', `${mesActual}-01`)
+          .gte('fecha', desde)
+          .lte('fecha', hasta)
         
         const ingresos = citasMes?.reduce((sum, c: Pick<CitaRow, 'precio' | 'cliente_id'>) => sum + Number(c.precio || 0), 0) || 0
         const citas = citasCount || 0

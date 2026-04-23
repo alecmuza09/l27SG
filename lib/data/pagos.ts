@@ -188,7 +188,12 @@ export function getPagosPendientes(): Pago[] {
 }
 
 // Obtener pagos desde Supabase
-export async function getPagosFromDB(sucursalId?: string, fecha?: string): Promise<Pago[]> {
+export async function getPagosFromDB(
+  sucursalId?: string,
+  fecha?: string,
+  fechaDesde?: string,
+  fechaHasta?: string,
+): Promise<Pago[]> {
   try {
     let query = supabase
       .from('pagos')
@@ -203,8 +208,10 @@ export async function getPagosFromDB(sucursalId?: string, fecha?: string): Promi
       `)
       .order('hora', { ascending: false })
 
-    if (sucursalId) query = query.eq('sucursal_id', sucursalId)
-    if (fecha)      query = query.eq('fecha', fecha)
+    if (sucursalId)  query = query.eq('sucursal_id', sucursalId)
+    if (fecha)       query = query.eq('fecha', fecha)
+    if (fechaDesde)  query = query.gte('fecha', fechaDesde)
+    if (fechaHasta)  query = query.lte('fecha', fechaHasta)
 
     const { data, error } = await query
 
