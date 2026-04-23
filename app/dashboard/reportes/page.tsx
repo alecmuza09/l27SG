@@ -1,265 +1,391 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, FileSpreadsheet, TrendingUp, Users, Calendar, Loader2, RefreshCw } from "lucide-react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import {
+  Download, FileSpreadsheet, TrendingUp, TrendingDown,
+  Users, Calendar, Loader2, RefreshCw, Building2,
+  CheckCircle2, XCircle, Clock, AlertCircle, DollarSign,
+  BarChart3, Star,
+} from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table"
 import { getPagosFromDB, type Pago } from "@/lib/data/pagos"
-import { getServiciosPopulares, getTopEmpleadosFromDB } from "@/lib/data/dashboard"
-import { getClientesStats } from "@/lib/data/clientes"
+import {
+  getServiciosPopulares,
+  getTopEmpleadosFromDB,
+  getCitasResumenPeriodo,
+  getMetricasSucursales,
+  type MetricaSucursal,
+} from "@/lib/data/dashboard"
+import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
+import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser } from "@/lib/auth"
 import * as XLSX from "xlsx"
 
-// ── Helpers de fecha ─────────────────────────────────────────────────────────
+// ─── Tipos internos ───────────────────────────────────────────────────────────
+
+interface VentaDia        { etiqueta: string; fecha: string; ventas: number; ventasAnt: number }
+interface ServicioRow     { name: string; cantidad: number; ingresos: number; pctTotal: number }
+interface EmpleadoRow     { nombre: string; apellido: string; sucursal: string; servicios: number; ingresos: number; comision: number; ocupacion: number }
+interface ClienteTopRow   { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }
+interface KpiStats        { ingresosTotales: number; totalServicios: number; ticketPromedio: number }
+interface CitasResumen    { completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }
+
+type Periodo = "semana" | "mes" | "trimestre" | "año"
+
+// ─── Helpers de fecha ─────────────────────────────────────────────────────────
 
 function localFmt(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-type Periodo = "semana" | "mes" | "trimestre" | "año"
-
-interface RangoPeriodo {
-  fechaDesde: string
-  fechaHasta: string
-  label: string
-}
-
-function calcularPeriodo(periodo: Periodo): RangoPeriodo {
-  const hoy = new Date()
+function calcularPeriodo(periodo: Periodo): { fechaDesde: string; fechaHasta: string; label: string } {
+  const hoy    = new Date()
   const hoyStr = localFmt(hoy)
-
   switch (periodo) {
     case "semana": {
-      const inicio = new Date(hoy)
-      inicio.setDate(hoy.getDate() - 6)
-      return { fechaDesde: localFmt(inicio), fechaHasta: hoyStr, label: "Esta Semana" }
+      const i = new Date(hoy); i.setDate(hoy.getDate() - 6)
+      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Esta Semana" }
     }
     case "mes": {
-      const inicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
-      return { fechaDesde: localFmt(inicio), fechaHasta: hoyStr, label: "Este Mes" }
+      const i = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Este Mes" }
     }
     case "trimestre": {
-      const inicio = new Date(hoy)
-      inicio.setMonth(hoy.getMonth() - 3)
-      return { fechaDesde: localFmt(inicio), fechaHasta: hoyStr, label: "Últimos 3 Meses" }
+      const i = new Date(hoy); i.setMonth(hoy.getMonth() - 3)
+      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Últimos 3 Meses" }
     }
     case "año": {
-      const inicio = new Date(hoy.getFullYear(), 0, 1)
-      return { fechaDesde: localFmt(inicio), fechaHasta: hoyStr, label: "Este Año" }
+      const i = new Date(hoy.getFullYear(), 0, 1)
+      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Este Año" }
     }
   }
 }
 
-interface VentaDia {
-  etiqueta: string
-  fecha: string
-  ventas: number
+function calcularPeriodoAnterior(periodo: Periodo): { fechaDesde: string; fechaHasta: string } {
+  const hoy = new Date()
+  switch (periodo) {
+    case "semana": {
+      const fin   = new Date(hoy); fin.setDate(hoy.getDate() - 7)
+      const ini   = new Date(fin); ini.setDate(fin.getDate() - 6)
+      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+    }
+    case "mes": {
+      const fin   = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
+      const ini   = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
+      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+    }
+    case "trimestre": {
+      const fin   = new Date(hoy); fin.setMonth(hoy.getMonth() - 3)
+      const ini   = new Date(fin); ini.setMonth(fin.getMonth() - 3)
+      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+    }
+    case "año": {
+      const fin   = new Date(hoy.getFullYear() - 1, 11, 31)
+      const ini   = new Date(hoy.getFullYear() - 1, 0, 1)
+      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+    }
+  }
 }
 
-function buildVentasPorPeriodo(pagos: Pago[], periodo: Periodo, fechaDesde: string, fechaHasta: string): VentaDia[] {
-  const completados = pagos.filter(p => p.estado === "completado")
+function buildVentasPorPeriodo(
+  pagos: Pago[], pagosAnt: Pago[], periodo: Periodo, fechaDesde: string, fechaHasta: string,
+): VentaDia[] {
+  const comp    = pagos.filter(p => p.estado === "completado")
+  const compAnt = pagosAnt.filter(p => p.estado === "completado")
+
+  const ventasPorFecha = (lista: Pago[], f: string) =>
+    lista.filter(p => p.fecha === f).reduce((s, p) => s + p.monto, 0)
 
   if (periodo === "semana" || periodo === "mes") {
-    const inicio = new Date(fechaDesde + "T12:00:00")
-    const fin    = new Date(fechaHasta + "T12:00:00")
+    const cur = new Date(fechaDesde + "T12:00:00")
+    const fin = new Date(fechaHasta + "T12:00:00")
     const dias: VentaDia[] = []
-    const cur = new Date(inicio)
+    let idx = 0
     while (cur <= fin) {
-      const fechaStr = localFmt(cur)
-      const ventas   = completados
-        .filter(p => p.fecha === fechaStr)
-        .reduce((s, p) => s + p.monto, 0)
+      const f  = localFmt(cur)
       const etiqueta = periodo === "semana"
         ? cur.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })
         : cur.toLocaleDateString("es-MX", { day: "numeric", month: "short" })
-      dias.push({ etiqueta, fecha: fechaStr, ventas })
-      cur.setDate(cur.getDate() + 1)
+      // período anterior: mismo índice hacia atrás
+      const antD = new Date(cur)
+      antD.setDate(antD.getDate() - (periodo === "semana" ? 7 : new Date(cur.getFullYear(), cur.getMonth(), 0).getDate()))
+      dias.push({ etiqueta, fecha: f, ventas: ventasPorFecha(comp, f), ventasAnt: compAnt.filter(p => p.fecha === localFmt(antD)).reduce((s, p) => s + p.monto, 0) })
+      cur.setDate(cur.getDate() + 1); idx++
     }
     return dias
   }
 
   if (periodo === "trimestre") {
-    const inicio = new Date(fechaDesde + "T12:00:00")
-    const fin    = new Date(fechaHasta + "T12:00:00")
+    const cur = new Date(fechaDesde + "T12:00:00")
+    const fin = new Date(fechaHasta + "T12:00:00")
     const semanas: VentaDia[] = []
-    const cur = new Date(inicio)
     while (cur <= fin) {
-      const semanaInicio = localFmt(cur)
-      const semanaFinD   = new Date(cur)
-      semanaFinD.setDate(semanaFinD.getDate() + 6)
-      if (semanaFinD > fin) semanaFinD.setTime(fin.getTime())
-      const semanaFin = localFmt(semanaFinD)
-      const ventas    = completados
-        .filter(p => p.fecha >= semanaInicio && p.fecha <= semanaFin)
-        .reduce((s, p) => s + p.monto, 0)
-      const etiqueta = `${cur.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} – ${semanaFinD.toLocaleDateString("es-MX", { day: "numeric", month: "short" })}`
-      semanas.push({ etiqueta, fecha: semanaInicio, ventas })
+      const desde = localFmt(cur)
+      const hastaD = new Date(cur); hastaD.setDate(hastaD.getDate() + 6); if (hastaD > fin) hastaD.setTime(fin.getTime())
+      const hasta  = localFmt(hastaD)
+      const ventas = comp.filter(p => p.fecha >= desde && p.fecha <= hasta).reduce((s, p) => s + p.monto, 0)
+      const ventasAnt = compAnt.filter(p => p.fecha >= desde && p.fecha <= hasta).reduce((s, p) => s + p.monto, 0)
+      const etiqueta = `${cur.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} – ${hastaD.toLocaleDateString("es-MX", { day: "numeric", month: "short" })}`
+      semanas.push({ etiqueta, fecha: desde, ventas, ventasAnt })
       cur.setDate(cur.getDate() + 7)
     }
     return semanas
   }
 
-  // año → agrupado por mes
+  // año → por mes
   const hoy = new Date()
-  const meses: VentaDia[] = []
-  for (let m = 0; m <= hoy.getMonth(); m++) {
-    const inicioMes = `${hoy.getFullYear()}-${String(m + 1).padStart(2, "0")}-01`
-    const ultimoDia = new Date(hoy.getFullYear(), m + 1, 0).getDate()
-    const finMes    = `${hoy.getFullYear()}-${String(m + 1).padStart(2, "0")}-${String(ultimoDia).padStart(2, "0")}`
-    const ventas    = completados
-      .filter(p => p.fecha >= inicioMes && p.fecha <= finMes)
-      .reduce((s, p) => s + p.monto, 0)
-    const etiqueta  = new Date(hoy.getFullYear(), m, 1)
-      .toLocaleDateString("es-MX", { month: "short", year: "2-digit" })
-    meses.push({ etiqueta, fecha: inicioMes, ventas })
-  }
-  return meses
+  return Array.from({ length: hoy.getMonth() + 1 }, (_, m) => {
+    const ini = `${hoy.getFullYear()}-${String(m + 1).padStart(2, "0")}-01`
+    const ult = new Date(hoy.getFullYear(), m + 1, 0).getDate()
+    const end = `${hoy.getFullYear()}-${String(m + 1).padStart(2, "0")}-${String(ult).padStart(2, "0")}`
+    const antY = hoy.getFullYear() - 1
+    const iniA = `${antY}-${String(m + 1).padStart(2, "0")}-01`
+    const endA = `${antY}-${String(m + 1).padStart(2, "0")}-${String(ult).padStart(2, "0")}`
+    return {
+      etiqueta: new Date(hoy.getFullYear(), m, 1).toLocaleDateString("es-MX", { month: "short", year: "2-digit" }),
+      fecha: ini,
+      ventas: comp.filter(p => p.fecha >= ini && p.fecha <= end).reduce((s, p) => s + p.monto, 0),
+      ventasAnt: compAnt.filter(p => p.fecha >= iniA && p.fecha <= endA).reduce((s, p) => s + p.monto, 0),
+    }
+  })
 }
+
+// ─── Helpers UI ───────────────────────────────────────────────────────────────
 
 const fmtMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(n)
 
-// ── Componente principal ──────────────────────────────────────────────────────
+function Tendencia({ actual, anterior }: { actual: number; anterior: number }) {
+  if (anterior === 0) return null
+  const pct = Math.round(((actual - anterior) / anterior) * 100)
+  const up  = pct >= 0
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? "text-green-600" : "text-red-500"}`}>
+      {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {up ? "+" : ""}{pct}%
+    </span>
+  )
+}
+
+function BarraHorizontal({ valor, max, colorClass = "bg-primary" }: { valor: number; max: number; colorClass?: string }) {
+  const pct = max > 0 ? Math.min(100, (valor / max) * 100) : 0
+  return (
+    <div className="h-2 bg-muted rounded-full overflow-hidden">
+      <div className={`h-full ${colorClass} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+    </div>
+  )
+}
+
+// ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function ReportesPage() {
-  const currentUser = getCurrentUser()
-  const isAdmin   = currentUser?.role === "admin"
-  const isManager = currentUser?.role === "manager"
-  const sucursalFiltro = isAdmin ? undefined : (currentUser?.sucursalId ?? undefined)
+  const currentUser    = getCurrentUser()
+  const isSuperAdmin   = currentUser?.role === "superadmin"
+  const isAdmin        = currentUser?.role === "admin" || isSuperAdmin
+  const isManager      = currentUser?.role === "manager"
+  // managers tienen su propia sucursal fija; admins pueden seleccionar
+  const sucursalFija   = isAdmin ? undefined : (currentUser?.sucursalId ?? undefined)
 
-  // ── Estado ──────────────────────────────────────────────────────────────
-  const [periodo,   setPeriodo]   = useState<Periodo>("mes")
-  const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState(isManager ? "servicios" : "ventas")
+  // ── Filtros ──
+  const [periodo,          setPeriodo]          = useState<Periodo>("mes")
+  const [sucursalFilter,   setSucursalFilter]   = useState<string>("all")
+  const [sucursales,       setSucursales]       = useState<Sucursal[]>([])
+  const [activeTab,        setActiveTab]        = useState(isManager ? "servicios" : "ventas")
+  const [isLoading,        setIsLoading]        = useState(true)
 
-  const [pagosBrutos,           setPagosBrutos]           = useState<Pago[]>([])
-  const [ventasPeriodo,         setVentasPeriodo]         = useState<VentaDia[]>([])
-  const [serviciosMasVendidos,  setServiciosMasVendidos]  = useState<Array<{ name: string; cantidad: number; ingresos: number }>>([])
-  const [empleadosTop,          setEmpleadosTop]          = useState<Array<{ nombre: string; apellido: string; servicios: number; ingresos: number; comision: number }>>([])
-  const [stats,                 setStats]                 = useState({ ingresosTotales: 0, totalServicios: 0, nuevosClientes: 0, ticketPromedio: 0 })
-  const [clientesStats,         setClientesStats]         = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
-  const [metodosPago,           setMetodosPago]           = useState<Array<{ metodo: string; monto: number; count: number }>>([])
+  // ── Datos ──
+  const [pagosBrutos,          setPagosBrutos]          = useState<Pago[]>([])
+  const [pagosAnteriores,      setPagosAnteriores]      = useState<Pago[]>([])
+  const [ventasPeriodo,        setVentasPeriodo]        = useState<VentaDia[]>([])
+  const [statsActual,          setStatsActual]          = useState<KpiStats>({ ingresosTotales: 0, totalServicios: 0, ticketPromedio: 0 })
+  const [statsAnterior,        setStatsAnterior]        = useState<KpiStats>({ ingresosTotales: 0, totalServicios: 0, ticketPromedio: 0 })
+  const [citasResumen,         setCitasResumen]         = useState<CitasResumen>({ completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 })
+  const [serviciosMasVendidos, setServiciosMasVendidos] = useState<ServicioRow[]>([])
+  const [empleadosTop,         setEmpleadosTop]         = useState<EmpleadoRow[]>([])
+  const [clientesStats,        setClientesStats]        = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
+  const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
+  const [metodosPago,          setMetodosPago]          = useState<Array<{ metodo: string; monto: number; count: number }>>([])
+  const [metricasSucursales,   setMetricasSucursales]   = useState<MetricaSucursal[]>([])
 
-  // ── Carga de datos ───────────────────────────────────────────────────────
+  // ── Carga inicial de sucursales ──────────────────────────────────────────
+  useEffect(() => {
+    if (isAdmin) {
+      getSucursalesActivasFromDB().then(setSucursales).catch(() => {})
+    }
+  }, [isAdmin])
+
+  // ── Carga de datos reactiva ──────────────────────────────────────────────
   const cargarDatos = useCallback(async () => {
     setIsLoading(true)
     try {
       const { fechaDesde, fechaHasta } = calcularPeriodo(periodo)
+      const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(periodo)
 
-      const [pagos, servicios, empleados, clientesData] = await Promise.all([
-        getPagosFromDB(sucursalFiltro, undefined, fechaDesde, fechaHasta),
-        getServiciosPopulares(5, sucursalFiltro, undefined, fechaDesde, fechaHasta),
-        getTopEmpleadosFromDB(6, sucursalFiltro, fechaDesde, fechaHasta),
+      // sucursal efectiva: si admin seleccionó "all" → undefined (todas), si eligió una → esa id
+      const sucId = isAdmin
+        ? (sucursalFilter === "all" ? undefined : sucursalFilter)
+        : sucursalFija
+
+      const [pagos, pagosAnt, citasRes, servicios, empleados, cliStats, topCli, metSuc] = await Promise.all([
+        getPagosFromDB(sucId, undefined, fechaDesde, fechaHasta),
+        getPagosFromDB(sucId, undefined, antDesde,   antHasta),
+        getCitasResumenPeriodo(fechaDesde, fechaHasta, sucId),
+        getServiciosPopulares(10, sucId, undefined, fechaDesde, fechaHasta),
+        getTopEmpleadosFromDB(10, sucId, fechaDesde, fechaHasta),
         getClientesStats(),
+        getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucId),
+        isAdmin && sucursalFilter === "all"
+          ? getMetricasSucursales(fechaDesde, fechaHasta)
+          : Promise.resolve([] as MetricaSucursal[]),
       ])
 
       setPagosBrutos(pagos)
-      setVentasPeriodo(buildVentasPorPeriodo(pagos, periodo, fechaDesde, fechaHasta))
+      setPagosAnteriores(pagosAnt)
+      setCitasResumen(citasRes)
+      setClientesStats(cliStats)
+      setTopClientes(topCli)
+      setMetricasSucursales(metSuc)
+      setVentasPeriodo(buildVentasPorPeriodo(pagos, pagosAnt, periodo, fechaDesde, fechaHasta))
 
-      const completados = pagos.filter(p => p.estado === "completado")
-      const ingresosTotales = completados.reduce((s, p) => s + p.monto, 0)
-      const totalServicios  = completados.length
-      setStats({
-        ingresosTotales,
-        totalServicios,
-        nuevosClientes: clientesData.nuevos,
-        ticketPromedio: totalServicios > 0 ? Math.round(ingresosTotales / totalServicios) : 0,
-      })
-      setClientesStats(clientesData)
+      const calcStats = (lista: Pago[]): KpiStats => {
+        const comp      = lista.filter(p => p.estado === "completado")
+        const ingresos  = comp.reduce((s, p) => s + p.monto, 0)
+        const total     = comp.length
+        return { ingresosTotales: ingresos, totalServicios: total, ticketPromedio: total > 0 ? Math.round(ingresos / total) : 0 }
+      }
+      setStatsActual(calcStats(pagos))
+      setStatsAnterior(calcStats(pagosAnt))
 
       // Métodos de pago
       const metodosMap = new Map<string, { monto: number; count: number }>()
-      completados.forEach(p => {
-        const m = p.metodoPago ?? "otro"
+      pagos.filter(p => p.estado === "completado").forEach(p => {
+        const m    = p.metodoPago ?? "otro"
         const prev = metodosMap.get(m) ?? { monto: 0, count: 0 }
         metodosMap.set(m, { monto: prev.monto + p.monto, count: prev.count + 1 })
       })
-      setMetodosPago(Array.from(metodosMap.entries())
-        .map(([metodo, v]) => ({ metodo, ...v }))
-        .sort((a, b) => b.monto - a.monto))
+      setMetodosPago(Array.from(metodosMap.entries()).map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto))
 
+      // Servicios enriquecidos
+      const totalSvc = servicios.reduce((s, x) => s + x.count, 0)
       setServiciosMasVendidos(servicios.map(s => ({
         name: s.name, cantidad: s.count, ingresos: s.revenue,
+        pctTotal: totalSvc > 0 ? Math.round((s.count / totalSvc) * 100) : 0,
       })))
+
       setEmpleadosTop(empleados.map(e => ({
         nombre: e.nombre, apellido: e.apellido,
+        sucursal: e.sucursalNombre,
         servicios: e.citas, ingresos: e.ingresos,
         comision: Math.round(e.ingresos * 0.3),
+        ocupacion: e.ocupacion,
       })))
     } catch (err) {
       console.error("Error cargando reportes:", err)
     } finally {
       setIsLoading(false)
     }
-  }, [periodo, sucursalFiltro])
+  }, [periodo, sucursalFilter, sucursalFija, isAdmin])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
-
-  // ── Exportar PDF (window.print) ──────────────────────────────────────────
-  const handleExportPDF = () => {
-    window.print()
-  }
 
   // ── Exportar Excel ────────────────────────────────────────────────────────
   const handleExportExcel = () => {
     const { label } = calcularPeriodo(periodo)
+    const sucNombre  = sucursalFilter === "all"
+      ? "Todas las sucursales"
+      : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
     const wb = XLSX.utils.book_new()
 
-    // Hoja: Resumen KPIs
-    const resumenData = [
-      ["Reporte Luna27", label],
+    // Resumen KPIs
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Reporte de Resultados"],
+      ["Período", label],
+      ["Sucursal", sucNombre],
+      ["Generado el", new Date().toLocaleDateString("es-MX", { dateStyle: "full" })],
       [],
-      ["KPI", "Valor"],
-      ["Ingresos Totales", stats.ingresosTotales],
-      ["Total Servicios", stats.totalServicios],
-      ["Nuevos Clientes", stats.nuevosClientes],
-      ["Ticket Promedio", stats.ticketPromedio],
-    ]
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumenData), "Resumen")
+      ["KPI", "Período Actual", "Período Anterior", "Variación %"],
+      ["Ingresos Totales",  statsActual.ingresosTotales,  statsAnterior.ingresosTotales,  statsAnterior.ingresosTotales > 0 ? `${Math.round(((statsActual.ingresosTotales - statsAnterior.ingresosTotales) / statsAnterior.ingresosTotales) * 100)}%` : "—"],
+      ["Total Servicios",   statsActual.totalServicios,   statsAnterior.totalServicios,   statsAnterior.totalServicios  > 0 ? `${Math.round(((statsActual.totalServicios  - statsAnterior.totalServicios)  / statsAnterior.totalServicios)  * 100)}%` : "—"],
+      ["Ticket Promedio",   statsActual.ticketPromedio,   statsAnterior.ticketPromedio,   statsAnterior.ticketPromedio  > 0 ? `${Math.round(((statsActual.ticketPromedio  - statsAnterior.ticketPromedio)  / statsAnterior.ticketPromedio)  * 100)}%` : "—"],
+      ["Citas Completadas", citasResumen.completadas, "", ""],
+      ["Tasa de Cancelación", `${citasResumen.tasaCancelacion}%`, "", ""],
+    ]), "Resumen")
 
-    // Hoja: Ventas por Día/Semana/Mes
-    const ventasHeaders = [["Etiqueta", "Fecha", "Monto ($)"]]
-    const ventasRows    = ventasPeriodo.map(v => [v.etiqueta, v.fecha, v.ventas])
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...ventasHeaders, ...ventasRows]), "Ventas por Período")
+    // Ventas por período
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Etiqueta", "Fecha", "Ingresos ($)", "Período Anterior ($)"],
+      ...ventasPeriodo.map(v => [v.etiqueta, v.fecha, v.ventas, v.ventasAnt]),
+    ]), "Ventas por Período")
 
-    // Hoja: Servicios
-    const svcHeaders = [["Servicio", "Cantidad", "Ingresos ($)", "Promedio ($)"]]
-    const svcRows    = serviciosMasVendidos.map(s => [s.name, s.cantidad, s.ingresos, s.cantidad > 0 ? Math.round(s.ingresos / s.cantidad) : 0])
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...svcHeaders, ...svcRows]), "Servicios")
+    // Citas por estado
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Estado", "Cantidad"],
+      ["Completadas", citasResumen.completadas],
+      ["Canceladas",  citasResumen.canceladas],
+      ["Pendientes",  citasResumen.pendientes],
+      ["No Show",     citasResumen.noShow],
+      ["Total",       citasResumen.total],
+      ["Tasa cancelación", `${citasResumen.tasaCancelacion}%`],
+    ]), "Citas por Estado")
 
-    // Hoja: Empleados
-    const empHeaders = [["Nombre", "Apellido", "Servicios", "Ingresos ($)", "Comisión ($)"]]
-    const empRows    = empleadosTop.map(e => [e.nombre, e.apellido, e.servicios, e.ingresos, e.comision])
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...empHeaders, ...empRows]), "Empleados")
+    // Servicios
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Servicio", "# Citas", "Ingresos ($)", "Ticket Promedio ($)", "% del Total"],
+      ...serviciosMasVendidos.map(s => [s.name, s.cantidad, s.ingresos, s.cantidad > 0 ? Math.round(s.ingresos / s.cantidad) : 0, `${s.pctTotal}%`]),
+    ]), "Servicios")
 
-    // Hoja: Clientes
-    const cliData = [
-      ["Categoría", "Cantidad"],
-      ["Total", clientesStats.total],
-      ["Activos", clientesStats.activos],
-      ["VIP", clientesStats.vip],
-      ["Nuevos (30 días)", clientesStats.nuevos],
-    ]
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cliData), "Clientes")
+    // Empleados
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Nombre", "Apellido", "Sucursal", "Servicios", "Ingresos ($)", "Comisión 30% ($)", "Ocupación %"],
+      ...empleadosTop.map(e => [e.nombre, e.apellido, e.sucursal, e.servicios, e.ingresos, e.comision, `${e.ocupacion}%`]),
+    ]), "Empleados")
 
-    // Hoja: Métodos de pago
-    const metHeaders = [["Método", "Cobros", "Monto ($)"]]
-    const metRows    = metodosPago.map(m => [m.metodo, m.count, m.monto])
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...metHeaders, ...metRows]), "Métodos de Pago")
+    // Top Clientes
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Nombre", "Visitas", "Total Gastado ($)", "Última Visita"],
+      ...topClientes.map(c => [c.nombre, c.visitas, c.totalGastado, c.ultimaVisita]),
+    ]), "Top Clientes")
+
+    // Métodos de pago
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Método", "Cobros", "Monto ($)"],
+      ...metodosPago.map(m => [m.metodo, m.count, m.monto]),
+    ]), "Métodos de Pago")
+
+    // Sucursales (admin, todas)
+    if (isAdmin && metricasSucursales.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ["Sucursal", "Ingresos ($)", "Citas", "Ticket Promedio ($)", "Top Servicio"],
+        ...metricasSucursales.map(s => [s.nombre, s.ingresos, s.totalCitas, s.ticketPromedio, s.topServicio]),
+      ]), "Sucursales")
+    }
 
     const slug = periodo === "semana" ? "esta-semana" : periodo === "mes" ? "este-mes" : periodo === "trimestre" ? "trimestre" : "este-año"
     XLSX.writeFile(wb, `reporte-${slug}.xlsx`)
   }
 
-  // ── Derived ──────────────────────────────────────────────────────────────
-  const maxVentas = ventasPeriodo.length > 0 ? Math.max(...ventasPeriodo.map(d => d.ventas), 1) : 1
-  const maxCitas  = empleadosTop.length  > 0 ? Math.max(...empleadosTop.map(e => e.servicios), 1) : 1
-  const { label: periodoLabel } = calcularPeriodo(periodo)
+  // ── Exportar PDF ──────────────────────────────────────────────────────────
+  const handleExportPDF = () => { window.print() }
 
-  // ── Loading ──────────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const maxVentas   = Math.max(...ventasPeriodo.map(d => Math.max(d.ventas, d.ventasAnt)), 1)
+  const maxEmpleado = Math.max(...empleadosTop.map(e => e.ingresos), 1)
+  const { label: periodoLabel } = calcularPeriodo(periodo)
+  const sucNombreActiva = sucursalFilter === "all"
+    ? "Todas las sucursales"
+    : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? "")
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -271,10 +397,9 @@ export default function ReportesPage() {
     )
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* CSS para impresión PDF */}
       <style>{`
         @media print {
           body > * { visibility: hidden !important; }
@@ -285,16 +410,35 @@ export default function ReportesPage() {
       `}</style>
 
       <div id="reporte-contenido" className="space-y-6">
-        {/* Cabecera */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+        {/* ── Cabecera ── */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Reportes</h1>
-            <p className="text-muted-foreground">
-              {isManager ? "Análisis y estadísticas de tu sucursal" : "Análisis y estadísticas del negocio"}
+            <p className="text-muted-foreground text-sm mt-1">
+              {isManager ? "Análisis de tu sucursal" : "Análisis y estadísticas del negocio"}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 no-print">
-            <Select value={periodo} onValueChange={(v) => setPeriodo(v as Periodo)}>
+
+          <div className="flex flex-wrap gap-2 items-center no-print">
+            {/* Filtro sucursal (solo admin) */}
+            {isAdmin && sucursales.length > 0 && (
+              <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
+                <SelectTrigger className="w-52">
+                  <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="Sucursal" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las sucursales</SelectItem>
+                  {sucursales.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* Filtro período */}
+            <Select value={periodo} onValueChange={v => setPeriodo(v as Periodo)}>
               <SelectTrigger className="w-44">
                 <SelectValue />
               </SelectTrigger>
@@ -305,117 +449,171 @@ export default function ReportesPage() {
                 <SelectItem value="año">Este Año</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" onClick={cargarDatos} title="Actualizar">
+
+            <Button variant="outline" size="icon" onClick={cargarDatos} title="Actualizar datos">
               <RefreshCw className="h-4 w-4" />
             </Button>
+
             {!isManager && (
               <>
                 <Button variant="outline" onClick={handleExportPDF}>
-                  <Download className="mr-2 h-4 w-4" />
-                  PDF
+                  <Download className="mr-2 h-4 w-4" />PDF
                 </Button>
                 <Button variant="outline" onClick={handleExportExcel}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />
-                  Excel
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />Excel
                 </Button>
               </>
             )}
           </div>
         </div>
 
-        {/* Badge de período activo */}
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs font-normal">
-            <Calendar className="mr-1 h-3 w-3" />
-            Período: {periodoLabel}
+        {/* Badges de contexto */}
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Badge variant="outline"><Calendar className="mr-1 h-3 w-3" />{periodoLabel}</Badge>
+          {isAdmin && <Badge variant="outline"><Building2 className="mr-1 h-3 w-3" />{sucNombreActiva}</Badge>}
+          <Badge variant="outline" className="text-muted-foreground">
+            Generado: {new Date().toLocaleDateString("es-MX", { dateStyle: "medium" })}
           </Badge>
         </div>
 
-        {/* KPI cards */}
-        <div className={`grid gap-4 ${isManager ? "md:grid-cols-2" : "md:grid-cols-4"}`}>
+        {/* ── KPIs ── */}
+        <div className={`grid gap-4 ${isManager ? "sm:grid-cols-2 lg:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"}`}>
           {!isManager && (
-            <Card>
+            <Card className="xl:col-span-2">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Ingresos Totales</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <DollarSign className="h-4 w-4" />Ingresos Totales
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{fmtMXN(stats.ingresosTotales)}</div>
-                <p className="text-xs text-muted-foreground mt-1">{periodoLabel}</p>
+                <div className="text-2xl font-bold">{fmtMXN(statsActual.ingresosTotales)}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <Tendencia actual={statsActual.ingresosTotales} anterior={statsAnterior.ingresosTotales} />
+                  <span className="text-xs text-muted-foreground">vs período anterior</span>
+                </div>
               </CardContent>
             </Card>
           )}
+
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Servicios</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <BarChart3 className="h-4 w-4" />Total Servicios
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalServicios}</div>
-              <p className="text-xs text-muted-foreground mt-1">Servicios completados</p>
+              <div className="text-2xl font-bold">{statsActual.totalServicios}</div>
+              <div className="flex items-center gap-2 mt-1">
+                <Tendencia actual={statsActual.totalServicios} anterior={statsAnterior.totalServicios} />
+                <span className="text-xs text-muted-foreground">vs período anterior</span>
+              </div>
             </CardContent>
           </Card>
+
+          {!isManager && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <TrendingUp className="h-4 w-4" />Ticket Promedio
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{fmtMXN(statsActual.ticketPromedio)}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <Tendencia actual={statsActual.ticketPromedio} anterior={statsAnterior.ticketPromedio} />
+                  <span className="text-xs text-muted-foreground">vs período anterior</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Nuevos Clientes</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4" />Citas Completadas
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.nuevosClientes}</div>
+              <div className="text-2xl font-bold">{citasResumen.completadas}</div>
+              <p className="text-xs text-muted-foreground mt-1">De {citasResumen.total} totales</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <XCircle className="h-4 w-4" />Tasa Cancelación
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${citasResumen.tasaCancelacion > 20 ? "text-red-500" : citasResumen.tasaCancelacion > 10 ? "text-amber-500" : "text-green-600"}`}>
+                {citasResumen.tasaCancelacion}%
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">{citasResumen.canceladas + citasResumen.noShow} canceladas / no-show</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <Users className="h-4 w-4" />Nuevos Clientes
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{clientesStats.nuevos}</div>
               <p className="text-xs text-muted-foreground mt-1">Últimos 30 días</p>
             </CardContent>
           </Card>
-          {!isManager && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Ticket Promedio</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{fmtMXN(stats.ticketPromedio)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Promedio por cobro</p>
-              </CardContent>
-            </Card>
-          )}
         </div>
 
-        {/* Tabs */}
+        {/* ── Tabs ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="no-print">
+          <TabsList className="no-print flex-wrap h-auto gap-1">
             {!isManager && <TabsTrigger value="ventas">Ventas</TabsTrigger>}
             <TabsTrigger value="servicios">Servicios</TabsTrigger>
             <TabsTrigger value="empleados">Empleados</TabsTrigger>
             <TabsTrigger value="clientes">Clientes</TabsTrigger>
+            {isAdmin && <TabsTrigger value="sucursales">Sucursales</TabsTrigger>}
           </TabsList>
 
-          {/* ── Ventas ── */}
+          {/* ══════════════ VENTAS ══════════════ */}
           {!isManager && (
             <TabsContent value="ventas" className="space-y-4">
-              {/* Ventas por período */}
+
+              {/* Ventas por período con comparativa */}
               <Card>
                 <CardHeader>
                   <CardTitle>
                     {periodo === "año" ? "Ventas por Mes" : periodo === "trimestre" ? "Ventas por Semana" : "Ventas por Día"}
                   </CardTitle>
                   <CardDescription>
-                    {periodoLabel} · {ventasPeriodo.filter(d => d.ventas > 0).length} días con actividad
+                    {periodoLabel} · barras azules = actual, grises = período anterior
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {ventasPeriodo.length === 0 ? (
-                    <p className="text-center py-8 text-muted-foreground text-sm">Sin datos en este período</p>
+                    <p className="text-center py-8 text-sm text-muted-foreground">Sin datos en este período</p>
                   ) : (
-                    <div className="space-y-3">
-                      {ventasPeriodo.map((d) => (
+                    <div className="space-y-4">
+                      {ventasPeriodo.map(d => (
                         <div key={d.fecha} className="space-y-1">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium capitalize min-w-[120px]">{d.etiqueta}</span>
-                            <span className={`font-semibold tabular-nums ${d.ventas === 0 ? "text-muted-foreground" : ""}`}>
-                              {d.ventas === 0 ? "—" : fmtMXN(d.ventas)}
-                            </span>
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium capitalize min-w-[130px]">{d.etiqueta}</span>
+                            <div className="flex items-center gap-3">
+                              {d.ventasAnt > 0 && (
+                                <span className="text-xs text-muted-foreground">{fmtMXN(d.ventasAnt)}</span>
+                              )}
+                              <span className={`font-semibold tabular-nums ${d.ventas === 0 ? "text-muted-foreground" : ""}`}>
+                                {d.ventas === 0 ? "—" : fmtMXN(d.ventas)}
+                              </span>
+                            </div>
                           </div>
-                          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full transition-all duration-500"
-                              style={{ width: `${maxVentas > 0 ? (d.ventas / maxVentas) * 100 : 0}%` }}
-                            />
-                          </div>
+                          {/* Barra actual */}
+                          <BarraHorizontal valor={d.ventas} max={maxVentas} colorClass="bg-primary" />
+                          {/* Barra anterior */}
+                          {d.ventasAnt > 0 && (
+                            <BarraHorizontal valor={d.ventasAnt} max={maxVentas} colorClass="bg-muted-foreground/30" />
+                          )}
                         </div>
                       ))}
                     </div>
@@ -423,8 +621,8 @@ export default function ReportesPage() {
                 </CardContent>
               </Card>
 
-              {/* Métodos de pago */}
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 lg:grid-cols-2">
+                {/* Métodos de pago */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Métodos de Pago</CardTitle>
@@ -435,201 +633,345 @@ export default function ReportesPage() {
                       <p className="text-center py-6 text-sm text-muted-foreground">Sin pagos en este período</p>
                     ) : (
                       <div className="space-y-3">
-                        {metodosPago.map((m) => {
-                          const pct = stats.ingresosTotales > 0 ? Math.round((m.monto / stats.ingresosTotales) * 100) : 0
+                        {metodosPago.map(m => {
+                          const pct   = statsActual.ingresosTotales > 0 ? Math.round((m.monto / statsActual.ingresosTotales) * 100) : 0
                           const label = m.metodo === "efectivo" ? "Efectivo" : m.metodo === "tarjeta" ? "Tarjeta" : m.metodo === "transferencia" ? "Transferencia" : m.metodo
                           return (
                             <div key={m.metodo} className="space-y-1">
                               <div className="flex justify-between text-sm">
                                 <span className="capitalize font-medium">{label}</span>
-                                <span className="text-muted-foreground">{fmtMXN(m.monto)} · {m.count} cobros</span>
+                                <span className="text-muted-foreground tabular-nums">{fmtMXN(m.monto)} · {m.count} cobros · {pct}%</span>
                               </div>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
-                              </div>
+                              <BarraHorizontal valor={m.monto} max={statsActual.ingresosTotales} />
                             </div>
                           )
                         })}
+                        <div className="pt-2 border-t flex justify-between text-sm font-semibold">
+                          <span>Total</span>
+                          <span>{fmtMXN(statsActual.ingresosTotales)}</span>
+                        </div>
                       </div>
                     )}
                   </CardContent>
                 </Card>
 
+                {/* Citas por estado */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4" />
-                      Resumen Financiero
+                      <Calendar className="h-4 w-4" />Estado de Citas
                     </CardTitle>
                     <CardDescription>{periodoLabel}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
                       {[
-                        { label: "Ingresos brutos", value: fmtMXN(stats.ingresosTotales) },
-                        { label: "Total cobros", value: `${stats.totalServicios}` },
-                        { label: "Ticket promedio", value: fmtMXN(stats.ticketPromedio) },
+                        { label: "Completadas",  icon: CheckCircle2, color: "text-green-600",  bg: "bg-green-500",       count: citasResumen.completadas },
+                        { label: "Canceladas",   icon: XCircle,      color: "text-red-500",    bg: "bg-red-400",         count: citasResumen.canceladas  },
+                        { label: "Pendientes",   icon: Clock,        color: "text-amber-500",  bg: "bg-amber-400",       count: citasResumen.pendientes  },
+                        { label: "No Show",      icon: AlertCircle,  color: "text-slate-400",  bg: "bg-slate-300",       count: citasResumen.noShow      },
+                      ].map(row => {
+                        const pct = citasResumen.total > 0 ? Math.round((row.count / citasResumen.total) * 100) : 0
+                        const Icon = row.icon
+                        return (
+                          <div key={row.label} className="space-y-1">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className={`flex items-center gap-1.5 font-medium ${row.color}`}>
+                                <Icon className="h-3.5 w-3.5" />{row.label}
+                              </span>
+                              <span className="tabular-nums text-muted-foreground">{row.count} · {pct}%</span>
+                            </div>
+                            <BarraHorizontal valor={row.count} max={citasResumen.total} colorClass={row.bg} />
+                          </div>
+                        )
+                      })}
+                      <div className="pt-2 border-t flex justify-between text-sm font-semibold">
+                        <span>Total citas</span>
+                        <span>{citasResumen.total}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Comparativa período anterior — resumen */}
+              {!isManager && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Comparativa vs Período Anterior</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      {[
+                        { label: "Ingresos",        actual: statsActual.ingresosTotales, ant: statsAnterior.ingresosTotales, fmt: fmtMXN },
+                        { label: "Servicios",        actual: statsActual.totalServicios,  ant: statsAnterior.totalServicios,  fmt: (n: number) => String(n) },
+                        { label: "Ticket Promedio",  actual: statsActual.ticketPromedio,  ant: statsAnterior.ticketPromedio,  fmt: fmtMXN },
                       ].map(item => (
-                        <div key={item.label} className="flex justify-between items-center py-2 border-b last:border-0">
-                          <span className="text-sm text-muted-foreground">{item.label}</span>
-                          <span className="font-semibold">{item.value}</span>
+                        <div key={item.label} className="p-4 rounded-lg bg-muted/40 space-y-1">
+                          <p className="text-xs text-muted-foreground">{item.label}</p>
+                          <p className="text-lg font-bold">{item.fmt(item.actual)}</p>
+                          <p className="text-xs text-muted-foreground">Ant: {item.fmt(item.ant)}</p>
+                          <Tendencia actual={item.actual} anterior={item.ant} />
                         </div>
                       ))}
                     </div>
                   </CardContent>
                 </Card>
-              </div>
+              )}
             </TabsContent>
           )}
 
-          {/* ── Servicios ── */}
-          <TabsContent value="servicios">
+          {/* ══════════════ SERVICIOS ══════════════ */}
+          <TabsContent value="servicios" className="space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle>Servicios Más Vendidos</CardTitle>
-                <CardDescription>Top 5 · {periodoLabel}</CardDescription>
+                <CardDescription>Top 10 · {periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
                 {serviciosMasVendidos.length === 0 ? (
-                  <p className="text-center py-8 text-sm text-muted-foreground">Sin servicios en este período</p>
+                  <p className="text-center py-8 text-sm text-muted-foreground">Sin datos en este período</p>
                 ) : (
-                  <div className="space-y-3">
-                    {serviciosMasVendidos.map((s, i) => (
-                      <div key={s.name} className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
-                        <div className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 text-primary font-bold text-sm shrink-0">
-                          {i + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{s.name}</p>
-                          <p className="text-xs text-muted-foreground">{s.cantidad} realizados</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="font-semibold">{fmtMXN(s.ingresos)}</p>
-                          {!isManager && (
-                            <p className="text-xs text-muted-foreground">
-                              {fmtMXN(s.cantidad > 0 ? Math.round(s.ingresos / s.cantidad) : 0)} / servicio
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-8">#</TableHead>
+                          <TableHead>Servicio</TableHead>
+                          <TableHead className="text-right"># Citas</TableHead>
+                          <TableHead className="text-right">% Total</TableHead>
+                          <TableHead className="text-right">Ingresos</TableHead>
+                          <TableHead className="text-right">Ticket Prom.</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {serviciosMasVendidos.map((s, i) => (
+                          <TableRow key={s.name}>
+                            <TableCell className="text-muted-foreground font-mono text-xs">{i + 1}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <span className="font-medium">{s.name}</span>
+                                <BarraHorizontal valor={s.pctTotal} max={100} />
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{s.cantidad}</TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">{s.pctTotal}%</TableCell>
+                            <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(s.ingresos)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {fmtMXN(s.cantidad > 0 ? Math.round(s.ingresos / s.cantidad) : 0)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* ── Empleados ── */}
-          <TabsContent value="empleados">
+          {/* ══════════════ EMPLEADOS ══════════════ */}
+          <TabsContent value="empleados" className="space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle>Rendimiento de Empleados</CardTitle>
-                <CardDescription>Top empleados · {periodoLabel}</CardDescription>
+                <CardDescription>Top 10 · {periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
                 {empleadosTop.length === 0 ? (
                   <p className="text-center py-8 text-sm text-muted-foreground">Sin datos en este período</p>
                 ) : (
-                  <div className="space-y-4">
-                    {empleadosTop.map((e, i) => (
-                      <div key={`${e.nombre}-${e.apellido}`} className="p-4 rounded-lg border bg-card">
-                        <div className="flex items-center gap-4 mb-2">
-                          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 shrink-0">
-                            <span className="text-sm font-bold text-primary">#{i + 1}</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold">{e.nombre} {e.apellido}</p>
-                            <p className="text-xs text-muted-foreground">{e.servicios} servicios</p>
-                          </div>
-                        </div>
-                        <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-2">
-                          <div
-                            className="h-full bg-gradient-to-r from-primary to-indigo-500 rounded-full transition-all duration-500"
-                            style={{ width: `${isManager ? (maxCitas > 0 ? (e.servicios / maxCitas) * 100 : 0) : (empleadosTop[0]?.ingresos > 0 ? (e.ingresos / empleadosTop[0].ingresos) * 100 : 0)}%` }}
-                          />
-                        </div>
-                        {!isManager && (
-                          <div className="grid grid-cols-2 gap-3 pt-2 border-t mt-2">
-                            <div>
-                              <p className="text-xs text-muted-foreground">Ingresos</p>
-                              <p className="font-semibold">{fmtMXN(e.ingresos)}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">Comisión (30%)</p>
-                              <p className="font-semibold text-green-600">{fmtMXN(e.comision)}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-8">#</TableHead>
+                          <TableHead>Empleada</TableHead>
+                          {isAdmin && <TableHead>Sucursal</TableHead>}
+                          <TableHead className="text-right">Servicios</TableHead>
+                          {!isManager && (
+                            <>
+                              <TableHead className="text-right">Ingresos</TableHead>
+                              <TableHead className="text-right">Comisión 30%</TableHead>
+                            </>
+                          )}
+                          <TableHead className="text-right">Ocupación</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {empleadosTop.map((e, i) => (
+                          <TableRow key={`${e.nombre}-${e.apellido}-${i}`}>
+                            <TableCell className="text-muted-foreground font-mono text-xs">{i + 1}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <span className="font-medium">{e.nombre} {e.apellido}</span>
+                                {!isManager && (
+                                  <BarraHorizontal valor={e.ingresos} max={maxEmpleado} />
+                                )}
+                              </div>
+                            </TableCell>
+                            {isAdmin && (
+                              <TableCell className="text-muted-foreground text-sm">{e.sucursal}</TableCell>
+                            )}
+                            <TableCell className="text-right tabular-nums">{e.servicios}</TableCell>
+                            {!isManager && (
+                              <>
+                                <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(e.ingresos)}</TableCell>
+                                <TableCell className="text-right tabular-nums text-green-600 font-semibold">{fmtMXN(e.comision)}</TableCell>
+                              </>
+                            )}
+                            <TableCell className="text-right">
+                              <Badge variant={e.ocupacion >= 70 ? "default" : e.ocupacion >= 40 ? "secondary" : "outline"} className="text-xs">
+                                {e.ocupacion}%
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* ── Clientes ── */}
-          <TabsContent value="clientes">
-            <div className="grid gap-4 md:grid-cols-2">
+          {/* ══════════════ CLIENTES ══════════════ */}
+          <TabsContent value="clientes" className="space-y-4">
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* Stats generales */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Clientes por Categoría
+                    <Users className="h-4 w-4" />Distribución de Clientes
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
+                  <div className="space-y-3 mb-4">
                     {[
-                      { categoria: "VIP",              cantidad: clientesStats.vip },
+                      { categoria: "VIP",              cantidad: clientesStats.vip    },
                       { categoria: "Activos",          cantidad: clientesStats.activos },
-                      { categoria: "Nuevos (30 días)", cantidad: clientesStats.nuevos },
-                    ].filter(item => item.cantidad > 0).map(item => {
+                      { categoria: "Nuevos (30 días)", cantidad: clientesStats.nuevos  },
+                    ].map(item => {
                       const pct = clientesStats.total > 0 ? Math.round((item.cantidad / clientesStats.total) * 100) : 0
                       return (
                         <div key={item.categoria} className="space-y-1">
                           <div className="flex justify-between text-sm">
                             <span className="font-medium">{item.categoria}</span>
-                            <span className="text-muted-foreground">{pct}% · {item.cantidad}</span>
+                            <span className="text-muted-foreground">{item.cantidad} · {pct}%</span>
                           </div>
-                          <div className="h-2 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
-                          </div>
+                          <BarraHorizontal valor={pct} max={100} />
                         </div>
                       )
                     })}
                   </div>
+                  <div className="text-center p-4 rounded-lg bg-primary/5">
+                    <div className="text-3xl font-bold text-primary">{clientesStats.total}</div>
+                    <p className="text-xs text-muted-foreground mt-1">Total de clientes registrados</p>
+                  </div>
                 </CardContent>
               </Card>
 
+              {/* Top clientes por gasto */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Estadísticas de Clientes
+                    <Star className="h-4 w-4" />Top Clientes por Gasto
                   </CardTitle>
+                  <CardDescription>{periodoLabel}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="text-center p-6 rounded-lg bg-primary/5">
-                      <div className="text-4xl font-bold text-primary mb-1">{clientesStats.total}</div>
-                      <p className="text-sm text-muted-foreground">Total de clientes</p>
+                  {topClientes.length === 0 ? (
+                    <p className="text-center py-6 text-sm text-muted-foreground">Sin visitas en este período</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {topClientes.slice(0, 8).map((c, i) => (
+                        <div key={c.clienteId} className="flex items-center gap-3 py-1.5">
+                          <span className="text-xs text-muted-foreground w-5 text-right shrink-0">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{c.nombre}</p>
+                            <p className="text-xs text-muted-foreground">{c.visitas} {c.visitas === 1 ? "visita" : "visitas"} · última: {c.ultimaVisita}</p>
+                          </div>
+                          <span className="font-semibold text-sm tabular-nums shrink-0">{fmtMXN(c.totalGastado)}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <div className="text-2xl font-bold">{clientesStats.activos}</div>
-                        <p className="text-xs text-muted-foreground">Activos</p>
-                      </div>
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <div className="text-2xl font-bold">{clientesStats.nuevos}</div>
-                        <p className="text-xs text-muted-foreground">Nuevos (30d)</p>
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
+
+          {/* ══════════════ SUCURSALES (solo admin) ══════════════ */}
+          {isAdmin && (
+            <TabsContent value="sucursales" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Comparativa por Sucursal</CardTitle>
+                  <CardDescription>{periodoLabel}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {metricasSucursales.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-muted-foreground">
+                      <Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p>Selecciona "Todas las sucursales" para ver la comparativa</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Resumen en tarjetas */}
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-6">
+                        {metricasSucursales.map(s => (
+                          <div key={s.sucursalId} className="p-4 rounded-lg border bg-card space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="font-semibold text-sm">{s.nombre}</p>
+                              <Badge variant="outline" className="text-xs">{s.totalCitas} citas</Badge>
+                            </div>
+                            <p className="text-xl font-bold">{fmtMXN(s.ingresos)}</p>
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Ticket: {fmtMXN(s.ticketPromedio)}</span>
+                              <span className="truncate max-w-[120px]">Top: {s.topServicio}</span>
+                            </div>
+                            <BarraHorizontal
+                              valor={s.ingresos}
+                              max={Math.max(...metricasSucursales.map(x => x.ingresos), 1)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Tabla detallada */}
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>#</TableHead>
+                              <TableHead>Sucursal</TableHead>
+                              <TableHead className="text-right">Ingresos</TableHead>
+                              <TableHead className="text-right">Citas</TableHead>
+                              <TableHead className="text-right">Ticket Prom.</TableHead>
+                              <TableHead>Top Servicio</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {metricasSucursales.map((s, i) => (
+                              <TableRow key={s.sucursalId}>
+                                <TableCell className="text-muted-foreground font-mono text-xs">{i + 1}</TableCell>
+                                <TableCell className="font-medium">{s.nombre}</TableCell>
+                                <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(s.ingresos)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{s.totalCitas}</TableCell>
+                                <TableCell className="text-right tabular-nums text-muted-foreground">{fmtMXN(s.ticketPromedio)}</TableCell>
+                                <TableCell className="text-muted-foreground text-sm">{s.topServicio}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
         </Tabs>
       </div>
     </>

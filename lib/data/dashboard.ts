@@ -524,3 +524,108 @@ export async function getTopEmpleadosFromDB(
     return []
   }
 }
+
+// ── Resumen de citas por estado en un período ────────────────────────────────
+export async function getCitasResumenPeriodo(
+  fechaDesde: string,
+  fechaHasta: string,
+  sucursalId?: string,
+): Promise<{ completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }> {
+  try {
+    const base = (supabase as any)
+      .from('citas')
+      .select('estado', { count: 'exact', head: false })
+      .gte('fecha', fechaDesde)
+      .lte('fecha', fechaHasta)
+
+    const addSucursal = (q: any) => sucursalId ? q.eq('sucursal_id', sucursalId) : q
+
+    const [completadasR, canceladasR, pendientesR, noShowR] = await Promise.all([
+      addSucursal((supabase as any).from('citas').select('*', { count: 'exact', head: true }).eq('estado', 'completada').gte('fecha', fechaDesde).lte('fecha', fechaHasta)),
+      addSucursal((supabase as any).from('citas').select('*', { count: 'exact', head: true }).eq('estado', 'cancelada').gte('fecha', fechaDesde).lte('fecha', fechaHasta)),
+      addSucursal((supabase as any).from('citas').select('*', { count: 'exact', head: true }).eq('estado', 'pendiente').gte('fecha', fechaDesde).lte('fecha', fechaHasta)),
+      addSucursal((supabase as any).from('citas').select('*', { count: 'exact', head: true }).eq('estado', 'no_show').gte('fecha', fechaDesde).lte('fecha', fechaHasta)),
+    ])
+
+    const completadas  = completadasR.count  || 0
+    const canceladas   = canceladasR.count   || 0
+    const pendientes   = pendientesR.count   || 0
+    const noShow       = noShowR.count       || 0
+    const total        = completadas + canceladas + pendientes + noShow
+    const tasaCancelacion = total > 0 ? Math.round(((canceladas + noShow) / total) * 100) : 0
+
+    return { completadas, canceladas, pendientes, noShow, total, tasaCancelacion }
+  } catch (err) {
+    console.error('Error obteniendo resumen de citas:', err)
+    return { completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 }
+  }
+}
+
+// ── Métricas por sucursal para comparativa admin ─────────────────────────────
+export interface MetricaSucursal {
+  sucursalId: string
+  nombre: string
+  ingresos: number
+  totalCitas: number
+  ticketPromedio: number
+  topServicio: string
+}
+
+export async function getMetricasSucursales(
+  fechaDesde: string,
+  fechaHasta: string,
+): Promise<MetricaSucursal[]> {
+  try {
+    const sucursales = await getSucursalesActivasFromDB()
+
+    const resultados = await Promise.all(
+      sucursales.map(async (s) => {
+        const [pagosR, citasR, serviciosR] = await Promise.all([
+          (supabase as any)
+            .from('pagos')
+            .select('monto')
+            .eq('sucursal_id', s.id)
+            .eq('estado', 'completado')
+            .gte('fecha', fechaDesde)
+            .lte('fecha', fechaHasta),
+          (supabase as any)
+            .from('citas')
+            .select('*', { count: 'exact', head: true })
+            .eq('sucursal_id', s.id)
+            .eq('estado', 'completada')
+            .gte('fecha', fechaDesde)
+            .lte('fecha', fechaHasta),
+          (supabase as any)
+            .from('citas')
+            .select('servicio:servicios(nombre)')
+            .eq('sucursal_id', s.id)
+            .eq('estado', 'completada')
+            .gte('fecha', fechaDesde)
+            .lte('fecha', fechaHasta)
+            .not('servicio_id', 'is', null),
+        ])
+
+        const ingresos      = (pagosR.data as any[] ?? []).reduce((sum: number, p: any) => sum + (Number(p.monto) || 0), 0)
+        const totalCitas    = citasR.count || 0
+        const ticketPromedio = totalCitas > 0 ? Math.round(ingresos / totalCitas) : 0
+
+        // Top servicio
+        const svcMap = new Map<string, number>()
+        ;(serviciosR.data as any[] ?? []).forEach((c: any) => {
+          const n = c.servicio?.nombre ?? 'Desconocido'
+          svcMap.set(n, (svcMap.get(n) ?? 0) + 1)
+        })
+        const topServicio = svcMap.size > 0
+          ? [...svcMap.entries()].sort((a, b) => b[1] - a[1])[0][0]
+          : '—'
+
+        return { sucursalId: s.id, nombre: s.nombre, ingresos, totalCitas, ticketPromedio, topServicio }
+      })
+    )
+
+    return resultados.sort((a, b) => b.ingresos - a.ingresos)
+  } catch (err) {
+    console.error('Error obteniendo métricas por sucursal:', err)
+    return []
+  }
+}

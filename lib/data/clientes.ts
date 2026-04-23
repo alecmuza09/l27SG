@@ -282,6 +282,57 @@ export async function getClientesStats(): Promise<{
   }
 }
 
+// Top clientes por gasto en un período
+export async function getTopClientesPorGasto(
+  limit: number = 10,
+  fechaDesde?: string,
+  fechaHasta?: string,
+  sucursalId?: string,
+): Promise<Array<{ clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }>> {
+  try {
+    let query = (supabase as any)
+      .from('pagos')
+      .select('cliente_id, monto, fecha, cliente:clientes(nombre, apellido)')
+      .eq('estado', 'completado')
+
+    if (sucursalId) query = query.eq('sucursal_id', sucursalId)
+    if (fechaDesde)  query = query.gte('fecha', fechaDesde)
+    if (fechaHasta)  query = query.lte('fecha', fechaHasta)
+
+    const { data, error } = await query
+
+    if (error || !data) return []
+
+    const mapa = new Map<string, { nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }>()
+
+    for (const row of data as any[]) {
+      if (!row.cliente_id) continue
+      const nombre = row.cliente ? `${row.cliente.nombre} ${row.cliente.apellido}` : 'Desconocido'
+      const prev = mapa.get(row.cliente_id)
+      if (prev) {
+        prev.visitas++
+        prev.totalGastado += Number(row.monto) || 0
+        if (row.fecha > prev.ultimaVisita) prev.ultimaVisita = row.fecha
+      } else {
+        mapa.set(row.cliente_id, {
+          nombre,
+          visitas: 1,
+          totalGastado: Number(row.monto) || 0,
+          ultimaVisita: row.fecha ?? '',
+        })
+      }
+    }
+
+    return Array.from(mapa.entries())
+      .map(([clienteId, v]) => ({ clienteId, ...v }))
+      .sort((a, b) => b.totalGastado - a.totalGastado)
+      .slice(0, limit)
+  } catch (err) {
+    console.error('Error obteniendo top clientes por gasto:', err)
+    return []
+  }
+}
+
 // Crear un nuevo cliente
 export async function createCliente(clienteData: {
   nombre: string
