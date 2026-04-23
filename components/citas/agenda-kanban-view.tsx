@@ -116,9 +116,9 @@ function horaToMins(hora: string): number {
   return h * 60 + m
 }
 
-// Posición top en px para una hora (referencia: 10:00 = 0px)
+// Posición top en px para una hora (referencia: 9:00 = 0px)
 function horaToPx(hora: string): number {
-  return Math.max(0, (horaToMins(hora) - 10 * 60) / 30 * SLOT_H)
+  return Math.max(0, (horaToMins(hora) - 9 * 60) / 30 * SLOT_H)
 }
 
 // Altura en px para una duración en minutos
@@ -166,9 +166,9 @@ function getOverlapInfo(citas: Cita[]): Map<string, { col: number; totalCols: nu
   return result
 }
 
-// Slots de 30 min: 10:00 → 20:00 (21 slots: 10:00, 10:30 … 20:00)
-const TIME_SLOTS = Array.from({ length: 21 }, (_, i) => {
-  const hour = Math.floor(i / 2) + 10
+// Slots de 30 min: 9:00 → 20:00 (23 slots: 9:00, 9:30 … 20:00)
+const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 9
   const minutes = i % 2 === 0 ? "00" : "30"
   return `${hour.toString().padStart(2, "0")}:${minutes}`
 })
