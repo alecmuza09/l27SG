@@ -163,11 +163,13 @@ export default function GiftCardsPage() {
   const [selectedCard,   setSelectedCard]   = useState<GiftCard | null>(null)
 
   // ── Formulario Crear ───────────────────────────────────────────────────
-  const [newMonto,       setNewMonto]      = useState("")
-  const [newCodigo,      setNewCodigo]     = useState("")
-  const [newVigencia,    setNewVigencia]   = useState("sin_vigencia")
-  const [newExpiracion,  setNewExpiracion] = useState("")
-  const [newSucursalId,  setNewSucursalId] = useState("")
+  const [newMonto,           setNewMonto]          = useState("")
+  const [newCodigo,          setNewCodigo]         = useState("")
+  const [newVigencia,        setNewVigencia]        = useState("sin_vigencia")
+  const [newExpiracion,      setNewExpiracion]      = useState("")
+  const [newSucursalId,      setNewSucursalId]      = useState("")
+  const [newMetodoPago,      setNewMetodoPago]      = useState("")
+  const [newMetodoPagoOtro,  setNewMetodoPagoOtro]  = useState("")
 
   // ── Selector de cliente (modal Crear) ──────────────────────────────────
   const [clienteMode,        setClienteMode]        = useState<"existing" | "new">("existing")
@@ -292,12 +294,21 @@ export default function GiftCardsPage() {
   const resetCreateForm = () => {
     setNewMonto(""); setNewCodigo(""); setNewVigencia("sin_vigencia")
     setNewExpiracion(""); setNewSucursalId("")
+    setNewMetodoPago(""); setNewMetodoPagoOtro("")
     setClienteMode("existing"); setClienteSearchQuery(""); setClientesBusqueda([])
     setSelectedCliente(null); setNuevoClienteData({ nombre: "", apellido: "", telefono: "", email: "" })
   }
 
   const handleCreate = async () => {
     if (!newMonto || !newSucursalId) return
+    if (!newMetodoPago) {
+      toast.error("Selecciona el método de pago")
+      return
+    }
+    if (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()) {
+      toast.error("Especifica el método de pago")
+      return
+    }
     setIsSubmitting(true)
 
     let clienteIdFinal: string | null = null
@@ -323,12 +334,15 @@ export default function GiftCardsPage() {
       clienteIdFinal = selectedCliente?.id ?? null
     }
 
+    const metodoPagoFinal = newMetodoPago === "otro" ? newMetodoPagoOtro.trim() : newMetodoPago
+
     const res = await crearGiftCard({
       montoInicial: parseFloat(newMonto),
       sucursalId: newSucursalId,
       clienteId: clienteIdFinal,
       fechaVencimiento: calcularFechaExpiracion(newVigencia, newExpiracion),
       codigoPersonalizado: newCodigo || null,
+      metodoPago: metodoPagoFinal,
     })
     setIsSubmitting(false)
     if (!res.success) {
@@ -883,6 +897,45 @@ export default function GiftCardsPage() {
                 />
               </div>
             </div>
+            {/* Método de pago */}
+            <div className="grid gap-2">
+              <Label>Método de Pago *</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { value: "efectivo",     label: "Efectivo" },
+                  { value: "tarjeta",      label: "Tarjeta" },
+                  { value: "cortesia",     label: "Cortesía" },
+                  { value: "otro",         label: "Otro" },
+                ].map((op) => (
+                  <button
+                    key={op.value}
+                    type="button"
+                    onClick={() => { setNewMetodoPago(op.value); if (op.value !== "otro") setNewMetodoPagoOtro("") }}
+                    className={cn(
+                      "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                      newMetodoPago === op.value
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background hover:bg-accent"
+                    )}
+                  >
+                    {op.label}
+                  </button>
+                ))}
+              </div>
+              {newMetodoPago === "otro" && (
+                <Input
+                  placeholder="Especifica el método de pago..."
+                  value={newMetodoPagoOtro}
+                  onChange={(e) => setNewMetodoPagoOtro(e.target.value)}
+                  className="mt-1"
+                  autoFocus
+                />
+              )}
+              {!newMetodoPago && (
+                <p className="text-xs text-muted-foreground">Selecciona cómo se pagó esta gift card</p>
+              )}
+            </div>
+
             <div className="grid gap-2">
               <Label>Sucursal *</Label>
               <Select value={newSucursalId} onValueChange={setNewSucursalId}>
@@ -1055,7 +1108,7 @@ export default function GiftCardsPage() {
             <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim()}>
+            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || !newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim())}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
             </Button>
           </DialogFooter>
@@ -1308,21 +1361,41 @@ export default function GiftCardsPage() {
                 </div>
 
                 {/* Detalles */}
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  {[
-                    { label: "Cliente",       value: selectedCard.clienteNombre || "Sin asignar" },
-                    { label: "Sucursal",      value: selectedCard.sucursalNombre },
-                    { label: "Emisor",        value: selectedCard.empleadoEmisorNombre || "—" },
-                    { label: "Fecha Emisión", value: fmtDate(selectedCard.fechaEmision) },
-                    { label: "Activación",    value: fmtDate(selectedCard.fechaActivacion) },
-                    { label: "Expiración",    value: fmtDate(selectedCard.fechaExpiracion) },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="space-y-0.5">
-                      <p className="text-xs text-muted-foreground">{label}</p>
-                      <p className="font-medium">{value}</p>
+                {(() => {
+                  // Extraer método de pago: primero del objeto, luego de la transacción de emisión
+                  const metodoPagoDisplay = selectedCard.metodoPago
+                    ?? transacciones.find(t => t.tipo === "emision")?.notas?.match(/Pago:\s*(.+)/)?.[1]
+                    ?? null
+
+                  const METODO_LABELS: Record<string, string> = {
+                    efectivo: "Efectivo",
+                    tarjeta: "Tarjeta",
+                    cortesia: "Cortesía",
+                  }
+
+                  const metodoPagoLabel = metodoPagoDisplay
+                    ? (METODO_LABELS[metodoPagoDisplay.toLowerCase()] ?? metodoPagoDisplay)
+                    : "—"
+
+                  return (
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      {[
+                        { label: "Cliente",         value: selectedCard.clienteNombre || "Sin asignar" },
+                        { label: "Sucursal",         value: selectedCard.sucursalNombre },
+                        { label: "Método de Pago",   value: metodoPagoLabel },
+                        { label: "Emisor",           value: selectedCard.empleadoEmisorNombre || "—" },
+                        { label: "Fecha Emisión",    value: fmtDate(selectedCard.fechaEmision) },
+                        { label: "Activación",       value: fmtDate(selectedCard.fechaActivacion) },
+                        { label: "Expiración",       value: fmtDate(selectedCard.fechaExpiracion) },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="space-y-0.5">
+                          <p className="text-xs text-muted-foreground">{label}</p>
+                          <p className="font-medium">{value}</p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )
+                })()}
 
                 {/* Historial de transacciones */}
                 <div>

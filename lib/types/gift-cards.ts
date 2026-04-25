@@ -13,6 +13,8 @@ export interface GiftCard {
   sucursalNombre: string
   empleadoEmisorId: string
   empleadoEmisorNombre: string
+  /** Método de pago usado al comprar la gift card */
+  metodoPago?: string | null
 }
 
 export interface GiftCardTransaccion {

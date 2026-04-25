@@ -32,6 +32,7 @@ function mapGiftCard(gc: any): GiftCard {
     sucursalNombre: gc.sucursal?.nombre || '',
     empleadoEmisorId: gc.empleado_emisor_id || '',
     empleadoEmisorNombre: gc.empleado ? `${gc.empleado.nombre} ${gc.empleado.apellido}` : '',
+    metodoPago: gc.metodo_pago || null,
   }
 }
 
@@ -416,24 +417,28 @@ export async function crearGiftCard(datos: {
   fechaVencimiento?: string | null
   empleadoEmisorId?: string | null
   codigoPersonalizado?: string | null
+  metodoPago?: string | null
 }): Promise<{ success: boolean; gc?: GiftCard; error?: string }> {
   try {
     const codigo = datos.codigoPersonalizado?.trim().toUpperCase() || generarCodigoGiftCard()
     const hoy = fechaLocal()
 
-    const { data: gcData, error: gcError } = await supabase
+    const insertPayload: Record<string, any> = {
+      codigo,
+      monto_inicial: datos.montoInicial,
+      saldo_actual: datos.montoInicial,
+      estado: 'pendiente',
+      sucursal_id: datos.sucursalId,
+      cliente_id: datos.clienteId || null,
+      empleado_emisor_id: datos.empleadoEmisorId || null,
+      fecha_emision: hoy,
+      fecha_vencimiento: datos.fechaVencimiento || null,
+    }
+    if (datos.metodoPago) insertPayload.metodo_pago = datos.metodoPago
+
+    const { data: gcData, error: gcError } = await (supabase as any)
       .from('gift_cards')
-      .insert({
-        codigo,
-        monto_inicial: datos.montoInicial,
-        saldo_actual: datos.montoInicial,
-        estado: 'pendiente',
-        sucursal_id: datos.sucursalId,
-        cliente_id: datos.clienteId || null,
-        empleado_emisor_id: datos.empleadoEmisorId || null,
-        fecha_emision: hoy,
-        fecha_vencimiento: datos.fechaVencimiento || null,
-      })
+      .insert(insertPayload)
       .select(`*, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre), empleado:empleados(nombre, apellido)`)
       .single()
 
@@ -441,7 +446,11 @@ export async function crearGiftCard(datos: {
       return { success: false, error: gcError?.message || 'Error creando gift card' }
     }
 
-    // Registrar transacción de emisión
+    // Registrar transacción de emisión (metodoPago también queda en notas como respaldo)
+    const notasEmision = datos.metodoPago
+      ? `Emisión de gift card · Pago: ${datos.metodoPago}`
+      : 'Emisión de gift card'
+
     await supabase.from('gift_card_transacciones').insert({
       gift_card_id: gcData.id,
       tipo: 'emision',
@@ -450,7 +459,7 @@ export async function crearGiftCard(datos: {
       saldo_nuevo: datos.montoInicial,
       empleado_id: datos.empleadoEmisorId || null,
       fecha: hoy,
-      notas: 'Emisión de gift card',
+      notas: notasEmision,
     })
 
     const gc: GiftCard = {
@@ -468,6 +477,7 @@ export async function crearGiftCard(datos: {
       sucursalNombre: gcData.sucursal?.nombre || '',
       empleadoEmisorId: gcData.empleado_emisor_id || '',
       empleadoEmisorNombre: gcData.empleado ? `${gcData.empleado.nombre} ${gcData.empleado.apellido}` : '',
+      metodoPago: datos.metodoPago || gcData.metodo_pago || null,
     }
 
     return { success: true, gc }
