@@ -45,7 +45,6 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   XCircle,
-  Sparkles,
   User,
   Trash2,
   RotateCcw,
@@ -63,7 +62,6 @@ import {
   getGiftCardTransaccionesFromDB,
   generarCodigoGiftCard,
   crearGiftCard,
-  activarGiftCard,
   canjearGiftCard,
   recargarGiftCard,
   cancelarGiftCard,
@@ -155,7 +153,6 @@ export default function GiftCardsPage() {
   // ── Modales ────────────────────────────────────────────────────────────
   const [isCreateOpen,   setIsCreateOpen]   = useState(false)
   const [isViewOpen,     setIsViewOpen]     = useState(false)
-  const [isActivateOpen, setIsActivateOpen] = useState(false)
   const [isRedeemOpen,   setIsRedeemOpen]   = useState(false)
   const [isRechargeOpen, setIsRechargeOpen] = useState(false)
   const [isCancelOpen,   setIsCancelOpen]   = useState(false)
@@ -352,17 +349,6 @@ export default function GiftCardsPage() {
     toast.success(`Gift card creada: ${res.gc?.codigo}`)
     resetCreateForm()
     setIsCreateOpen(false)
-    await reload()
-  }
-
-  const handleActivar = async () => {
-    if (!selectedCard) return
-    setIsSubmitting(true)
-    const res = await activarGiftCard(selectedCard.id)
-    setIsSubmitting(false)
-    if (!res.success) { toast.error(`Error: ${res.error}`); return }
-    toast.success(`Gift card ${selectedCard.codigo} activada`)
-    setIsActivateOpen(false); setSelectedCard(null)
     await reload()
   }
 
@@ -641,7 +627,7 @@ export default function GiftCardsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalPendientes}</div>
-              <p className="text-xs text-muted-foreground">por activar</p>
+              <p className="text-xs text-muted-foreground">tarjetas en estado Pendiente</p>
             </CardContent>
           </Card>
           <Card>
@@ -734,19 +720,6 @@ export default function GiftCardsPage() {
                             <Eye className="mr-2 h-4 w-4" />
                             Ver Detalles
                           </DropdownMenuItem>
-
-                          {card.estado === "pendiente" && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => { setSelectedCard(card); setIsActivateOpen(true) }}
-                                className="text-green-700 focus:text-green-700 focus:bg-green-50"
-                              >
-                                <Sparkles className="mr-2 h-4 w-4" />
-                                Activar
-                              </DropdownMenuItem>
-                            </>
-                          )}
 
                           {card.estado === "activa" && (
                             <>
@@ -1110,28 +1083,6 @@ export default function GiftCardsPage() {
             </Button>
             <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || !newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim())}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Activar */}
-      <Dialog open={isActivateOpen} onOpenChange={setIsActivateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Activar Gift Card</DialogTitle>
-            <DialogDescription>
-              ¿Confirmas la activación de <strong>{selectedCard?.codigo}</strong>?
-            </DialogDescription>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground py-2">
-            Una vez activada, la tarjeta tendrá un saldo disponible de{" "}
-            <strong>{selectedCard && fmtMXN(selectedCard.saldoActual)}</strong> que el cliente podrá utilizar para pagar servicios.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsActivateOpen(false)} disabled={isSubmitting}>Cancelar</Button>
-            <Button onClick={handleActivar} disabled={isSubmitting} className="bg-green-600 hover:bg-green-700">
-              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Activando...</> : <><Sparkles className="h-4 w-4 mr-2" />Activar</>}
             </Button>
           </DialogFooter>
         </DialogContent>

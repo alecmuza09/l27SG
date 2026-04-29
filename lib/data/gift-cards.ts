@@ -427,11 +427,12 @@ export async function crearGiftCard(datos: {
       codigo,
       monto_inicial: datos.montoInicial,
       saldo_actual: datos.montoInicial,
-      estado: 'pendiente',
+      estado: 'activa',
       sucursal_id: datos.sucursalId,
       cliente_id: datos.clienteId || null,
       empleado_emisor_id: datos.empleadoEmisorId || null,
       fecha_emision: hoy,
+      fecha_activacion: hoy,
       fecha_vencimiento: datos.fechaVencimiento || null,
     }
     if (datos.metodoPago) insertPayload.metodo_pago = datos.metodoPago
