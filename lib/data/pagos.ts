@@ -28,6 +28,75 @@ export interface Pago {
   montoTarjeta?: number
 }
 
+/** Monto por canal para corte de caja y reportes (pago mixto sin duplicar el total). */
+export type DistribucionPagoMetodos = {
+  efectivo: number
+  tarjeta: number
+  transferencia: number
+  otro: number
+}
+
+/**
+ * Reparte el monto de un cobro entre efectivo / tarjeta / transferencia / otro.
+ * Si existen `montoEfectivo` o `montoTarjeta`, se usan como desglose y el resto del `monto`
+ * va a transferencia u "otro" según `metodoPago`.
+ */
+export function distribuirMontoPago(
+  p: Pick<Pago, "monto" | "metodoPago" | "montoEfectivo" | "montoTarjeta">,
+): DistribucionPagoMetodos {
+  const monto = Number(p.monto) || 0
+  const efStored = Number(p.montoEfectivo) || 0
+  const tarStored = Number(p.montoTarjeta) || 0
+  const metodo = (p.metodoPago || "otro") as string
+
+  if (efStored > 0 || tarStored > 0) {
+    const remainder = Math.max(0, monto - efStored - tarStored)
+    let transferencia = 0
+    let otro = 0
+    if (metodo === "transferencia") transferencia = remainder
+    else if (remainder > 0.009) otro = remainder
+    return { efectivo: efStored, tarjeta: tarStored, transferencia, otro }
+  }
+
+  switch (metodo) {
+    case "efectivo":
+      return { efectivo: monto, tarjeta: 0, transferencia: 0, otro: 0 }
+    case "tarjeta":
+      return { efectivo: 0, tarjeta: monto, transferencia: 0, otro: 0 }
+    case "transferencia":
+      return { efectivo: 0, tarjeta: 0, transferencia: monto, otro: 0 }
+    default:
+      return { efectivo: 0, tarjeta: 0, transferencia: 0, otro: monto }
+  }
+}
+
+/** Etiqueta legible para UI (ej. "Efectivo + Tarjeta") según el desglose real del cobro. */
+export function etiquetaMetodosPago(p: Pago): string {
+  const d = distribuirMontoPago(p)
+  const parts: string[] = []
+  if (d.efectivo > 0.009) parts.push("Efectivo")
+  if (d.tarjeta > 0.009) parts.push("Tarjeta")
+  if (d.transferencia > 0.009) parts.push("Transferencia")
+  if (d.otro > 0.009) parts.push("Otro")
+  if (parts.length >= 2) return parts.join(" + ")
+  if (parts.length === 1) return parts[0]
+  const labels: Record<string, string> = {
+    efectivo: "Efectivo",
+    tarjeta: "Tarjeta",
+    transferencia: "Transferencia",
+    otro: "Otro",
+  }
+  const k = (p.metodoPago || "").toLowerCase()
+  return labels[k] ?? p.metodoPago ?? "—"
+}
+
+/** Si conviene persistir como mixto efectivo+tarjeta en BD (`metodo_pago = otro` + montos separados). */
+export function debePersistirMetodoMixtoEfectivoTarjeta(montoEfectivo?: number, montoTarjeta?: number): boolean {
+  const ef = Number(montoEfectivo) || 0
+  const tar = Number(montoTarjeta) || 0
+  return ef > 0.009 && tar > 0.009
+}
+
 // ─── Tipos auxiliares de Caja ───────────────────────────────────────────────
 
 export interface PromocionValidada {
@@ -266,15 +335,24 @@ export function calcularResumenDesdePagos(pagos: Pago[], fecha: string): Resumen
     porMetodoCantidad: { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 },
   }
   for (const p of completados) {
-    const metodo = (p.metodoPago || 'otro') as keyof ResumenCajaDiario['porMetodo']
+    const d = distribuirMontoPago(p)
     resumen.totalVentas += p.monto
     resumen.totalPropinas += p.propina ?? 0
     resumen.totalDescuentos += p.descuentoMonto ?? 0
-    if (metodo in resumen.porMetodo) {
-      resumen.porMetodo[metodo] += p.monto
-      resumen.porMetodoCantidad[metodo] += 1
-    } else {
-      resumen.porMetodo.otro += p.monto
+    if (d.efectivo > 0) {
+      resumen.porMetodo.efectivo += d.efectivo
+      resumen.porMetodoCantidad.efectivo += 1
+    }
+    if (d.tarjeta > 0) {
+      resumen.porMetodo.tarjeta += d.tarjeta
+      resumen.porMetodoCantidad.tarjeta += 1
+    }
+    if (d.transferencia > 0) {
+      resumen.porMetodo.transferencia += d.transferencia
+      resumen.porMetodoCantidad.transferencia += 1
+    }
+    if (d.otro > 0) {
+      resumen.porMetodo.otro += d.otro
       resumen.porMetodoCantidad.otro += 1
     }
   }
@@ -426,6 +504,14 @@ export async function registrarPago(
     const fecha = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
     const hora = now.toTimeString().slice(0, 8)
 
+    const efGuardar = Math.round((Number(params.montoEfectivo) || 0) * 100) / 100
+    const tarGuardar = Math.round((Number(params.montoTarjeta) || 0) * 100) / 100
+    /** No usar solo el método “mayor”: efectivo + tarjeta en la misma transacción → siempre `otro` + montos. */
+    const metodoPagoGuardar: RegistrarPagoParams["metodoPago"] =
+      debePersistirMetodoMixtoEfectivoTarjeta(efGuardar, tarGuardar)
+        ? "otro"
+        : params.metodoPago
+
     // 1. Crear registro en tabla pagos
     const { data: pagoData, error: pagoError } = await supabase
       .from('pagos')
@@ -435,7 +521,7 @@ export async function registrarPago(
         empleado_id: params.empleadoId || null,
         sucursal_id: params.sucursalId,
         monto: params.total,
-        metodo_pago: params.metodoPago,
+        metodo_pago: metodoPagoGuardar,
         estado: 'completado',
         fecha,
         hora,
@@ -446,8 +532,8 @@ export async function registrarPago(
         descuento_tipo: params.descuentoTipo || null,
         descuento_codigo: params.descuentoCodigo || null,
         propina: params.propina,
-        monto_efectivo: params.montoEfectivo || 0,
-        monto_tarjeta: params.montoTarjeta || 0,
+        monto_efectivo: efGuardar,
+        monto_tarjeta: tarGuardar,
       })
       .select('id')
       .single()
@@ -464,7 +550,7 @@ export async function registrarPago(
         .update({
           pagado: true,
           estado: 'completada',
-          metodo_pago: params.metodoPago,
+          metodo_pago: metodoPagoGuardar,
           updated_at: new Date().toISOString(),
         })
         .eq('id', params.citaId)
@@ -622,7 +708,7 @@ export async function getResumenCajaDiarioFromDB(
   try {
     let query = supabase
       .from('pagos')
-      .select('monto, metodo_pago, propina, descuento_monto')
+      .select('monto, metodo_pago, propina, descuento_monto, monto_efectivo, monto_tarjeta')
       .eq('fecha', fechaConsulta)
       .eq('estado', 'completado')
 
@@ -636,15 +722,29 @@ export async function getResumenCajaDiarioFromDB(
 
     for (const p of data as any[]) {
       const monto = Number(p.monto) || 0
-      const metodo = (p.metodo_pago || 'otro') as keyof ResumenCajaDiario['porMetodo']
+      const d = distribuirMontoPago({
+        monto,
+        metodoPago: (p.metodo_pago || 'otro') as Pago['metodoPago'],
+        montoEfectivo: Number(p.monto_efectivo) || 0,
+        montoTarjeta: Number(p.monto_tarjeta) || 0,
+      })
       resumen.totalVentas += monto
       resumen.totalPropinas += Number(p.propina) || 0
       resumen.totalDescuentos += Number(p.descuento_monto) || 0
-      if (metodo in resumen.porMetodo) {
-        resumen.porMetodo[metodo] += monto
-        resumen.porMetodoCantidad[metodo] += 1
-      } else {
-        resumen.porMetodo.otro += monto
+      if (d.efectivo > 0) {
+        resumen.porMetodo.efectivo += d.efectivo
+        resumen.porMetodoCantidad.efectivo += 1
+      }
+      if (d.tarjeta > 0) {
+        resumen.porMetodo.tarjeta += d.tarjeta
+        resumen.porMetodoCantidad.tarjeta += 1
+      }
+      if (d.transferencia > 0) {
+        resumen.porMetodo.transferencia += d.transferencia
+        resumen.porMetodoCantidad.transferencia += 1
+      }
+      if (d.otro > 0) {
+        resumen.porMetodo.otro += d.otro
         resumen.porMetodoCantidad.otro += 1
       }
     }

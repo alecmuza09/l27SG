@@ -21,6 +21,7 @@ import { getCurrentUser } from "@/lib/auth"
 import {
   Plus, Search, User, Loader2, ChevronsUpDown, Trash2,
   Clock, DollarSign, ChevronDown, CheckCircle2, AlertCircle, X,
+  UtensilsCrossed, BedDouble,
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "sonner"
@@ -45,6 +46,14 @@ interface NuevaCitaDialogProps {
   onCitaCreada?: () => void
   /** En desktop, renderiza como panel lateral inline (sin overlay) */
   asPanel?: boolean
+  /** Si existe, muestra bloque para registrar comida/descanso en la agenda del día seleccionado */
+  onRegistrarBloqueAgenda?: (params: {
+    fecha: string
+    empleadoId: string
+    tipo: "comida" | "descanso"
+    horaInicio: string
+    duracionMinutos: number
+  }) => Promise<boolean>
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -60,6 +69,15 @@ function addMinutes(hora: string, mins: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
 }
 
+/** Mismos slots que la agenda Kanban (9:00–20:00 cada 30 min). */
+const AGENDA_SLOT_TIMES = Array.from({ length: 23 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 9
+  const minutes = i % 2 === 0 ? "00" : "30"
+  return `${hour.toString().padStart(2, "0")}:${minutes}`
+})
+
+const BLOQUE_DURACIONES_MIN = [15, 30, 45, 60, 90, 120] as const
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function NuevaCitaDialog({
@@ -71,6 +89,7 @@ export function NuevaCitaDialog({
   sucursalId,
   onCitaCreada,
   asPanel = false,
+  onRegistrarBloqueAgenda,
 }: NuevaCitaDialogProps) {
   // ── Estado: cliente ────────────────────────────────────────────────────────
   const [clienteMode, setClienteMode] = useState<"existing" | "new">("existing")
@@ -101,6 +120,13 @@ export function NuevaCitaDialog({
 
   // ── Estado: envío ──────────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // ── Comida / descanso rápido en agenda (solo si hay callback) ─────────────
+  const [bloqueTipo, setBloqueTipo] = useState<"comida" | "descanso">("comida")
+  const [bloqueHoraInicio, setBloqueHoraInicio] = useState("13:00")
+  const [bloqueDuracionMin, setBloqueDuracionMin] = useState(60)
+  const [bloqueEmpleadoId, setBloqueEmpleadoId] = useState("")
+  const [bloqueSaving, setBloqueSaving] = useState(false)
 
   // ── Reset al abrir ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -158,6 +184,46 @@ export function NuevaCitaDialog({
     }
     load()
   }, [open, sucursalId])
+
+  useEffect(() => {
+    if (!open || !onRegistrarBloqueAgenda) return
+    setBloqueTipo("comida")
+    setBloqueHoraInicio(selectedTime && AGENDA_SLOT_TIMES.includes(selectedTime) ? selectedTime : "13:00")
+    setBloqueDuracionMin(60)
+  }, [open, selectedTime, onRegistrarBloqueAgenda])
+
+  useEffect(() => {
+    if (!open || !onRegistrarBloqueAgenda) return
+    const emp =
+      serviciosItems.find((it) => it.empleadoId)?.empleadoId ||
+      selectedEmpleadoId ||
+      ""
+    setBloqueEmpleadoId(emp)
+  }, [open, serviciosItems, selectedEmpleadoId, onRegistrarBloqueAgenda])
+
+  const guardarBloqueEnAgenda = async () => {
+    if (!onRegistrarBloqueAgenda) return
+    if (!bloqueEmpleadoId) {
+      toast.error("Selecciona la empleada para el bloque")
+      return
+    }
+    if (!bloqueHoraInicio) {
+      toast.error("Indica la hora de inicio")
+      return
+    }
+    setBloqueSaving(true)
+    try {
+      await onRegistrarBloqueAgenda({
+        fecha: fechaGeneral,
+        empleadoId: bloqueEmpleadoId,
+        tipo: bloqueTipo,
+        horaInicio: bloqueHoraInicio,
+        duracionMinutos: bloqueDuracionMin,
+      })
+    } finally {
+      setBloqueSaving(false)
+    }
+  }
 
   // ── Helpers de lista ───────────────────────────────────────────────────────
   function updateItem(idx: number, patch: Partial<ServicioItem>) {
@@ -575,6 +641,99 @@ export function NuevaCitaDialog({
                   </div>
                 )}
               </section>
+
+              {onRegistrarBloqueAgenda && (
+                <>
+                  <Separator />
+                  <section className="space-y-3 rounded-lg border border-dashed bg-muted/15 p-4">
+                    <div>
+                      <Label className="text-base font-semibold">Comida o descanso en la agenda</Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Registra un bloque para la empleada sin cerrar este panel. Se guarda en el día de la sesión ({fechaGeneral}).
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Tipo</Label>
+                        <Select value={bloqueTipo} onValueChange={(v: "comida" | "descanso") => setBloqueTipo(v)}>
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="comida">
+                              <span className="flex items-center gap-2"><UtensilsCrossed className="h-3.5 w-3.5 text-orange-500" /> Comida</span>
+                            </SelectItem>
+                            <SelectItem value="descanso">
+                              <span className="flex items-center gap-2"><BedDouble className="h-3.5 w-3.5 text-slate-500" /> Descanso</span>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Empleada</Label>
+                        <Select value={bloqueEmpleadoId} onValueChange={setBloqueEmpleadoId}>
+                          <SelectTrigger className="h-9">
+                            <SelectValue placeholder="Seleccionar..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {empleados.map((emp) => (
+                              <SelectItem key={emp.id} value={emp.id}>
+                                {emp.nombre} {emp.apellido}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Hora de inicio</Label>
+                        <Select value={bloqueHoraInicio} onValueChange={setBloqueHoraInicio}>
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-56">
+                            {AGENDA_SLOT_TIMES.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                <span className="tabular-nums">{formatHora12(t)}</span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Duración</Label>
+                        <Select
+                          value={String(bloqueDuracionMin)}
+                          onValueChange={(v) => setBloqueDuracionMin(Number(v))}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {BLOQUE_DURACIONES_MIN.map((m) => (
+                              <SelectItem key={m} value={String(m)}>{m} min</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      disabled={bloqueSaving || isLoadingData || empleados.length === 0}
+                      onClick={() => void guardarBloqueEnAgenda()}
+                    >
+                      {bloqueSaving ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Guardando...</>
+                      ) : (
+                        <>Agregar bloque a la agenda del día</>
+                      )}
+                    </Button>
+                  </section>
+                </>
+              )}
 
               {/* ── NOTAS GENERALES ──────────────────────────────────────────── */}
               <section className="space-y-2">

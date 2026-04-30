@@ -484,6 +484,9 @@ export function CajaDialog({
     const mayor = montos.sort((a, b) => b.monto - a.monto)[0]
     if (mayor.monto > 0) metodoPrincipal = mayor.metodo
 
+    const metodoPagoRegistro =
+      efNum > 0.009 && tarNum > 0.009 ? "otro" : metodoPrincipal
+
     // Tomar el empleado principal del primer servicio del carrito
     const empleadoPrincipal = cart.find(i => i.tipo === "servicio" && i.empleadoId)?.empleadoId ?? null
 
@@ -509,7 +512,7 @@ export function CajaDialog({
       descuentoGcId: descuentoAplicado?.tipo === 'gift_card' ? descuentoAplicado.gcId : undefined,
       propina: propinaNum,
       total,
-      metodoPago: metodoPrincipal,
+      metodoPago: metodoPagoRegistro,
       montoEfectivo: efNum,
       montoTarjeta: tarNum,
       montoGiftCard: montoGiftCardFinal,

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, User, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History } from "lucide-react"
+import { Clock, UserRound as UserIcon, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -38,6 +38,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { getClienteById, type Cliente } from "@/lib/data/clientes"
+import {
+  getAgendaBloquesFromDB,
+  saveAgendaBloquesToDB,
+  type AgendaBloque,
+} from "@/lib/data/agenda-bloques"
 
 interface AgendaKanbanViewProps {
   selectedDate: string
@@ -98,13 +103,15 @@ function mapearEstadoABD(estadoUI: string): string {
   return ESTADOS_DB[estadoUI as keyof typeof ESTADOS_DB] || estadoUI
 }
 
-// Bloque manual de comida o descanso en la agenda (se guarda en localStorage por fecha)
+// Bloque manual de comida o descanso en la agenda (persistido por sucursal y día en BD)
 interface BloqueAgenda {
   id: string
   empleadoId: string
   tipo: 'comida' | 'descanso'
-  horaInicio?: string  // solo para tipo 'comida'
-  horaFin?: string     // solo para tipo 'comida'
+  /** Inicio de franja (comida o descanso por horas). Ausente = descanso de día completo. */
+  horaInicio?: string
+  /** Fin de franja. */
+  horaFin?: string
 }
 
 // Altura por slot en px (incluye margen)
@@ -124,6 +131,25 @@ function horaToPx(hora: string): number {
 // Altura en px para una duración en minutos
 function duracionToPx(minutos: number): number {
   return Math.max((minutos / 30) * SLOT_H - 2, 48)
+}
+
+/** Suma minutos a una hora HH:MM (clamp hasta 23:59). */
+function addMinutesToHora(hora: string, mins: number): string {
+  let total = horaToMins(hora.substring(0, 5)) + mins
+  total = Math.min(Math.max(total, 0), 23 * 60 + 59)
+  const h = Math.floor(total / 60)
+  const m = total % 60
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+}
+
+/** Bloque con ventana en la rejilla (comida o descanso por horas). */
+function bloqueTieneVentanaHoraria(b: Pick<BloqueAgenda, "horaInicio" | "horaFin">): boolean {
+  if (!b.horaInicio || !b.horaFin) return false
+  return b.horaFin.substring(0, 5) > b.horaInicio.substring(0, 5)
+}
+
+function esDescansoDiaCompleto(b: BloqueAgenda): boolean {
+  return b.tipo === "descanso" && !bloqueTieneVentanaHoraria(b)
 }
 
 // Detecta si dos citas se solapan en tiempo
@@ -173,6 +199,183 @@ const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
   return `${hour.toString().padStart(2, "0")}:${minutes}`
 })
 
+const DURACION_BLOQUE_MINUTOS = [15, 30, 45, 60, 90, 120] as const
+
+function AgendaEditarBloqueDialog({
+  bloque,
+  open,
+  onOpenChange,
+  empleados,
+  onSave,
+  onDelete,
+}: {
+  bloque: BloqueAgenda | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  empleados: Empleado[]
+  onSave: (b: BloqueAgenda) => void
+  onDelete: (id: string) => void
+}) {
+  const [empleadoId, setEmpleadoId] = useState("")
+  const [tipo, setTipo] = useState<"comida" | "descanso">("comida")
+  const [descansoModo, setDescansoModo] = useState<"dia" | "franja">("dia")
+  const [horaInicio, setHoraInicio] = useState("13:00")
+  const [horaFin, setHoraFin] = useState("14:00")
+  const [duracionMin, setDuracionMin] = useState(60)
+
+  useEffect(() => {
+    if (!bloque || !open) return
+    const whole = esDescansoDiaCompleto(bloque)
+    setEmpleadoId(bloque.empleadoId)
+    setTipo(bloque.tipo)
+    setDescansoModo(whole ? "dia" : bloque.tipo === "descanso" ? "franja" : "dia")
+    const hi = bloque.horaInicio?.substring(0, 5) ?? "13:00"
+    const hf = bloque.horaFin?.substring(0, 5) ?? "14:00"
+    setHoraInicio(hi)
+    setHoraFin(hf)
+    if (bloque.horaInicio && bloque.horaFin && bloqueTieneVentanaHoraria(bloque)) {
+      const d = horaToMins(bloque.horaFin) - horaToMins(bloque.horaInicio)
+      if (d > 0) setDuracionMin(d)
+    } else {
+      setDuracionMin(60)
+    }
+  }, [bloque, open])
+
+  const guardar = () => {
+    if (!bloque) return
+    if (!empleadoId) {
+      toast.error("Selecciona una empleada")
+      return
+    }
+    let hi: string | undefined
+    let hf: string | undefined
+    if (tipo === "comida") {
+      if (!horaInicio || !horaFin || horaFin <= horaInicio) {
+        toast.error("Horario de comida inválido")
+        return
+      }
+      hi = horaInicio
+      hf = horaFin
+    } else if (descansoModo === "franja") {
+      hi = horaInicio
+      hf = addMinutesToHora(horaInicio, duracionMin)
+      if (hf <= hi) {
+        toast.error("Duración inválida")
+        return
+      }
+    }
+    onSave({
+      ...bloque,
+      empleadoId,
+      tipo,
+      horaInicio: hi,
+      horaFin: hf,
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar comida / descanso</DialogTitle>
+          <DialogDescription>
+            Cambia tipo, horario o empleada. Los cambios se guardan para todos los usuarios.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Empleada</Label>
+            <Select value={empleadoId} onValueChange={setEmpleadoId}>
+              <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+              <SelectContent>
+                {empleados.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.nombre} {emp.apellido}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Tipo</Label>
+            <Select
+              value={tipo === "comida" ? "comida" : descansoModo === "dia" ? "descanso_dia" : "descanso_franja"}
+              onValueChange={(v) => {
+                if (v === "comida") {
+                  setTipo("comida")
+                  setDescansoModo("dia")
+                } else if (v === "descanso_dia") {
+                  setTipo("descanso")
+                  setDescansoModo("dia")
+                } else {
+                  setTipo("descanso")
+                  setDescansoModo("franja")
+                }
+              }}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="comida">Comida (inicio–fin)</SelectItem>
+                <SelectItem value="descanso_dia">Descanso — todo el día</SelectItem>
+                <SelectItem value="descanso_franja">Descanso — franja horaria</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {tipo === "comida" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Inicio</Label>
+                <Input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Fin</Label>
+                <Input type="time" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} />
+              </div>
+            </div>
+          )}
+          {tipo === "descanso" && descansoModo === "franja" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Hora de inicio</Label>
+                <Input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Duración</Label>
+                <Select value={String(duracionMin)} onValueChange={(v) => setDuracionMin(Number(v))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DURACION_BLOQUE_MINUTOS.map((m) => (
+                      <SelectItem key={m} value={String(m)}>{m} min</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2 justify-between pt-2 border-t">
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => bloque && onDelete(bloque.id)}
+            >
+              Eliminar
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancelar
+              </Button>
+              <Button type="button" onClick={guardar}>
+                Guardar
+              </Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal: selectedSucursalProp, onSucursalChange, refreshCitasKey }: AgendaKanbanViewProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
@@ -191,7 +394,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [cajaCita, setCajaCita] = useState<Cita | null>(null)
   const [isCajaOpen, setIsCajaOpen] = useState(false)
-  // Bloques manuales (comida / descanso) — guardados en localStorage por fecha
+  // Bloques manuales (comida / descanso) — por sucursal + fecha en Supabase (visible para admin)
   const [bloquesAgenda, setBloquesAgenda] = useState<BloqueAgenda[]>([])
   const [isBloquesOpen, setIsBloquesOpen] = useState(false)
   // Ausencias del día
@@ -216,12 +419,23 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isDuracionDialogOpen, setIsDuracionDialogOpen] = useState(false)
   const [nuevaDuracion, setNuevaDuracion] = useState<number>(60)
   const [isSavingDuracion, setIsSavingDuracion] = useState(false)
-  const [nuevoBloque, setNuevoBloque] = useState<{ empleadoId: string; tipo: 'comida' | 'descanso'; horaInicio: string; horaFin: string }>({
+  const [nuevoBloque, setNuevoBloque] = useState<{
+    empleadoId: string
+    tipo: 'comida' | 'descanso'
+    descansoModo: 'dia' | 'franja'
+    horaInicio: string
+    horaFin: string
+    duracionFranjaMin: number
+  }>({
     empleadoId: '',
     tipo: 'comida',
+    descansoModo: 'dia',
     horaInicio: '13:00',
     horaFin: '14:00',
+    duracionFranjaMin: 60,
   })
+  /** Edición desde ⋮ en la agenda o en la lista del diálogo */
+  const [bloqueEditando, setBloqueEditando] = useState<BloqueAgenda | null>(null)
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
@@ -365,7 +579,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     return empleadosSucursal.filter(
       (emp) =>
         !isEmpleadoDeVacaciones(emp.id, selectedDate) &&
-        bloquesAgenda.some((b) => b.empleadoId === emp.id && b.tipo === 'descanso')
+        bloquesAgenda.some((b) => b.empleadoId === emp.id && esDescansoDiaCompleto(b))
     )
   }, [empleadosSucursal, selectedDate, vacaciones, bloquesAgenda])
 
@@ -373,19 +587,39 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     return empleadosSucursal.filter(
       (emp) =>
         !isEmpleadoDeVacaciones(emp.id, selectedDate) &&
-        !bloquesAgenda.some((b) => b.empleadoId === emp.id && b.tipo === 'descanso')
+        !bloquesAgenda.some((b) => b.empleadoId === emp.id && esDescansoDiaCompleto(b))
     )
   }, [empleadosSucursal, selectedDate, vacaciones, bloquesAgenda])
 
-  // Cargar bloques del día desde localStorage cuando cambia la fecha
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`bloques_agenda_${selectedDate}`)
-      setBloquesAgenda(stored ? JSON.parse(stored) : [])
-    } catch {
-      setBloquesAgenda([])
+    let cancelled = false
+    async function loadBloques() {
+      if (!selectedSucursal || !selectedDate) {
+        setBloquesAgenda([])
+        return
+      }
+      let list = await getAgendaBloquesFromDB(selectedSucursal, selectedDate)
+      if (!cancelled && list.length === 0 && typeof window !== "undefined") {
+        try {
+          const stored = window.localStorage.getItem(`bloques_agenda_${selectedDate}`)
+          if (stored) {
+            const parsed = JSON.parse(stored) as BloqueAgenda[]
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              list = parsed
+              await saveAgendaBloquesToDB(selectedSucursal, selectedDate, parsed as AgendaBloque[])
+            }
+          }
+        } catch {
+          /* migración desde localStorage ignorada si está corrupta */
+        }
+      }
+      if (!cancelled) setBloquesAgenda(list as BloqueAgenda[])
     }
-  }, [selectedDate])
+    void loadBloques()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedDate, selectedSucursal])
 
   const citasFiltradas = useMemo(
     () => citas.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
@@ -521,36 +755,117 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     return ESTADOS.find(e => e.dbValue === cita.estado)?.value || cita.estado
   }
 
-  const saveBloques = (bloques: BloqueAgenda[]) => {
-    setBloquesAgenda(bloques)
+  const persistBloquesForDate = async (fecha: string, bloques: BloqueAgenda[]) => {
+    if (!selectedSucursal) return false
     try {
-      localStorage.setItem(`bloques_agenda_${selectedDate}`, JSON.stringify(bloques))
-    } catch { /* localStorage lleno o no disponible */ }
+      if (typeof window !== "undefined" && fecha === selectedDate) {
+        window.localStorage.setItem(`bloques_agenda_${fecha}`, JSON.stringify(bloques))
+      }
+    } catch {
+      /* respaldo local opcional */
+    }
+    const ok = await saveAgendaBloquesToDB(selectedSucursal, fecha, bloques as AgendaBloque[])
+    if (!ok) {
+      toast.error("No se pudieron guardar los bloques en el servidor.")
+      return false
+    }
+    if (fecha === selectedDate) setBloquesAgenda(bloques)
+    return true
+  }
+
+  const persistBloques = async (bloques: BloqueAgenda[]) => {
+    if (!selectedDate) return
+    await persistBloquesForDate(selectedDate, bloques)
+  }
+
+  const mergeBloqueExterno = async (fecha: string, bloque: BloqueAgenda) => {
+    if (!selectedSucursal) return false
+    const listaBase =
+      fecha === selectedDate
+        ? bloquesAgenda
+        : await getAgendaBloquesFromDB(selectedSucursal, fecha)
+    return persistBloquesForDate(fecha, [...listaBase, bloque])
+  }
+
+  const handleRegistrarBloqueAgenda = async (params: {
+    fecha: string
+    empleadoId: string
+    tipo: "comida" | "descanso"
+    horaInicio: string
+    duracionMinutos: number
+  }) => {
+    const horaFin = addMinutesToHora(params.horaInicio, params.duracionMinutos)
+    if (horaFin <= params.horaInicio.substring(0, 5)) {
+      toast.error("La duración no produce un horario válido.")
+      return false
+    }
+    const bloque: BloqueAgenda = {
+      id: Math.random().toString(36).slice(2),
+      empleadoId: params.empleadoId,
+      tipo: params.tipo,
+      horaInicio: params.horaInicio.substring(0, 5),
+      horaFin,
+    }
+    const ok = await mergeBloqueExterno(params.fecha, bloque)
+    if (ok) {
+      toast.success(
+        params.tipo === "comida" ? "Comida agregada a la agenda del día" : "Descanso agregado a la agenda del día",
+      )
+    }
+    return ok
   }
 
   const handleAgregarBloque = () => {
     if (!nuevoBloque.empleadoId) { toast.error('Selecciona una empleada'); return }
-    if (nuevoBloque.tipo === 'comida' && (!nuevoBloque.horaInicio || !nuevoBloque.horaFin)) {
-      toast.error('Indica la hora de inicio y fin de la comida'); return
+    let horaInicio: string | undefined
+    let horaFin: string | undefined
+
+    if (nuevoBloque.tipo === 'comida') {
+      if (!nuevoBloque.horaInicio || !nuevoBloque.horaFin) {
+        toast.error('Indica la hora de inicio y fin de la comida'); return
+      }
+      if (nuevoBloque.horaFin <= nuevoBloque.horaInicio) {
+        toast.error('La hora de fin debe ser después de la de inicio'); return
+      }
+      horaInicio = nuevoBloque.horaInicio
+      horaFin = nuevoBloque.horaFin
+    } else if (nuevoBloque.descansoModo === 'franja') {
+      horaInicio = nuevoBloque.horaInicio
+      horaFin = addMinutesToHora(nuevoBloque.horaInicio, nuevoBloque.duracionFranjaMin)
+      if (horaFin <= horaInicio) {
+        toast.error('Duración inválida'); return
+      }
     }
-    if (nuevoBloque.tipo === 'comida' && nuevoBloque.horaFin <= nuevoBloque.horaInicio) {
-      toast.error('La hora de fin debe ser después de la de inicio'); return
-    }
+
     const bloque: BloqueAgenda = {
       id: Math.random().toString(36).slice(2),
       empleadoId: nuevoBloque.empleadoId,
       tipo: nuevoBloque.tipo,
-      horaInicio: nuevoBloque.tipo === 'comida' ? nuevoBloque.horaInicio : undefined,
-      horaFin: nuevoBloque.tipo === 'comida' ? nuevoBloque.horaFin : undefined,
+      horaInicio,
+      horaFin,
     }
-    saveBloques([...bloquesAgenda, bloque])
-    toast.success(nuevoBloque.tipo === 'comida' ? 'Hora de comida marcada' : 'Día de descanso marcado')
-    // Resetear selección de empleada para facilitar agregar otro bloque
+    void persistBloques([...bloquesAgenda, bloque])
+    toast.success(
+      nuevoBloque.tipo === 'comida'
+        ? 'Hora de comida marcada'
+        : nuevoBloque.descansoModo === 'dia'
+          ? 'Día de descanso marcado'
+          : 'Descanso marcado en la agenda',
+    )
     setNuevoBloque((prev) => ({ ...prev, empleadoId: '' }))
   }
 
   const handleEliminarBloque = (id: string) => {
-    saveBloques(bloquesAgenda.filter((b) => b.id !== id))
+    if (!selectedDate) return
+    void persistBloquesForDate(selectedDate, bloquesAgenda.filter((b) => b.id !== id))
+    setBloqueEditando((cur) => (cur?.id === id ? null : cur))
+  }
+
+  const handleGuardarBloqueEditado = (actualizado: BloqueAgenda) => {
+    const next = bloquesAgenda.map((b) => (b.id === actualizado.id ? actualizado : b))
+    void persistBloques(next)
+    setBloqueEditando(null)
+    toast.success("Bloque actualizado")
   }
 
   const cargarAusencias = async () => {
@@ -827,7 +1142,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     {[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].map((empleado) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
-                      const descansoHoy = bloquesAgenda.some((b) => b.empleadoId === empleado.id && b.tipo === 'descanso')
+                      const descansoHoy = bloquesAgenda.some((b) => b.empleadoId === empleado.id && esDescansoDiaCompleto(b))
                       const ausenciasEmp = getAusenciasEmpleadoHoy(empleado.id)
                       const ausenciaDiaCompleto = ausenciasEmp.find(a => !a.horaInicio && !a.horaFin)
                       const noDisponible = !!(vacacionEmpleado || descansoHoy || ausenciaDiaCompleto)
@@ -855,11 +1170,11 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             {vacacionEmpleado ? (
                               <Palmtree className="h-3.5 w-3.5 text-amber-600" />
                             ) : descansoHoy ? (
-                              <UtensilsCrossed className="h-3.5 w-3.5 text-slate-500" />
+                              <BedDouble className="h-3.5 w-3.5 text-slate-500" />
                             ) : ausenciaDiaCompleto ? (
                               <UserX className="h-3.5 w-3.5 text-red-600" />
                             ) : (
-                              <User className="h-3.5 w-3.5 text-primary" />
+                              <UserIcon className="h-3.5 w-3.5 text-primary" />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -908,9 +1223,46 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             </div>
                           </div>
                         ) : descansoHoy ? (
-                          <div className="flex items-center justify-center h-24 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                          <div className="relative flex items-center justify-center h-24 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="absolute top-1.5 right-1.5 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground z-10"
+                                  aria-label="Opciones descanso"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="z-[200]">
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    const b = bloquesAgenda.find(
+                                      (x) => x.empleadoId === empleado.id && esDescansoDiaCompleto(x),
+                                    )
+                                    if (b) setBloqueEditando(b)
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Editar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => {
+                                    const b = bloquesAgenda.find(
+                                      (x) => x.empleadoId === empleado.id && esDescansoDiaCompleto(x),
+                                    )
+                                    if (b) handleEliminarBloque(b.id)
+                                  }}
+                                >
+                                  <X className="h-4 w-4 mr-2" />
+                                  Eliminar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                             <div className="text-center">
-                              <UtensilsCrossed className="h-6 w-6 text-slate-400 mx-auto mb-1" />
+                              <BedDouble className="h-6 w-6 text-slate-400 mx-auto mb-1" />
                               <p className="text-xs text-slate-600 dark:text-slate-400">Día de descanso</p>
                             </div>
                           </div>
@@ -925,15 +1277,16 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                 {TIME_SLOTS.map((slot, idx) => {
                                   const isInRange =
                                     slot >= empleado.horarioInicio && slot < empleado.horarioFin
-                                  const bloqueComida = bloquesAgenda.find(
+                                  const bloqueVentana = bloquesAgenda.find(
                                     (b) =>
                                       b.empleadoId === empleado.id &&
-                                      b.tipo === 'comida' &&
-                                      b.horaInicio && b.horaFin &&
-                                      slot >= b.horaInicio.substring(0, 5) &&
-                                      slot < b.horaFin.substring(0, 5)
+                                      bloqueTieneVentanaHoraria(b) &&
+                                      slot >= b.horaInicio!.substring(0, 5) &&
+                                      slot < b.horaFin!.substring(0, 5),
                                   )
-                                  const isComida = !!bloqueComida
+                                  const isVentanaComida = bloqueVentana?.tipo === 'comida'
+                                  const isVentanaDescanso = bloqueVentana?.tipo === 'descanso'
+                                  const isBloqueVentana = !!(isVentanaComida || isVentanaDescanso)
                                   const ausenciaSlot = isSlotBloqueadoPorAusencia(slot, ausenciasEmp)
                                   const isAusenciaParcial = !!ausenciaSlot
                                   const isOcupado = citasEmpleado.some((c) => {
@@ -941,15 +1294,16 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                     const nf = c.horaFin.substring(0, 5)
                                     return slot >= ni && slot < nf
                                   })
-                                  const bloqueado = isComida || isAusenciaParcial
+                                  const bloqueado = isBloqueVentana || isAusenciaParcial
                                   return (
                                     <div
                                       key={slot}
                                       className={cn(
                                         "absolute flex gap-1 group",
                                         (!isInRange || bloqueado) && "bg-muted/30",
-                                        isComida && "bg-orange-50 dark:bg-orange-950/20",
-                                        isAusenciaParcial && "bg-red-50 dark:bg-red-950/20",
+                                        isVentanaComida && "bg-orange-50 dark:bg-orange-950/20",
+                                        isVentanaDescanso && "bg-slate-100/80 dark:bg-slate-900/35",
+                                        isAusenciaParcial && !isBloqueVentana && "bg-red-50 dark:bg-red-950/20",
                                         isInRange && !isOcupado && !bloqueado && "hover:bg-accent/40 cursor-pointer",
                                         (isOcupado || bloqueado) && "cursor-default",
                                       )}
@@ -963,14 +1317,19 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         {formatHora12(slot)}
                                       </div>
                                       <div className="flex-1 border-l border-border/40 relative">
-                                        {isComida && (
+                                        {isVentanaComida && (
                                           <span className="absolute inset-0 flex items-center pl-1 text-[10px] text-orange-600 dark:text-orange-400 pointer-events-none">
-                                            <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5" /> Comida
+                                            <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5 shrink-0" /> Comida
                                           </span>
                                         )}
-                                        {isAusenciaParcial && !isComida && (
+                                        {isVentanaDescanso && (
+                                          <span className="absolute inset-0 flex items-center pl-1 text-[10px] text-slate-600 dark:text-slate-400 pointer-events-none">
+                                            <BedDouble className="h-2.5 w-2.5 mr-0.5 shrink-0" /> Descanso
+                                          </span>
+                                        )}
+                                        {isAusenciaParcial && !isBloqueVentana && (
                                           <span className="absolute inset-0 flex items-center pl-1 text-[10px] text-red-600 dark:text-red-400 pointer-events-none">
-                                            <UserX className="h-2.5 w-2.5 mr-0.5" />
+                                            <UserX className="h-2.5 w-2.5 mr-0.5 shrink-0" />
                                             <span className="capitalize truncate">{TIPO_AUSENCIA_LABELS[ausenciaSlot.tipo]}</span>
                                           </span>
                                         )}
@@ -983,6 +1342,85 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                     </div>
                                   )
                                 })}
+
+                                {/* Bloques comida / descanso por horas — tarjeta con menú */}
+                                {bloquesAgenda
+                                  .filter(
+                                    (b) =>
+                                      b.empleadoId === empleado.id && bloqueTieneVentanaHoraria(b),
+                                  )
+                                  .map((bloque) => {
+                                    const mins =
+                                      horaToMins(bloque.horaFin!.substring(0, 5)) -
+                                      horaToMins(bloque.horaInicio!.substring(0, 5))
+                                    const topPx = horaToPx(bloque.horaInicio!)
+                                    const heightPx = duracionToPx(mins)
+                                    const LEFT_OFFSET = 36
+                                    const isComidaB = bloque.tipo === "comida"
+                                    return (
+                                      <div
+                                        key={bloque.id}
+                                        className={cn(
+                                          "absolute z-[15] rounded-md border shadow-sm flex flex-col",
+                                          isComidaB
+                                            ? "bg-orange-50/95 dark:bg-orange-950/40 border-orange-300 dark:border-orange-700"
+                                            : "bg-slate-100/95 dark:bg-slate-900/60 border-slate-300 dark:border-slate-600",
+                                        )}
+                                        style={{
+                                          top: `${topPx}px`,
+                                          left: `${LEFT_OFFSET}px`,
+                                          width: `calc(100% - ${LEFT_OFFSET}px)`,
+                                          height: `${Math.max(heightPx, 36)}px`,
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="flex items-start justify-between gap-1 px-1 py-0.5 min-h-[22px]">
+                                          <span
+                                            className={cn(
+                                              "text-[10px] font-medium leading-tight truncate flex items-center gap-0.5 pt-0.5",
+                                              isComidaB
+                                                ? "text-orange-800 dark:text-orange-200"
+                                                : "text-slate-700 dark:text-slate-200",
+                                            )}
+                                          >
+                                            {isComidaB ? (
+                                              <UtensilsCrossed className="h-3 w-3 shrink-0" />
+                                            ) : (
+                                              <BedDouble className="h-3 w-3 shrink-0" />
+                                            )}
+                                            <span className="tabular-nums">
+                                              {bloque.horaInicio?.substring(0, 5)}–{bloque.horaFin?.substring(0, 5)}
+                                            </span>
+                                          </span>
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <button
+                                                type="button"
+                                                className="rounded p-0.5 shrink-0 hover:bg-black/10 dark:hover:bg-white/10"
+                                                aria-label="Opciones bloque"
+                                                onClick={(e) => e.stopPropagation()}
+                                              >
+                                                <MoreVertical className="h-3.5 w-3.5" />
+                                              </button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="z-[200]" onClick={(e) => e.stopPropagation()}>
+                                              <DropdownMenuItem onSelect={() => setBloqueEditando(bloque)}>
+                                                <Edit className="h-4 w-4 mr-2" />
+                                                Editar
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                className="text-destructive focus:text-destructive"
+                                                onSelect={() => handleEliminarBloque(bloque.id)}
+                                              >
+                                                <X className="h-4 w-4 mr-2" />
+                                                Eliminar
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
 
                                 {/* Tarjetas de citas — posicionadas absolutamente */}
                                 {citasEmpleado.map((cita) => {
@@ -1001,7 +1439,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                     <div
                                       key={cita.id}
                                       className={cn(
-                                        "absolute z-10 rounded-md border shadow-sm cursor-pointer select-none",
+                                        "absolute z-[18] rounded-md border shadow-sm cursor-pointer select-none",
                                         "hover:shadow-md hover:z-20 transition-all",
                                         cardStyle.bg,
                                         cardStyle.border,
@@ -1214,7 +1652,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           <DialogHeader>
             <DialogTitle>Comidas y descansos — {selectedDate.split('-').reverse().join('/')}</DialogTitle>
             <DialogDescription>
-              Agrega manualmente los bloques de comida o descanso para el día. Se guardan automáticamente y puedes quitarlos cuando quieras.
+              Agrega bloques de comida o descanso para esta sucursal y día. Se guardan en el servidor y los ven todas las cuentas (admin y managers).
             </DialogDescription>
           </DialogHeader>
 
@@ -1242,8 +1680,22 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             <div className="space-y-2">
               <Label>Tipo de bloque</Label>
               <Select
-                value={nuevoBloque.tipo}
-                onValueChange={(v: 'comida' | 'descanso') => setNuevoBloque((prev) => ({ ...prev, tipo: v }))}
+                value={
+                  nuevoBloque.tipo === "comida"
+                    ? "comida"
+                    : nuevoBloque.descansoModo === "dia"
+                      ? "descanso_dia"
+                      : "descanso_franja"
+                }
+                onValueChange={(v) => {
+                  if (v === "comida") {
+                    setNuevoBloque((prev) => ({ ...prev, tipo: "comida", descansoModo: "dia" }))
+                  } else if (v === "descanso_dia") {
+                    setNuevoBloque((prev) => ({ ...prev, tipo: "descanso", descansoModo: "dia" }))
+                  } else {
+                    setNuevoBloque((prev) => ({ ...prev, tipo: "descanso", descansoModo: "franja" }))
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -1252,8 +1704,11 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   <SelectItem value="comida">
                     <span className="flex items-center gap-2"><UtensilsCrossed className="h-4 w-4 text-orange-500" /> Comida (rango de horas)</span>
                   </SelectItem>
-                  <SelectItem value="descanso">
-                    <span className="flex items-center gap-2"><BedDouble className="h-4 w-4 text-slate-500" /> Día de descanso (todo el día)</span>
+                  <SelectItem value="descanso_dia">
+                    <span className="flex items-center gap-2"><BedDouble className="h-4 w-4 text-slate-500" /> Descanso — todo el día</span>
+                  </SelectItem>
+                  <SelectItem value="descanso_franja">
+                    <span className="flex items-center gap-2"><BedDouble className="h-4 w-4 text-slate-600" /> Descanso — franja horaria</span>
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -1278,6 +1733,36 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     value={nuevoBloque.horaFin}
                     onChange={(e) => setNuevoBloque((prev) => ({ ...prev, horaFin: e.target.value }))}
                   />
+                </div>
+              </div>
+            )}
+
+            {nuevoBloque.tipo === 'descanso' && nuevoBloque.descansoModo === 'franja' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="desc-franja-inicio">Hora de inicio</Label>
+                  <Input
+                    id="desc-franja-inicio"
+                    type="time"
+                    value={nuevoBloque.horaInicio}
+                    onChange={(e) => setNuevoBloque((prev) => ({ ...prev, horaInicio: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Duración</Label>
+                  <Select
+                    value={String(nuevoBloque.duracionFranjaMin)}
+                    onValueChange={(v) => setNuevoBloque((prev) => ({ ...prev, duracionFranjaMin: Number(v) }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[15, 30, 45, 60, 90, 120].map((m) => (
+                        <SelectItem key={m} value={String(m)}>{m} min</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             )}
@@ -1316,19 +1801,33 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                           <p className="text-sm font-medium truncate">{emp.nombre} {emp.apellido}</p>
                           <p className="text-xs text-muted-foreground">
                             {bloque.tipo === 'comida'
-                              ? `Comida: ${bloque.horaInicio} – ${bloque.horaFin}`
-                              : 'Día de descanso'}
+                              ? `Comida: ${bloque.horaInicio?.substring(0, 5)} – ${bloque.horaFin?.substring(0, 5)}`
+                              : bloqueTieneVentanaHoraria(bloque)
+                                ? `Descanso: ${bloque.horaInicio?.substring(0, 5)} – ${bloque.horaFin?.substring(0, 5)}`
+                                : 'Día de descanso'}
                           </p>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() => handleEliminarBloque(bloque.id)}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => setBloqueEditando(bloque)}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => handleEliminarBloque(bloque.id)}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   )
                 })}
@@ -1344,6 +1843,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         </DialogContent>
       </Dialog>
 
+      <AgendaEditarBloqueDialog
+        bloque={bloqueEditando}
+        open={!!bloqueEditando}
+        onOpenChange={(o) => { if (!o) setBloqueEditando(null) }}
+        empleados={empleadosSucursal}
+        onSave={handleGuardarBloqueEditado}
+        onDelete={handleEliminarBloque}
+      />
+
       <NuevaCitaDialog
         open={dialogOpen}
         onOpenChange={async (open) => {
@@ -1358,6 +1866,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         selectedTime={selectedSlot?.time}
         selectedEmpleadoId={selectedSlot?.empleadoId}
         sucursalId={selectedSucursal}
+        onRegistrarBloqueAgenda={handleRegistrarBloqueAgenda}
       />
 
       <EditarCitaDialog
@@ -1752,7 +2261,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   <Separator />
                   <div className="space-y-3">
                     <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1">
-                      <User className="h-3 w-3" /> Ficha del cliente
+                      <UserIcon className="h-3 w-3" /> Ficha del cliente
                     </p>
 
                     {loadingDetalleCliente ? (
@@ -1846,12 +2355,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Creación</p>
                             {detalleCita.creadoPor ? (
                               <div className="flex items-center gap-2">
-                                <User className="h-3 w-3 text-slate-400 shrink-0" />
+                                <UserIcon className="h-3 w-3 text-slate-400 shrink-0" />
                                 <span className="font-semibold text-slate-700">{detalleCita.creadoPor}</span>
                               </div>
                             ) : (
                               <div className="flex items-center gap-2">
-                                <User className="h-3 w-3 text-slate-300 shrink-0" />
+                                <UserIcon className="h-3 w-3 text-slate-300 shrink-0" />
                                 <span className="text-slate-400 italic">Usuario no registrado</span>
                               </div>
                             )}
@@ -1879,12 +2388,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Última modificación</p>
                                 {detalleCita.modificadoPor ? (
                                   <div className="flex items-center gap-2">
-                                    <User className="h-3 w-3 text-slate-400 shrink-0" />
+                                    <UserIcon className="h-3 w-3 text-slate-400 shrink-0" />
                                     <span className="font-semibold text-slate-700">{detalleCita.modificadoPor}</span>
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-2">
-                                    <User className="h-3 w-3 text-slate-300 shrink-0" />
+                                    <UserIcon className="h-3 w-3 text-slate-300 shrink-0" />
                                     <span className="text-slate-400 italic">Usuario no registrado</span>
                                   </div>
                                 )}

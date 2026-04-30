@@ -19,7 +19,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { getPagosFromDB, type Pago } from "@/lib/data/pagos"
+import { getPagosFromDB, distribuirMontoPago, type Pago } from "@/lib/data/pagos"
 import {
   getServiciosPopulares,
   getTopEmpleadosFromDB,
@@ -267,12 +267,19 @@ export default function ReportesPage() {
       setStatsActual(calcStats(pagos))
       setStatsAnterior(calcStats(pagosAnt))
 
-      // Métodos de pago
+      // Métodos de pago (incluye desglose efectivo/tarjeta en pagos mixtos, sin duplicar montos)
       const metodosMap = new Map<string, { monto: number; count: number }>()
+      const bump = (clave: string, monto: number) => {
+        if (monto <= 0.009) return
+        const prev = metodosMap.get(clave) ?? { monto: 0, count: 0 }
+        metodosMap.set(clave, { monto: prev.monto + monto, count: prev.count + 1 })
+      }
       pagos.filter(p => p.estado === "completado").forEach(p => {
-        const m    = p.metodoPago ?? "otro"
-        const prev = metodosMap.get(m) ?? { monto: 0, count: 0 }
-        metodosMap.set(m, { monto: prev.monto + p.monto, count: prev.count + 1 })
+        const d = distribuirMontoPago(p)
+        bump("efectivo", d.efectivo)
+        bump("tarjeta", d.tarjeta)
+        bump("transferencia", d.transferencia)
+        bump("otro", d.otro)
       })
       setMetodosPago(Array.from(metodosMap.entries()).map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto))
 

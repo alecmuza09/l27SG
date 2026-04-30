@@ -15,6 +15,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Textarea } from "@/components/ui/textarea"
 import {
   getPagosFromDB, calcularResumenDesdePagos, updatePago, deletePago,
+  distribuirMontoPago,
+  etiquetaMetodosPago,
+  debePersistirMetodoMixtoEfectivoTarjeta,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { searchClientes, type Cliente } from "@/lib/data/clientes"
@@ -184,11 +187,20 @@ export default function PagosPage() {
       )
     : pagos
 
-  const totalEfectivo   = pagos.filter(p => p.metodoPago === "efectivo").reduce((s, p) => s + p.monto, 0)
-  const totalTarjeta    = pagos.filter(p => p.metodoPago === "tarjeta").reduce((s, p) => s + p.monto, 0)
-  const totalTransf     = pagos.filter(p => p.metodoPago === "transferencia").reduce((s, p) => s + p.monto, 0)
+  let totalEfectivo = 0
+  let totalTarjeta = 0
+  let totalTransf = 0
+  let totalOtro = 0
+  for (const p of pagos) {
+    if (p.estado !== "completado") continue
+    const d = distribuirMontoPago(p)
+    totalEfectivo += d.efectivo
+    totalTarjeta += d.tarjeta
+    totalTransf += d.transferencia
+    totalOtro += d.otro
+  }
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
-  const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf
+  const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf + totalOtro
   const totalNeto       = totalGeneral - totalGastos
 
   // ── helpers de selección ────────────────────────────────────────────────────
@@ -304,15 +316,19 @@ export default function PagosPage() {
     const auditSuffix = `[Corrección ${timestamp} — ${currentUser?.name}${editMotivo.trim() ? `: ${editMotivo.trim()}` : ""}]`
     const notaFinal = [editNotas.trim(), auditSuffix].filter(Boolean).join(" | ")
 
+    const efEd = Number(editMontoEfectivo) || 0
+    const tarEd = Number(editMontoTarjeta) || 0
+    const metodoPagoFinal = debePersistirMetodoMixtoEfectivoTarjeta(efEd, tarEd) ? "otro" : editMetodoPago
+
     const res = await updatePago(pagoDetalle.id, {
       monto:          Number(editMonto) || pagoDetalle.monto,
       subtotal:       Number(editMonto) || pagoDetalle.monto,
       propina:        Number(editPropina) || 0,
       notas:          notaFinal || undefined,
       referencia:     editReferencia.trim() || undefined,
-      metodo_pago:    editMetodoPago,
-      monto_efectivo: Number(editMontoEfectivo) || 0,
-      monto_tarjeta:  Number(editMontoTarjeta) || 0,
+      metodo_pago:    metodoPagoFinal,
+      monto_efectivo: efEd,
+      monto_tarjeta:  tarEd,
       fecha:          editFecha || pagoDetalle.fecha,
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
       cliente_id:     editClienteId || pagoDetalle.clienteId,
@@ -325,9 +341,9 @@ export default function PagosPage() {
       propina:        Number(editPropina) || 0,
       notas:          notaFinal || undefined,
       referencia:     editReferencia.trim() || undefined,
-      metodoPago:     editMetodoPago as any,
-      montoEfectivo:  Number(editMontoEfectivo) || 0,
-      montoTarjeta:   Number(editMontoTarjeta) || 0,
+      metodoPago:     metodoPagoFinal as Pago["metodoPago"],
+      montoEfectivo:  efEd,
+      montoTarjeta:   tarEd,
       fecha:          editFecha || pagoDetalle.fecha,
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
       clienteId:      editClienteId || pagoDetalle.clienteId,
@@ -483,6 +499,9 @@ export default function PagosPage() {
           <StatRow label="Servicios — Tarjeta" value={fmtMXN(totalTarjeta)} />
           <StatRow label="Servicios — Efectivo" value={fmtMXN(totalEfectivo)} />
           <StatRow label="Transferencias" value={fmtMXN(totalTransf)} />
+          {totalOtro > 0 && (
+            <StatRow label="Otros medios / mixto (detalle)" value={fmtMXN(totalOtro)} />
+          )}
           <StatRow label="Propinas" value={fmtMXN(resumen?.totalPropinas ?? 0)} />
           <StatRow label="Descuentos" value={fmtMXN(resumen?.totalDescuentos ?? 0)} />
 
@@ -777,12 +796,21 @@ export default function PagosPage() {
                         <TableCell className="text-xs text-muted-foreground">{pago.empleadoNombre}</TableCell>
                         <TableCell className="text-xs max-w-[180px] truncate">{pago.servicios.join(", ")}</TableCell>
                         <TableCell>
-                          <span className="inline-flex items-center gap-1 text-xs border rounded px-1.5 py-0.5 capitalize">
-                            {pago.metodoPago === "efectivo"      && <Banknote className="h-3 w-3 text-emerald-500" />}
-                            {pago.metodoPago === "tarjeta"       && <CreditCard className="h-3 w-3 text-blue-500" />}
-                            {pago.metodoPago === "transferencia" && <ArrowLeftRight className="h-3 w-3 text-indigo-500" />}
-                            {pago.metodoPago}
-                          </span>
+                          {(() => {
+                            const d = distribuirMontoPago(pago)
+                            const lbl = etiquetaMetodosPago(pago)
+                            return (
+                              <span className="inline-flex items-center gap-1 flex-wrap text-xs border rounded px-1.5 py-0.5 max-w-[200px]">
+                                {d.efectivo > 0.009 && <Banknote className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden />}
+                                {d.tarjeta > 0.009 && <CreditCard className="h-3 w-3 text-blue-500 shrink-0" aria-hidden />}
+                                {d.transferencia > 0.009 && <ArrowLeftRight className="h-3 w-3 text-indigo-500 shrink-0" aria-hidden />}
+                                {d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009) && (
+                                  <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
+                                )}
+                                <span className="leading-tight">{lbl}</span>
+                              </span>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell className="text-xs font-medium">
                           {(pago.propina ?? 0) > 0
@@ -810,9 +838,10 @@ export default function PagosPage() {
                 <p className="text-sm font-semibold">Giftcards cobradas hoy</p>
               </div>
               {(() => {
-                const gcPagos = pagos.filter(p =>
-                  p.metodoPago === "otro" || (p.referencia ?? "").toLowerCase().includes("giftcard"),
-                )
+                const gcPagos = pagos.filter(p => {
+                  if (debePersistirMetodoMixtoEfectivoTarjeta(p.montoEfectivo, p.montoTarjeta)) return false
+                  return p.metodoPago === "otro" || (p.referencia ?? "").toLowerCase().includes("giftcard")
+                })
                 return gcPagos.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                     <Gift className="h-10 w-10 mb-3 opacity-30" />
@@ -1179,12 +1208,21 @@ export default function PagosPage() {
                       <option value="otro">🔖 Otro</option>
                     </select>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-xs border rounded px-1.5 py-0.5 capitalize bg-background mt-0.5">
-                      {pagoDetalle.metodoPago === "efectivo"      && <Banknote className="h-3 w-3 text-emerald-500" />}
-                      {pagoDetalle.metodoPago === "tarjeta"       && <CreditCard className="h-3 w-3 text-blue-500" />}
-                      {pagoDetalle.metodoPago === "transferencia" && <ArrowLeftRight className="h-3 w-3 text-indigo-500" />}
-                      {pagoDetalle.metodoPago}
-                    </span>
+                    (() => {
+                      const d = distribuirMontoPago(pagoDetalle)
+                      const lbl = etiquetaMetodosPago(pagoDetalle)
+                      return (
+                        <span className="inline-flex items-center gap-1 flex-wrap text-xs border rounded px-1.5 py-0.5 bg-background mt-0.5 max-w-full">
+                          {d.efectivo > 0.009 && <Banknote className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden />}
+                          {d.tarjeta > 0.009 && <CreditCard className="h-3 w-3 text-blue-500 shrink-0" aria-hidden />}
+                          {d.transferencia > 0.009 && <ArrowLeftRight className="h-3 w-3 text-indigo-500 shrink-0" aria-hidden />}
+                          {d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009) && (
+                            <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
+                          )}
+                          <span className="leading-tight">{lbl}</span>
+                        </span>
+                      )
+                    })()
                   )}
                 </div>
               </div>

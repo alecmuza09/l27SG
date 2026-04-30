@@ -295,6 +295,8 @@ export default function CajaPage() {
     ]
     const mayor = montos.sort((a, b) => b.monto - a.monto)[0]
     const metodoPrincipal = mayor.monto > 0 ? mayor.metodo : "otro" as const
+    const metodoPagoRegistro =
+      efNum > 0.009 && tarNum > 0.009 ? "otro" : metodoPrincipal
 
     const res = await registrarPago({
       citaId: null,
@@ -308,7 +310,7 @@ export default function CajaPage() {
       descuentoCodigo: descuentoAplicado?.codigo,
       propina: propinaNum,
       total,
-      metodoPago: metodoPrincipal,
+      metodoPago: metodoPagoRegistro,
       montoEfectivo: efNum,
       montoTarjeta: tarNum,
       montoGiftCard: gcNum,
