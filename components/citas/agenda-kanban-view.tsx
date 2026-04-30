@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -30,9 +30,20 @@ import type { Vacacion } from "@/lib/types/vacaciones"
 import { getCurrentUser, type User } from "@/lib/auth"
 import { getSucursalesByIdsFromDB } from "@/lib/data/sucursales"
 import {
-  getAusenciasFromDB, createAusencia, aprobarAusencia, rechazarAusencia, cancelarAusencia,
-  TIPO_AUSENCIA_LABELS, ESTATUS_AUSENCIA_COLORS, ESTATUS_AUSENCIA_LABELS, TIPO_AUSENCIA_COLORS,
-  type Ausencia, type TipoAusencia,
+  getAusenciasFromDB,
+  createAusencia,
+  updateAusencia,
+  deleteAusencia,
+  aprobarAusencia,
+  rechazarAusencia,
+  cancelarAusencia,
+  TIPO_AUSENCIA_LABELS,
+  ESTATUS_AUSENCIA_COLORS,
+  ESTATUS_AUSENCIA_LABELS,
+  TIPO_AUSENCIA_COLORS,
+  type Ausencia,
+  type TipoAusencia,
+  type EstatusAusencia,
 } from "@/lib/data/ausencias"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
@@ -408,6 +419,20 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isSavingAusencia, setIsSavingAusencia] = useState(false)
   const [motivoRechazoAusencia, setMotivoRechazoAusencia] = useState('')
   const [rechazandoAusenciaId, setRechazandoAusenciaId] = useState<string | null>(null)
+  const [ausenciaEditando, setAusenciaEditando] = useState<Ausencia | null>(null)
+  const [formEditAusencia, setFormEditAusencia] = useState({
+    empleadoId: "",
+    tipo: "falta" as TipoAusencia,
+    motivo: "",
+    fechaInicio: "",
+    fechaFin: "",
+    diaCompleto: true,
+    horaInicio: "10:00",
+    horaFin: "12:00",
+    estatus: "pendiente" as EstatusAusencia,
+    motivoRechazo: "",
+  })
+  const [isSavingAusenciaEdit, setIsSavingAusenciaEdit] = useState(false)
 
   // Detalle de cita (click en tarjeta)
   const [detalleCita, setDetalleCita] = useState<Cita | null>(null)
@@ -496,6 +521,18 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     loadEmpleados()
   }, [selectedSucursal])
 
+  const enrichAusenciasList = useCallback(
+    (data: Ausencia[]) =>
+      data.map((a) => {
+        const emp = empleadosSucursal.find((e) => e.id === a.empleadoId)
+        return {
+          ...a,
+          empleadoNombre: emp ? `${emp.nombre} ${emp.apellido}` : (a.empleadoNombre ?? ""),
+        }
+      }),
+    [empleadosSucursal],
+  )
+
   useEffect(() => {
     async function loadCitas() {
       if (selectedSucursal && selectedDate) {
@@ -506,12 +543,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             getAusenciasFromDB({ fechaDesde: selectedDate, fechaHasta: selectedDate }),
           ])
           setCitas(citasData)
-          // Enriquecer ausencias con nombres de empleados
-          const conNombres = ausenciasData.map((a: Ausencia) => {
-            const emp = empleadosSucursal.find(e => e.id === a.empleadoId)
-            return { ...a, empleadoNombre: emp ? `${emp.nombre} ${emp.apellido}` : a.empleadoNombre }
-          })
-          setAusencias(conNombres)
+          setAusencias(enrichAusenciasList(ausenciasData))
         } catch (error) {
           console.error('Error cargando citas:', error)
           toast.error('Error al cargar las citas')
@@ -521,7 +553,25 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       }
     }
     loadCitas()
-  }, [selectedSucursal, selectedDate, refreshCitasKey, empleadosSucursal])
+  }, [selectedSucursal, selectedDate, refreshCitasKey, enrichAusenciasList])
+
+  useEffect(() => {
+    if (!ausenciaEditando) return
+    const a = ausenciaEditando
+    const partial = !!(a.horaInicio && a.horaFin)
+    setFormEditAusencia({
+      empleadoId: a.empleadoId,
+      tipo: a.tipo,
+      motivo: a.motivo ?? "",
+      fechaInicio: a.fechaInicio,
+      fechaFin: a.fechaFin,
+      diaCompleto: !partial,
+      horaInicio: (a.horaInicio ?? "10:00").substring(0, 5),
+      horaFin: (a.horaFin ?? "12:00").substring(0, 5),
+      estatus: a.estatus,
+      motivoRechazo: a.motivoRechazo ?? "",
+    })
+  }, [ausenciaEditando])
 
   // Cargar datos del cliente cuando se abre el sheet de detalle
   useEffect(() => {
@@ -868,22 +918,79 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     toast.success("Bloque actualizado")
   }
 
+  const aplicarAusenciasDelServidor = async () => {
+    if (!selectedDate) return
+    try {
+      const data = await getAusenciasFromDB({ fechaDesde: selectedDate, fechaHasta: selectedDate })
+      setAusencias(enrichAusenciasList(data))
+    } catch {
+      toast.error("Error al actualizar ausencias")
+    }
+  }
+
   const cargarAusencias = async () => {
     setIsLoadingAusencias(true)
     try {
-      const data = await getAusenciasFromDB({ fechaDesde: selectedDate, fechaHasta: selectedDate })
-      // Completar nombres desde empleadosSucursal
-      const conNombres = data.map(a => ({
-        ...a,
-        empleadoNombre: a.empleadoNombre
-          ?? empleadosSucursal.find(e => e.id === a.empleadoId)?.nombre
-          ?? a.empleadoId,
-      }))
-      setAusencias(conNombres)
+      await aplicarAusenciasDelServidor()
     } catch {
-      toast.error('Error al cargar ausencias')
+      toast.error("Error al cargar ausencias")
     } finally {
       setIsLoadingAusencias(false)
+    }
+  }
+
+  const handleEliminarAusenciaConf = async (id: string) => {
+    if (!confirm("¿Eliminar esta ausencia del sistema?")) return
+    const r = await deleteAusencia(id)
+    if (r.success) {
+      toast.success("Ausencia eliminada")
+      setAusenciaEditando((cur) => (cur?.id === id ? null : cur))
+      await aplicarAusenciasDelServidor()
+    } else toast.error(r.error ?? "Error al eliminar")
+  }
+
+  const handleGuardarAusenciaEditada = async () => {
+    if (!ausenciaEditando) return
+    if (formEditAusencia.fechaFin < formEditAusencia.fechaInicio) {
+      toast.error("La fecha fin debe ser igual o posterior al inicio")
+      return
+    }
+    if (formEditAusencia.estatus === "rechazada" && !formEditAusencia.motivoRechazo.trim()) {
+      toast.error("Indica el motivo del rechazo")
+      return
+    }
+    const esParcial = !formEditAusencia.diaCompleto
+    if (esParcial && horaToMins(formEditAusencia.horaFin) <= horaToMins(formEditAusencia.horaInicio)) {
+      toast.error("La hora fin debe ser posterior a la de inicio")
+      return
+    }
+    const durMin = esParcial
+      ? (horaToMins(formEditAusencia.horaFin) - horaToMins(formEditAusencia.horaInicio)) / 60
+      : null
+    setIsSavingAusenciaEdit(true)
+    try {
+      const actor = currentUser?.name || currentUser?.email || "Usuario"
+      const r = await updateAusencia(ausenciaEditando.id, {
+        empleadoId: formEditAusencia.empleadoId,
+        tipo: formEditAusencia.tipo,
+        motivo: formEditAusencia.motivo.trim() || null,
+        fechaInicio: formEditAusencia.fechaInicio,
+        fechaFin: formEditAusencia.fechaFin,
+        horaInicio: esParcial ? formEditAusencia.horaInicio : null,
+        horaFin: esParcial ? formEditAusencia.horaFin : null,
+        duracionHoras: esParcial && durMin != null && durMin > 0 ? durMin : null,
+        estatus: formEditAusencia.estatus,
+        motivoRechazo:
+          formEditAusencia.estatus === "rechazada" ? formEditAusencia.motivoRechazo.trim() || null : null,
+        actorNombre: actor,
+      })
+      if (r.success) {
+        toast.success("Ausencia actualizada")
+        setAusenciaEditando(null)
+        await aplicarAusenciasDelServidor()
+      } else toast.error(r.error ?? "Error al guardar")
+    } finally {
+      setIsSavingAusenciaEdit(false)
     }
   }
 
@@ -1212,8 +1319,44 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             </div>
                           </div>
                         ) : ausenciaDiaCompleto ? (
-                          <div className="flex items-center justify-center h-24 bg-red-50 rounded-lg border border-red-200">
-                            <div className="text-center">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            className="relative flex items-center justify-center h-24 bg-red-50 rounded-lg border border-red-200 cursor-pointer hover:bg-red-100/80 transition-colors"
+                            onClick={() => setAusenciaEditando(ausenciaDiaCompleto)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault()
+                                setAusenciaEditando(ausenciaDiaCompleto)
+                              }
+                            }}
+                          >
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="absolute top-1.5 right-1.5 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground z-10"
+                                  aria-label="Opciones ausencia"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="z-[200]" onClick={(e) => e.stopPropagation()}>
+                                <DropdownMenuItem onSelect={() => setAusenciaEditando(ausenciaDiaCompleto)}>
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Editar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => void handleEliminarAusenciaConf(ausenciaDiaCompleto.id)}
+                                >
+                                  <X className="h-4 w-4 mr-2" />
+                                  Eliminar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <div className="text-center px-6">
                               <UserX className="h-6 w-6 text-red-400 mx-auto mb-1" />
                               <p className="text-xs text-red-700 font-medium capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]}</p>
                               {ausenciaDiaCompleto.motivo && (
@@ -1417,6 +1560,98 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                               </DropdownMenuItem>
                                             </DropdownMenuContent>
                                           </DropdownMenu>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+
+                                {/* Ausencias parciales — tarjeta con menú (misma columna que la agenda) */}
+                                {ausenciasEmp
+                                  .filter(
+                                    (aus) =>
+                                      aus.horaInicio &&
+                                      aus.horaFin &&
+                                      (aus.estatus === "aprobada" || aus.estatus === "pendiente"),
+                                  )
+                                  .map((aus) => {
+                                    const mins =
+                                      horaToMins(aus.horaFin!.substring(0, 5)) -
+                                      horaToMins(aus.horaInicio!.substring(0, 5))
+                                    const topPx = horaToPx(aus.horaInicio!)
+                                    const heightPx = duracionToPx(mins)
+                                    const LEFT_OFFSET = 36
+                                    return (
+                                      <div
+                                        key={aus.id}
+                                        role="button"
+                                        tabIndex={0}
+                                        className={cn(
+                                          "absolute z-[14] rounded-md border shadow-sm flex flex-col cursor-pointer",
+                                          "bg-red-50/95 dark:bg-red-950/35 border-red-300 dark:border-red-800",
+                                          "hover:bg-red-100/95 dark:hover:bg-red-950/50 transition-colors",
+                                        )}
+                                        style={{
+                                          top: `${topPx}px`,
+                                          left: `${LEFT_OFFSET}px`,
+                                          width: `calc(100% - ${LEFT_OFFSET}px)`,
+                                          height: `${Math.max(heightPx, 36)}px`,
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setAusenciaEditando(aus)
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            setAusenciaEditando(aus)
+                                          }
+                                        }}
+                                      >
+                                        <div className="flex items-start justify-between gap-1 px-1 py-0.5 min-h-[22px]">
+                                          <span className="text-[10px] font-medium leading-tight truncate flex items-center gap-0.5 pt-0.5 text-red-800 dark:text-red-200 min-w-0">
+                                            <UserX className="h-3 w-3 shrink-0" />
+                                            <span className="capitalize truncate">{TIPO_AUSENCIA_LABELS[aus.tipo]}</span>
+                                            <span className="tabular-nums opacity-80 shrink-0">
+                                              {aus.horaInicio?.substring(0, 5)}–{aus.horaFin?.substring(0, 5)}
+                                            </span>
+                                          </span>
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <button
+                                                type="button"
+                                                className="rounded p-0.5 shrink-0 hover:bg-black/10 dark:hover:bg-white/10 text-red-800 dark:text-red-200"
+                                                aria-label="Opciones ausencia"
+                                                onClick={(e) => e.stopPropagation()}
+                                              >
+                                                <MoreVertical className="h-3.5 w-3.5" />
+                                              </button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="z-[200]" onClick={(e) => e.stopPropagation()}>
+                                              <DropdownMenuItem onSelect={() => setAusenciaEditando(aus)}>
+                                                <Edit className="h-4 w-4 mr-2" />
+                                                Editar
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                className="text-destructive focus:text-destructive"
+                                                onSelect={() => void handleEliminarAusenciaConf(aus.id)}
+                                              >
+                                                <X className="h-4 w-4 mr-2" />
+                                                Eliminar
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        </div>
+                                        <div className="px-1 pb-0.5 mt-auto">
+                                          <Badge
+                                            variant="outline"
+                                            className={cn(
+                                              "text-[9px] h-4 px-1 py-0 border font-normal",
+                                              ESTATUS_AUSENCIA_COLORS[aus.estatus],
+                                            )}
+                                          >
+                                            {ESTATUS_AUSENCIA_LABELS[aus.estatus]}
+                                          </Badge>
                                         </div>
                                       </div>
                                     )
@@ -1971,6 +2206,236 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         </DialogContent>
       </Dialog>
 
+      {/* ── Dialog editar ausencia (desde agenda o lista del día) ───── */}
+      <Dialog
+        open={!!ausenciaEditando}
+        onOpenChange={(open) => {
+          if (!open) setAusenciaEditando(null)
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-4 w-4" />
+              Editar ausencia
+            </DialogTitle>
+            <DialogDescription>
+              Cambia tipo, fechas, horario y estatus. La agenda se actualiza al guardar o eliminar.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1 col-span-2">
+                <Label className="text-xs">Empleada *</Label>
+                <Select
+                  value={formEditAusencia.empleadoId}
+                  onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, empleadoId: v }))}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Seleccionar..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {empleadosSucursal.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nombre} {e.apellido}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1 col-span-2">
+                <Label className="text-xs">Tipo *</Label>
+                <Select
+                  value={formEditAusencia.tipo}
+                  onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, tipo: v as TipoAusencia }))}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TIPO_AUSENCIA_LABELS[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Fecha inicio *</Label>
+                <Input
+                  type="date"
+                  value={formEditAusencia.fechaInicio}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setFormEditAusencia((p) => ({
+                      ...p,
+                      fechaInicio: v,
+                      fechaFin: v > p.fechaFin ? v : p.fechaFin,
+                    }))
+                  }}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Fecha fin *</Label>
+                <Input
+                  type="date"
+                  min={formEditAusencia.fechaInicio}
+                  value={formEditAusencia.fechaFin}
+                  onChange={(e) => setFormEditAusencia((p) => ({ ...p, fechaFin: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1 col-span-2">
+                <Label className="text-xs">Estatus</Label>
+                <Select
+                  value={formEditAusencia.estatus}
+                  onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, estatus: v as EstatusAusencia }))}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ESTATUS_AUSENCIA_LABELS) as EstatusAusencia[]).map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ESTATUS_AUSENCIA_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex gap-2 col-span-2">
+                <button
+                  type="button"
+                  onClick={() => setFormEditAusencia((p) => ({ ...p, diaCompleto: true }))}
+                  className={cn(
+                    "flex-1 h-8 text-xs rounded border font-medium transition-colors",
+                    formEditAusencia.diaCompleto
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:bg-muted",
+                  )}
+                >
+                  Día completo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormEditAusencia((p) => ({ ...p, diaCompleto: false }))}
+                  className={cn(
+                    "flex-1 h-8 text-xs rounded border font-medium transition-colors",
+                    !formEditAusencia.diaCompleto
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:bg-muted",
+                  )}
+                >
+                  Rango de horas
+                </button>
+              </div>
+
+              {!formEditAusencia.diaCompleto && (
+                <div className="grid grid-cols-2 gap-3 col-span-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Hora inicio</Label>
+                    <Select
+                      value={formEditAusencia.horaInicio}
+                      onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, horaInicio: v }))}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-52">
+                        {Array.from({ length: 21 }, (_, i) => {
+                          const h = Math.floor(i / 2) + 10
+                          const m = i % 2 === 0 ? "00" : "30"
+                          const val = `${String(h).padStart(2, "0")}:${m}`
+                          return (
+                            <SelectItem key={val} value={val}>
+                              {val}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Hora fin</Label>
+                    <Select
+                      value={formEditAusencia.horaFin}
+                      onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, horaFin: v }))}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-52">
+                        {Array.from({ length: 21 }, (_, i) => {
+                          const h = Math.floor(i / 2) + 10
+                          const m = i % 2 === 0 ? "00" : "30"
+                          const val = `${String(h).padStart(2, "0")}:${m}`
+                          return (
+                            <SelectItem key={val} value={val}>
+                              {val}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1 col-span-2">
+                <Label className="text-xs">Motivo (opcional)</Label>
+                <Input
+                  className="h-9 text-sm"
+                  placeholder="Ej. cita médica..."
+                  value={formEditAusencia.motivo}
+                  onChange={(e) => setFormEditAusencia((p) => ({ ...p, motivo: e.target.value }))}
+                />
+              </div>
+
+              {formEditAusencia.estatus === "rechazada" && (
+                <div className="space-y-1 col-span-2">
+                  <Label className="text-xs">Motivo del rechazo *</Label>
+                  <Textarea
+                    rows={2}
+                    className="text-sm resize-none"
+                    placeholder="Motivo..."
+                    value={formEditAusencia.motivoRechazo}
+                    onChange={(e) => setFormEditAusencia((p) => ({ ...p, motivoRechazo: e.target.value }))}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap justify-between gap-2 pt-2 border-t">
+            <Button
+              variant="destructive"
+              type="button"
+              size="sm"
+              disabled={!ausenciaEditando || isSavingAusenciaEdit}
+              onClick={() => ausenciaEditando && void handleEliminarAusenciaConf(ausenciaEditando.id)}
+            >
+              Eliminar
+            </Button>
+            <div className="flex gap-2 ml-auto">
+              <Button variant="outline" size="sm" type="button" onClick={() => setAusenciaEditando(null)}>
+                Cancelar
+              </Button>
+              <Button size="sm" type="button" disabled={isSavingAusenciaEdit} onClick={() => void handleGuardarAusenciaEditada()}>
+                {isSavingAusenciaEdit ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Guardar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Dialog Ausencias del día ──────────────────────────────────── */}
       <Dialog open={isAusenciasOpen} onOpenChange={(v) => { setIsAusenciasOpen(v); if (!v) { setRechazandoAusenciaId(null); setMotivoRechazoAusencia('') } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0">
@@ -2132,21 +2597,50 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                           </p>
                         )}
                       </div>
-                      {/* Acciones */}
-                      {a.estatus === 'pendiente' && isAdmin && (
-                        <div className="flex gap-1 shrink-0">
-                          <Button size="sm" variant="outline"
-                            className="h-7 text-xs text-green-700 border-green-300 hover:bg-green-50"
-                            onClick={() => handleAprobarAusencia(a.id)}>
-                            <CheckCircle className="h-3 w-3 mr-1" />Aprobar
-                          </Button>
-                          <Button size="sm" variant="outline"
-                            className="h-7 text-xs text-red-700 border-red-300 hover:bg-red-50"
-                            onClick={() => setRechazandoAusenciaId(a.id)}>
-                            <XCircle className="h-3 w-3 mr-1" />Rechazar
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-7 w-7 p-0" aria-label="Más opciones">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="z-[250]">
+                            <DropdownMenuItem onSelect={() => setAusenciaEditando(a)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => void handleEliminarAusenciaConf(a.id)}
+                            >
+                              <X className="h-4 w-4 mr-2" />
+                              Eliminar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        {a.estatus === "pendiente" && isAdmin && (
+                          <div className="flex gap-1 shrink-0 flex-wrap justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs text-green-700 border-green-300 hover:bg-green-50"
+                              onClick={() => handleAprobarAusencia(a.id)}
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Aprobar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs text-red-700 border-red-300 hover:bg-red-50"
+                              onClick={() => setRechazandoAusenciaId(a.id)}
+                            >
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Rechazar
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     {/* Formulario inline de rechazo */}
                     {rechazandoAusenciaId === a.id && (

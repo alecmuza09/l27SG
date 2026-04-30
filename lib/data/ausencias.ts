@@ -232,6 +232,90 @@ export async function cancelarAusencia(
   return { success: true }
 }
 
+/** Payload completo para persistir cambios desde formularios de edición */
+export interface UpdateAusenciaInput {
+  empleadoId: string
+  tipo: TipoAusencia
+  motivo: string | null
+  fechaInicio: string
+  fechaFin: string
+  horaInicio: string | null
+  horaFin: string | null
+  duracionHoras: number | null
+  estatus: EstatusAusencia
+  motivoRechazo: string | null
+  notas?: string | null
+  actorNombre?: string
+}
+
+export async function updateAusencia(
+  id: string,
+  input: UpdateAusenciaInput
+): Promise<{ success: boolean; error?: string }> {
+  const { data: prev, error: fetchErr } = await supabase
+    .from("ausencias")
+    .select("*")
+    .eq("id", id)
+    .single()
+
+  if (fetchErr || !prev) {
+    console.error("Error cargando ausencia:", fetchErr)
+    return { success: false, error: fetchErr?.message ?? "Ausencia no encontrada" }
+  }
+
+  const estatusChanged = input.estatus !== prev.estatus
+  const actor = input.actorNombre?.trim() || "Sistema"
+
+  let aprobadoPor: string | null = prev.aprobado_por
+  let fechaAprobacion: string | null = prev.fecha_aprobacion
+  let motivoRechazoDb: string | null = prev.motivo_rechazo
+
+  if (estatusChanged) {
+    if (input.estatus === "aprobada") {
+      aprobadoPor = actor
+      fechaAprobacion = new Date().toISOString()
+      motivoRechazoDb = null
+    } else if (input.estatus === "rechazada") {
+      aprobadoPor = actor
+      fechaAprobacion = new Date().toISOString()
+      motivoRechazoDb = input.motivoRechazo ?? null
+    } else if (input.estatus === "pendiente" || input.estatus === "cancelada") {
+      aprobadoPor = null
+      fechaAprobacion = null
+      motivoRechazoDb = null
+    }
+  } else if (input.estatus === "rechazada") {
+    motivoRechazoDb = input.motivoRechazo ?? motivoRechazoDb
+  }
+
+  const payload: Record<string, unknown> = {
+    empleado_id: input.empleadoId,
+    tipo: input.tipo,
+    motivo: input.motivo,
+    fecha_inicio: input.fechaInicio,
+    fecha_fin: input.fechaFin,
+    hora_inicio: input.horaInicio,
+    hora_fin: input.horaFin,
+    duracion_horas: input.duracionHoras,
+    estatus: input.estatus,
+    aprobado_por: aprobadoPor,
+    fecha_aprobacion: fechaAprobacion,
+    motivo_rechazo: motivoRechazoDb,
+  }
+
+  if (input.notas !== undefined) {
+    payload.notas = input.notas
+  }
+
+  const { error } = await supabase.from("ausencias").update(payload).eq("id", id)
+
+  if (error) {
+    console.error("Error actualizando ausencia:", error)
+    return { success: false, error: error.message }
+  }
+  return { success: true }
+}
+
 export async function deleteAusencia(
   id: string
 ): Promise<{ success: boolean; error?: string }> {

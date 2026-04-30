@@ -49,6 +49,7 @@ import {
   FileText,
   ChevronDown,
   History,
+  Edit,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -58,6 +59,7 @@ import { getCurrentUser, type User } from "@/lib/auth"
 import {
   getAusenciasFromDB,
   createAusencia,
+  updateAusencia,
   aprobarAusencia,
   rechazarAusencia,
   cancelarAusencia,
@@ -112,6 +114,23 @@ export default function AusenciasPage() {
   const [motivoRechazo, setMotivoRechazo] = useState("")
   const [isActuando, setIsActuando] = useState(false)
 
+  /** Edición completa (tipo, fechas, horario, estatus) */
+  const [ausenciaParaEditar, setAusenciaParaEditar] = useState<Ausencia | null>(null)
+  const [formEditAusencia, setFormEditAusencia] = useState({
+    empleadoId: "",
+    tipo: "falta" as TipoAusencia,
+    motivo: "",
+    fechaInicio: "",
+    fechaFin: "",
+    diaCompleto: true,
+    horaInicio: "10:00",
+    horaFin: "12:00",
+    estatus: "pendiente" as EstatusAusencia,
+    motivoRechazo: "",
+    notas: "",
+  })
+  const [isSavingEditAusencia, setIsSavingEditAusencia] = useState(false)
+
   // Dialog: detalle / historial
   const [isDetalleOpen, setIsDetalleOpen] = useState(false)
   const [detalleAusencia, setDetalleAusencia] = useState<Ausencia | null>(null)
@@ -126,6 +145,25 @@ export default function AusenciasPage() {
   useEffect(() => {
     loadAll()
   }, [])
+
+  useEffect(() => {
+    if (!ausenciaParaEditar) return
+    const a = ausenciaParaEditar
+    const partial = !!(a.horaInicio && a.horaFin)
+    setFormEditAusencia({
+      empleadoId: a.empleadoId,
+      tipo: a.tipo,
+      motivo: a.motivo ?? "",
+      fechaInicio: a.fechaInicio,
+      fechaFin: a.fechaFin,
+      diaCompleto: !partial,
+      horaInicio: (a.horaInicio ?? "10:00").substring(0, 5),
+      horaFin: (a.horaFin ?? "12:00").substring(0, 5),
+      estatus: a.estatus,
+      motivoRechazo: a.motivoRechazo ?? "",
+      notas: a.notas ?? "",
+    })
+  }, [ausenciaParaEditar])
 
   async function loadAll() {
     setIsLoading(true)
@@ -262,9 +300,60 @@ export default function AusenciasPage() {
     const result = await deleteAusencia(ausencia.id)
     if (result.success) {
       toast.success("Registro eliminado")
+      setAusenciaParaEditar((cur) => (cur?.id === ausencia.id ? null : cur))
       await loadAll()
     } else {
       toast.error(result.error ?? "Error al eliminar")
+    }
+  }
+
+  async function handleGuardarEdicionAusencia() {
+    if (!ausenciaParaEditar) return
+    if (formEditAusencia.fechaFin < formEditAusencia.fechaInicio) {
+      toast.error("La fecha fin debe ser igual o posterior al inicio")
+      return
+    }
+    if (formEditAusencia.estatus === "rechazada" && !formEditAusencia.motivoRechazo.trim()) {
+      toast.error("Indica el motivo del rechazo")
+      return
+    }
+    const esParcial = !formEditAusencia.diaCompleto
+    if (esParcial && horaToMinsAg(formEditAusencia.horaFin) <= horaToMinsAg(formEditAusencia.horaInicio)) {
+      toast.error("La hora fin debe ser posterior a la de inicio")
+      return
+    }
+    const durMin = esParcial
+      ? (horaToMinsAg(formEditAusencia.horaFin) - horaToMinsAg(formEditAusencia.horaInicio)) / 60
+      : null
+    setIsSavingEditAusencia(true)
+    try {
+      const actor = currentUser?.name || currentUser?.email || "Usuario"
+      const result = await updateAusencia(ausenciaParaEditar.id, {
+        empleadoId: formEditAusencia.empleadoId,
+        tipo: formEditAusencia.tipo,
+        motivo: formEditAusencia.motivo.trim() || null,
+        fechaInicio: formEditAusencia.fechaInicio,
+        fechaFin: formEditAusencia.fechaFin,
+        horaInicio: esParcial ? formEditAusencia.horaInicio : null,
+        horaFin: esParcial ? formEditAusencia.horaFin : null,
+        duracionHoras: esParcial && durMin != null && durMin > 0 ? durMin : null,
+        estatus: formEditAusencia.estatus,
+        motivoRechazo:
+          formEditAusencia.estatus === "rechazada"
+            ? formEditAusencia.motivoRechazo.trim() || null
+            : null,
+        notas: formEditAusencia.notas.trim() || null,
+        actorNombre: actor,
+      })
+      if (result.success) {
+        toast.success("Ausencia actualizada")
+        setAusenciaParaEditar(null)
+        await loadAll()
+      } else {
+        toast.error(result.error ?? "Error al guardar")
+      }
+    } finally {
+      setIsSavingEditAusencia(false)
     }
   }
 
@@ -454,9 +543,19 @@ export default function AusenciasPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div
-                        className="flex items-center justify-end gap-1"
+                        className="flex items-center justify-end gap-1 flex-wrap"
                         onClick={(e) => e.stopPropagation()}
                       >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          disabled={isActuando}
+                          onClick={() => setAusenciaParaEditar(a)}
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          Editar
+                        </Button>
                         {a.estatus === "pendiente" && isAdmin && (
                           <>
                             <Button
@@ -676,6 +775,244 @@ export default function AusenciasPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ─── Dialog Editar ───────────────────────────────────────────────────────── */}
+      <Dialog
+        open={!!ausenciaParaEditar}
+        onOpenChange={(open) => {
+          if (!open) setAusenciaParaEditar(null)
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-4 w-4" />
+              Editar ausencia
+            </DialogTitle>
+            <DialogDescription>
+              Actualiza tipo, fechas, horario parcial o día completo, y estatus.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 space-y-1.5">
+                <Label>Empleado *</Label>
+                <Select
+                  value={formEditAusencia.empleadoId}
+                  onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, empleadoId: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {empleados.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nombre} {e.apellido}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="col-span-2 space-y-1.5">
+                <Label>Tipo *</Label>
+                <Select
+                  value={formEditAusencia.tipo}
+                  onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, tipo: v as TipoAusencia }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        <span className="flex items-center gap-2">
+                          {TIPO_ICONS[t]}
+                          {TIPO_AUSENCIA_LABELS[t]}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Fecha inicio *</Label>
+                <Input
+                  type="date"
+                  value={formEditAusencia.fechaInicio}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setFormEditAusencia((p) => ({
+                      ...p,
+                      fechaInicio: v,
+                      fechaFin: v > p.fechaFin ? v : p.fechaFin,
+                    }))
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Fecha fin *</Label>
+                <Input
+                  type="date"
+                  min={formEditAusencia.fechaInicio}
+                  value={formEditAusencia.fechaFin}
+                  onChange={(e) => setFormEditAusencia((p) => ({ ...p, fechaFin: e.target.value }))}
+                />
+              </div>
+
+              <div className="col-span-2 space-y-1.5">
+                <Label>Estatus</Label>
+                <Select
+                  value={formEditAusencia.estatus}
+                  onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, estatus: v as EstatusAusencia }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ESTATUS_AUSENCIA_LABELS) as EstatusAusencia[]).map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ESTATUS_AUSENCIA_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="col-span-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormEditAusencia((p) => ({ ...p, diaCompleto: true }))}
+                  className={cn(
+                    "flex-1 h-9 text-xs rounded-md border font-medium transition-colors",
+                    formEditAusencia.diaCompleto
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:bg-muted",
+                  )}
+                >
+                  Día completo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormEditAusencia((p) => ({ ...p, diaCompleto: false }))}
+                  className={cn(
+                    "flex-1 h-9 text-xs rounded-md border font-medium transition-colors",
+                    !formEditAusencia.diaCompleto
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:bg-muted",
+                  )}
+                >
+                  Rango de horas
+                </button>
+              </div>
+
+              {!formEditAusencia.diaCompleto && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Hora inicio</Label>
+                    <Select
+                      value={formEditAusencia.horaInicio}
+                      onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, horaInicio: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-52">
+                        {Array.from({ length: 21 }, (_, i) => {
+                          const h = Math.floor(i / 2) + 10
+                          const m = i % 2 === 0 ? "00" : "30"
+                          const val = `${String(h).padStart(2, "0")}:${m}`
+                          return (
+                            <SelectItem key={val} value={val}>
+                              {val}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Hora fin</Label>
+                    <Select
+                      value={formEditAusencia.horaFin}
+                      onValueChange={(v) => setFormEditAusencia((p) => ({ ...p, horaFin: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-52">
+                        {Array.from({ length: 21 }, (_, i) => {
+                          const h = Math.floor(i / 2) + 10
+                          const m = i % 2 === 0 ? "00" : "30"
+                          const val = `${String(h).padStart(2, "0")}:${m}`
+                          return (
+                            <SelectItem key={val} value={val}>
+                              {val}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+
+              <div className="col-span-2 space-y-1.5">
+                <Label>Motivo</Label>
+                <Textarea
+                  rows={2}
+                  value={formEditAusencia.motivo}
+                  onChange={(e) => setFormEditAusencia((p) => ({ ...p, motivo: e.target.value }))}
+                />
+              </div>
+
+              {formEditAusencia.estatus === "rechazada" && (
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Motivo del rechazo *</Label>
+                  <Textarea
+                    rows={2}
+                    placeholder="Motivo..."
+                    value={formEditAusencia.motivoRechazo}
+                    onChange={(e) => setFormEditAusencia((p) => ({ ...p, motivoRechazo: e.target.value }))}
+                  />
+                </div>
+              )}
+
+              <div className="col-span-2 space-y-1.5">
+                <Label>Notas internas</Label>
+                <Textarea
+                  rows={2}
+                  placeholder="Notas administrativas..."
+                  value={formEditAusencia.notas}
+                  onChange={(e) => setFormEditAusencia((p) => ({ ...p, notas: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!ausenciaParaEditar || isSavingEditAusencia}
+              onClick={() => ausenciaParaEditar && handleEliminar(ausenciaParaEditar)}
+            >
+              Eliminar
+            </Button>
+            <div className="flex gap-2 w-full sm:w-auto justify-end">
+              <Button type="button" variant="outline" onClick={() => setAusenciaParaEditar(null)}>
+                Cancelar
+              </Button>
+              <Button type="button" disabled={isSavingEditAusencia} onClick={() => void handleGuardarEdicionAusencia()}>
+                {isSavingEditAusencia && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Guardar
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ─── Dialog Detalle / Historial ────────────────────────────────────────── */}
       <Dialog open={isDetalleOpen} onOpenChange={setIsDetalleOpen}>
         <DialogContent className="max-w-md">
@@ -782,6 +1119,11 @@ export default function AusenciasPage() {
 }
 
 // ─── Helpers de formato ───────────────────────────────────────────────────────
+function horaToMinsAg(hora: string): number {
+  const [h, m] = hora.substring(0, 5).split(":").map(Number)
+  return h * 60 + m
+}
+
 function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number)
   return new Date(y, m - 1, d).toLocaleDateString("es-MX", {
