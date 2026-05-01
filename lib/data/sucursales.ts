@@ -206,6 +206,126 @@ export async function createSucursal(datos: {
   }
 }
 
+/** Actualiza una sucursal existente */
+export async function updateSucursal(
+  id: string,
+  datos: {
+    nombre: string
+    direccion: string
+    telefono: string
+    email: string
+    horario?: string | null
+    ciudad?: string | null
+    pais?: string | null
+    activa?: boolean
+  },
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const patch: Record<string, unknown> = {
+      nombre: datos.nombre.trim(),
+      direccion: datos.direccion.trim(),
+      telefono: datos.telefono.trim(),
+      email: datos.email.trim(),
+      horario: datos.horario?.trim() || null,
+      ciudad: datos.ciudad?.trim() || null,
+      pais: datos.pais?.trim() || 'México',
+    }
+    if (datos.activa !== undefined) {
+      patch.activa = datos.activa
+    }
+
+    const { error } = await supabase.from('sucursales').update(patch).eq('id', id)
+
+    if (error) {
+      console.error('Error actualizando sucursal:', error)
+      return { success: false, error: error.message }
+    }
+    return { success: true }
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Error desconocido'
+    console.error('Error inesperado actualizando sucursal:', error)
+    return { success: false, error: msg }
+  }
+}
+
+/** Devuelve true si hay registros que impedirían un borrado seguro sin efectos en cascada */
+async function sucursalTieneDependencias(id: string): Promise<boolean> {
+  const tablas = ["empleados", "citas", "pagos"] as const
+  for (const tabla of tablas) {
+    const { count, error } = await supabase
+      .from(tabla)
+      .select("id", { count: "exact", head: true })
+      .eq("sucursal_id", id)
+
+    if (error) {
+      console.warn(`No se pudo verificar ${tabla}:`, error.message)
+      continue
+    }
+    if ((count ?? 0) > 0) return true
+  }
+  return false
+}
+
+/**
+ * Quita una sucursal del uso activo.
+ * Si no tiene empleados ni citas ni pagos enlazados, se borra el registro.
+ * Si tiene datos asociados, solo se marca como inactiva (evita borrados en cascada destructivos).
+ */
+export async function deleteSucursal(id: string): Promise<{
+  success: boolean
+  error?: string
+  mode?: "deleted" | "deactivated"
+}> {
+  try {
+    const tieneDeps = await sucursalTieneDependencias(id)
+
+    if (tieneDeps) {
+      const { error } = await supabase.from("sucursales").update({ activa: false }).eq("id", id)
+      if (!error) {
+        return { success: true, mode: "deactivated" }
+      }
+      console.error("Error desactivando sucursal:", error)
+      return { success: false, error: error.message }
+    }
+
+    const { error } = await supabase.from("sucursales").delete().eq("id", id)
+
+    if (!error) {
+      return { success: true, mode: "deleted" }
+    }
+
+    const code = "code" in error ? String((error as { code?: string }).code) : ""
+    const msg = (error.message || "").toLowerCase()
+    const fkBlocked =
+      code === "23503" ||
+      msg.includes("foreign key") ||
+      msg.includes("violates foreign key constraint") ||
+      msg.includes("still referenced") ||
+      msg.includes("referencia")
+
+    if (fkBlocked) {
+      const { error: uErr } = await supabase.from("sucursales").update({ activa: false }).eq("id", id)
+      if (!uErr) {
+        return { success: true, mode: "deactivated" }
+      }
+      console.error("Error desactivando sucursal tras FK:", uErr)
+      return {
+        success: false,
+        error:
+          uErr.message ||
+          "No se puede borrar esta sucursal porque tiene registros asociados; tampoco se pudo desactivar.",
+      }
+    }
+
+    console.error("Error eliminando sucursal:", error)
+    return { success: false, error: error.message }
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Error desconocido"
+    console.error("Error inesperado eliminando sucursal:", error)
+    return { success: false, error: msg }
+  }
+}
+
 // Obtener todas las sucursales activas desde Supabase
 export async function getSucursalesActivasFromDB(): Promise<Sucursal[]> {
   try {
