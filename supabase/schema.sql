@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS gift_cards (
   codigo VARCHAR(50) UNIQUE NOT NULL,
   monto_inicial DECIMAL(10,2) NOT NULL,
   saldo_actual DECIMAL(10,2) NOT NULL,
-  estado VARCHAR(20) DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'activa', 'agotada', 'cancelada', 'expirada')),
+  estado VARCHAR(20) DEFAULT 'activa' CHECK (estado IN ('pendiente', 'activa', 'agotada', 'cancelada', 'expirada')),
   cliente_id UUID REFERENCES clientes(id) ON DELETE SET NULL,
   sucursal_id UUID NOT NULL REFERENCES sucursales(id) ON DELETE CASCADE,
   empleado_emisor_id UUID REFERENCES empleados(id) ON DELETE SET NULL,

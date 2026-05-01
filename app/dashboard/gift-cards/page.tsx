@@ -45,10 +45,11 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   XCircle,
-  User,
+  User as UserIcon,
   Trash2,
   RotateCcw,
   Calendar,
+  BadgeCheck,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
@@ -62,6 +63,7 @@ import {
   getGiftCardTransaccionesFromDB,
   generarCodigoGiftCard,
   crearGiftCard,
+  activarGiftCard,
   canjearGiftCard,
   recargarGiftCard,
   cancelarGiftCard,
@@ -132,6 +134,7 @@ export default function GiftCardsPage() {
   const [transacciones, setTransacciones] = useState<GiftCardTransaccion[]>([])
   const [isLoading, setIsLoading]     = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isActivandoTarjeta, setIsActivandoTarjeta] = useState(false)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   // ── KPIs ───────────────────────────────────────────────────────────────
@@ -364,6 +367,21 @@ export default function GiftCardsPage() {
     }
     setTransacciones(txns)
     setIsViewOpen(true)
+  }
+
+  const handleActivarTarjeta = async () => {
+    if (!selectedCard || selectedCard.estado !== "pendiente") return
+    setIsActivandoTarjeta(true)
+    const cardId = selectedCard.id
+    const res = await activarGiftCard(cardId)
+    setIsActivandoTarjeta(false)
+    if (!res.success) {
+      toast.error(res.error ?? "No se pudo activar la tarjeta")
+      return
+    }
+    toast.success("Tarjeta activada")
+    await reload()
+    await abrirHistorial(cardId)
   }
 
   const handleCanjear = async () => {
@@ -992,7 +1010,7 @@ export default function GiftCardsPage() {
                                 className="w-full text-left px-3 py-2 rounded-md hover:bg-accent transition-colors flex items-center gap-3"
                               >
                                 <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                                  <User className="h-4 w-4 text-primary" />
+                                  <UserIcon className="h-4 w-4 text-primary" />
                                 </div>
                                 <div>
                                   <p className="text-sm font-medium">{c.nombre} {c.apellido}</p>
@@ -1241,8 +1259,8 @@ export default function GiftCardsPage() {
 
       {/* Ver Detalles + Historial */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 pt-5 pb-4 border-b flex-shrink-0">
+        <DialogContent className="flex h-auto max-h-[min(90dvh,calc(100vh-2rem))] min-h-0 w-[calc(100%-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <DialogHeader className="flex-shrink-0 border-b px-6 pt-5 pb-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-primary/10 rounded-lg">
@@ -1264,13 +1282,33 @@ export default function GiftCardsPage() {
               </div>
               {/* Acciones rápidas dentro del dialog */}
               {selectedCard && (
-                <div className="flex gap-2 flex-shrink-0">
-                  {selectedCard.estado !== 'cancelada' && selectedCard.estado !== 'expirada' && (
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  {selectedCard.estado === "pendiente" && (
+                    <Button
+                      size="sm"
+                      className="h-8 gap-1.5 bg-green-600 hover:bg-green-700"
+                      disabled={isActivandoTarjeta}
+                      onClick={handleActivarTarjeta}
+                    >
+                      {isActivandoTarjeta ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <BadgeCheck className="h-3.5 w-3.5" />
+                      )}
+                      Activar tarjeta
+                    </Button>
+                  )}
+                  {selectedCard.estado === "activa" && (
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5 text-emerald-700 border-emerald-300 hover:bg-emerald-50 h-8"
-                      onClick={() => { setIsViewOpen(false); setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(true) }}
+                      className="h-8 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      onClick={() => {
+                        setIsViewOpen(false)
+                        setRechargeMonto("")
+                        setRechargeNotas("")
+                        setIsRechargeOpen(true)
+                      }}
                     >
                       <ArrowUpCircle className="h-3.5 w-3.5" /> Agregar
                     </Button>
@@ -1291,8 +1329,8 @@ export default function GiftCardsPage() {
           </DialogHeader>
 
           {selectedCard && (
-            <ScrollArea className="flex-1">
-              <div className="px-6 py-5 space-y-5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+              <div className="space-y-5">
                 {/* Saldo + gastos destacados */}
                 <div className="grid grid-cols-3 gap-3 p-4 bg-muted/40 rounded-xl">
                   <div className="text-center">
@@ -1410,10 +1448,10 @@ export default function GiftCardsPage() {
                   )}
                 </div>
               </div>
-            </ScrollArea>
+            </div>
           )}
 
-          <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
+          <DialogFooter className="flex-shrink-0 border-t px-6 py-4">
             <Button variant="outline" onClick={() => setIsViewOpen(false)}>Cerrar</Button>
           </DialogFooter>
         </DialogContent>
