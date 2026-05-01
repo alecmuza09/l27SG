@@ -52,6 +52,8 @@ import { getClienteById, type Cliente } from "@/lib/data/clientes"
 import {
   getAgendaBloquesFromDB,
   saveAgendaBloquesToDB,
+  subscribeAgendaBloquesRealtime,
+  unsubscribeAgendaBloquesRealtime,
   type AgendaBloque,
 } from "@/lib/data/agenda-bloques"
 
@@ -656,7 +658,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             const parsed = JSON.parse(stored) as BloqueAgenda[]
             if (Array.isArray(parsed) && parsed.length > 0) {
               list = parsed
-              await saveAgendaBloquesToDB(selectedSucursal, selectedDate, parsed as AgendaBloque[])
+              const mig = await saveAgendaBloquesToDB(selectedSucursal, selectedDate, parsed as AgendaBloque[])
+              if (!mig.ok) console.warn("Migración agenda_bloques localStorage→BD:", mig.error)
             }
           }
         } catch {
@@ -670,6 +673,23 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       cancelled = true
     }
   }, [selectedDate, selectedSucursal])
+
+  useEffect(() => {
+    if (!selectedSucursal || !selectedDate) return
+
+    const refreshDesdeServidor = async () => {
+      const list = await getAgendaBloquesFromDB(selectedSucursal, selectedDate)
+      setBloquesAgenda(list as BloqueAgenda[])
+    }
+
+    const channel = subscribeAgendaBloquesRealtime(selectedSucursal, () => {
+      void refreshDesdeServidor()
+    })
+
+    return () => {
+      void unsubscribeAgendaBloquesRealtime(channel)
+    }
+  }, [selectedSucursal, selectedDate])
 
   const citasFiltradas = useMemo(
     () => citas.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
@@ -807,6 +827,24 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   const persistBloquesForDate = async (fecha: string, bloques: BloqueAgenda[]) => {
     if (!selectedSucursal) return false
+    const result = await saveAgendaBloquesToDB(selectedSucursal, fecha, bloques as AgendaBloque[])
+    if (!result.ok) {
+      toast.error(
+        (() => {
+          const msg = (result.error || "").toLowerCase()
+          if (
+            msg.includes("permission denied") ||
+            msg.includes("jwt") ||
+            msg.includes("row-level security") ||
+            msg.includes("violates row-level")
+          ) {
+            return "Sin permiso para guardar descansos/comidas. En Supabase ejecuta supabase/agenda-bloques-rls.sql."
+          }
+          return result.error || "No se pudieron guardar los bloques en el servidor."
+        })(),
+      )
+      return false
+    }
     try {
       if (typeof window !== "undefined" && fecha === selectedDate) {
         window.localStorage.setItem(`bloques_agenda_${fecha}`, JSON.stringify(bloques))
@@ -814,18 +852,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     } catch {
       /* respaldo local opcional */
     }
-    const ok = await saveAgendaBloquesToDB(selectedSucursal, fecha, bloques as AgendaBloque[])
-    if (!ok) {
-      toast.error("No se pudieron guardar los bloques en el servidor.")
-      return false
-    }
     if (fecha === selectedDate) setBloquesAgenda(bloques)
     return true
   }
 
   const persistBloques = async (bloques: BloqueAgenda[]) => {
-    if (!selectedDate) return
-    await persistBloquesForDate(selectedDate, bloques)
+    if (!selectedDate) return false
+    return persistBloquesForDate(selectedDate, bloques)
   }
 
   const mergeBloqueExterno = async (fecha: string, bloque: BloqueAgenda) => {
@@ -865,7 +898,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     return ok
   }
 
-  const handleAgregarBloque = () => {
+  const handleAgregarBloque = async () => {
+    if (!selectedDate) return
     if (!nuevoBloque.empleadoId) { toast.error('Selecciona una empleada'); return }
     let horaInicio: string | undefined
     let horaFin: string | undefined
@@ -894,7 +928,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       horaInicio,
       horaFin,
     }
-    void persistBloques([...bloquesAgenda, bloque])
+    const ok = await persistBloquesForDate(selectedDate, [...bloquesAgenda, bloque])
+    if (!ok) return
     toast.success(
       nuevoBloque.tipo === 'comida'
         ? 'Hora de comida marcada'
@@ -905,15 +940,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     setNuevoBloque((prev) => ({ ...prev, empleadoId: '' }))
   }
 
-  const handleEliminarBloque = (id: string) => {
+  const handleEliminarBloque = async (id: string) => {
     if (!selectedDate) return
-    void persistBloquesForDate(selectedDate, bloquesAgenda.filter((b) => b.id !== id))
+    const ok = await persistBloquesForDate(selectedDate, bloquesAgenda.filter((b) => b.id !== id))
+    if (!ok) return
     setBloqueEditando((cur) => (cur?.id === id ? null : cur))
   }
 
-  const handleGuardarBloqueEditado = (actualizado: BloqueAgenda) => {
+  const handleGuardarBloqueEditado = async (actualizado: BloqueAgenda) => {
     const next = bloquesAgenda.map((b) => (b.id === actualizado.id ? actualizado : b))
-    void persistBloques(next)
+    const ok = await persistBloques(next)
+    if (!ok) return
     setBloqueEditando(null)
     toast.success("Bloque actualizado")
   }

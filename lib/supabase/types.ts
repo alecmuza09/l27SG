@@ -325,6 +325,29 @@ export type Database = {
           updated_at?: string
         }
       }
+      agenda_bloques: {
+        Row: {
+          id: string
+          sucursal_id: string
+          fecha: string
+          bloques: unknown
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          sucursal_id: string
+          fecha: string
+          bloques: unknown
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          sucursal_id?: string
+          fecha?: string
+          bloques?: unknown
+          updated_at?: string | null
+        }
+      }
     }
   }
 }

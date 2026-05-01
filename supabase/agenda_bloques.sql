@@ -11,3 +11,4 @@ CREATE TABLE IF NOT EXISTS agenda_bloques (
 CREATE INDEX IF NOT EXISTS idx_agenda_bloques_lookup ON agenda_bloques (sucursal_id, fecha);
 
 COMMENT ON TABLE agenda_bloques IS 'Comidas y descansos manuales en la agenda citas; visible para todos los roles';
+-- Tras crear la tabla, ejecutar también agenda-bloques-rls.sql para políticas RLS (usuarios autenticados).
