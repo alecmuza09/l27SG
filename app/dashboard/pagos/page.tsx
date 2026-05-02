@@ -19,6 +19,7 @@ import {
   etiquetaMetodosPago,
   debePersistirMetodoMixtoEfectivoTarjeta,
   esReferenciaEmisionGiftCard,
+  sincronizarPagosEmisionGiftCardsFaltantes,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { searchClientes, type Cliente } from "@/lib/data/clientes"
@@ -35,6 +36,7 @@ import {
 import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 import { cn } from "@/lib/utils"
 import { getCurrentUser } from "@/lib/auth"
+import { toast } from "sonner"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 const fmtMXN = (n: number) =>
@@ -122,6 +124,7 @@ export default function PagosPage() {
   const [editClienteBuscando, setEditClienteBuscando]   = useState(false)
   const [isDeletePagoOpen, setIsDeletePagoOpen]         = useState(false)
   const [isSavingPago, setIsSavingPago]                 = useState(false)
+  const [syncingGcPagos, setSyncingGcPagos]             = useState(false)
 
   // ── carga de datos ──────────────────────────────────────────────────────────
   const cargarDatos = useCallback(async () => {
@@ -181,11 +184,15 @@ export default function PagosPage() {
       )
     : citasPendientes
 
-  const pagosFiltrados = busqueda
-    ? pagos.filter(p =>
-        p.clienteNombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-        p.empleadoNombre?.toLowerCase().includes(busqueda.toLowerCase()),
-      )
+  const qBusquedaPagos = busqueda.trim().toLowerCase()
+  const pagosFiltrados = qBusquedaPagos
+    ? pagos.filter(p => {
+        const enCliente = p.clienteNombre.toLowerCase().includes(qBusquedaPagos)
+        const enEmp = (p.empleadoNombre ?? "").toLowerCase().includes(qBusquedaPagos)
+        const enServ = (p.servicios ?? []).some(s => s.toLowerCase().includes(qBusquedaPagos))
+        const enRef = (p.referencia ?? "").toLowerCase().includes(qBusquedaPagos)
+        return enCliente || enEmp || enServ || enRef
+      })
     : pagos
 
   let totalEfectivo = 0
@@ -200,6 +207,15 @@ export default function PagosPage() {
     totalTransf += d.transferencia
     totalOtro += d.otro
   }
+
+  const totalEmisionGiftCards = pagos.reduce((s, p) => {
+    if (p.estado !== "completado") return s
+    if (!esReferenciaEmisionGiftCard(p.referencia)) return s
+    return s + p.monto
+  }, 0)
+
+  const cobrosCompletadosCount = pagos.filter(p => p.estado === "completado").length
+
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
   const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf + totalOtro
   const totalNeto       = totalGeneral - totalGastos
@@ -409,7 +425,33 @@ export default function PagosPage() {
     setGastoDialogOpen(false)
   }
 
-  // ── estado de cita badge ────────────────────────────────────────────────────
+  const handleSincronizarCobrosGiftCards = async () => {
+    setSyncingGcPagos(true)
+    try {
+      const sid = sucursalId !== "todas" ? sucursalId : undefined
+      const res = await sincronizarPagosEmisionGiftCardsFaltantes({ sucursalId: sid })
+      if (res.errores.length > 0) {
+        toast.error(
+          `No se pudieron crear algunos cobros: ${res.errores.slice(0, 3).join("; ")}${res.errores.length > 3 ? "…" : ""}`,
+        )
+      }
+      if (res.insertados > 0) {
+        toast.success(
+          `Se registraron ${res.insertados} cobro(s) por venta de gift card. Si no los ves, revisa la fecha del calendario (debe coincidir con la emisión).`,
+        )
+      } else if (res.errores.length === 0) {
+        toast.message(
+          sucursalId === "todas"
+            ? "No hay gift cards sin cobro en pagos en ninguna sucursal (o las pendientes son cortesía)."
+            : "No hay gift cards sin cobro en pagos en esta sucursal (o las pendientes son cortesía).",
+        )
+      }
+      await cargarDatos()
+    } finally {
+      setSyncingGcPagos(false)
+    }
+  }
+
   const estadoColor = (estado: string) => {
     const m: Record<string, string> = {
       "pendiente":   "bg-yellow-100 text-yellow-800 border-yellow-200",
@@ -489,6 +531,19 @@ export default function PagosPage() {
             <RefreshCw className="h-3.5 w-3.5 flex-shrink-0" />
             Actualizar
           </button>
+          <button
+            type="button"
+            disabled={syncingGcPagos}
+            onClick={handleSincronizarCobrosGiftCards}
+            className="w-full flex items-center justify-center gap-2 text-xs font-medium text-violet-700 hover:text-violet-900 border border-violet-200 bg-violet-50 hover:bg-violet-100 rounded-lg px-3 py-2 transition-colors disabled:opacity-50"
+          >
+            {syncingGcPagos ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+            ) : (
+              <Gift className="h-3.5 w-3.5 shrink-0" />
+            )}
+            Registrar cobros GC faltantes
+          </button>
         </div>
 
         {/* Resumen financiero del día */}
@@ -499,6 +554,7 @@ export default function PagosPage() {
 
           <StatRow label="Servicios — Tarjeta" value={fmtMXN(totalTarjeta)} />
           <StatRow label="Servicios — Efectivo" value={fmtMXN(totalEfectivo)} />
+          <StatRow label="Ventas gift card (emisión)" value={fmtMXN(totalEmisionGiftCards)} />
           <StatRow label="Transferencias" value={fmtMXN(totalTransf)} />
           {totalOtro > 0 && (
             <StatRow label="Otros medios / mixto (detalle)" value={fmtMXN(totalOtro)} />
@@ -545,7 +601,14 @@ export default function PagosPage() {
                   </span>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="cobros" className="text-xs">Cobros</TabsTrigger>
+              <TabsTrigger value="cobros" className="text-xs">
+                Cobros
+                {cobrosCompletadosCount > 0 && (
+                  <span className="ml-1.5 bg-emerald-600 text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
+                    {cobrosCompletadosCount}
+                  </span>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="giftcards" className="text-xs">Giftcards cobradas</TabsTrigger>
               <TabsTrigger value="gastos" className="text-xs">
                 Gastos del día
@@ -771,9 +834,14 @@ export default function PagosPage() {
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : pagosFiltrados.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                <div className="flex flex-col items-center justify-center py-20 text-muted-foreground px-4">
                   <CreditCard className="h-10 w-10 mb-3 opacity-30" />
-                  <p className="text-sm">Sin cobros registrados para este filtro</p>
+                  <p className="text-sm font-medium text-center">Sin cobros registrados para esta fecha y sucursal</p>
+                  <p className="text-xs mt-2 text-center max-w-md">
+                    Las <strong>ventas de gift card</strong> aparecen aquí (pestaña <strong>Cobros</strong>), no en «Servicios por cobrar».
+                    Si la tarjeta se vendió <strong>antes</strong> de activar el registro automático, usa en el panel izquierdo{" "}
+                    <strong>Registrar cobros GC faltantes</strong> y luego elige la <strong>fecha de emisión</strong> de la tarjeta en el calendario.
+                  </p>
                 </div>
               ) : (
                 <Table>

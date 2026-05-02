@@ -345,6 +345,8 @@ export async function registrarPagoEmisionGiftCard(params: {
   empleadoId?: string | null
   metodoPagoRaw?: string | null
   fecha: string
+  /** Si se omite, se usa la hora actual (emisión nueva). Para sincronización retroactiva usar p.ej. `12:00:00`. */
+  hora?: string
 }): Promise<{ success: boolean; skipped?: boolean; pagoId?: string; error?: string }> {
   try {
     const monto = Math.round((Number(params.monto) || 0) * 100) / 100
@@ -369,14 +371,14 @@ export async function registrarPagoEmisionGiftCard(params: {
       metodoPago = 'otro'
     }
 
-    const hora = new Date().toTimeString().slice(0, 8)
+    const hora = params.hora ?? new Date().toTimeString().slice(0, 8)
 
-    const { data: pagoData, error: pagoError } = await supabase
+    const { data: pagoData, error: pagoError } = await (supabase as any)
       .from('pagos')
       .insert({
         cita_id: null,
-        cliente_id: params.clienteId || null,
-        empleado_id: params.empleadoId || null,
+        cliente_id: params.clienteId ?? null,
+        empleado_id: params.empleadoId ?? null,
         sucursal_id: params.sucursalId,
         monto,
         metodo_pago: metodoPago,
@@ -406,6 +408,75 @@ export async function registrarPagoEmisionGiftCard(params: {
     console.error('registrarPagoEmisionGiftCard:', err)
     return { success: false, error: msg }
   }
+}
+
+/**
+ * Crea filas en `pagos` para gift cards emitidas antes del registro automático de cobros.
+ * Respeta cortesía y omite tarjetas que ya tienen `referencia` giftcard_emision:*.
+ */
+export async function sincronizarPagosEmisionGiftCardsFaltantes(opts?: {
+  sucursalId?: string
+}): Promise<{ insertados: number; omitidos: number; errores: string[] }> {
+  const errores: string[] = []
+  let insertados = 0
+  let omitidos = 0
+
+  const fechaFallback = () => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
+  // `*` evita fallar si la columna `metodo_pago` no existe aún en algún entorno.
+  let q = (supabase as any).from('gift_cards').select('*')
+  if (opts?.sucursalId) q = q.eq('sucursal_id', opts.sucursalId)
+
+  const { data: gcs, error } = await q
+  if (error) {
+    return { insertados: 0, omitidos: 0, errores: [error.message] }
+  }
+
+  for (const gc of gcs ?? []) {
+    const ref = `${REFERENCIA_EMISION_GIFT_CARD_PREFIX}${gc.id}`
+    const { data: exist } = await (supabase as any).from('pagos').select('id').eq('referencia', ref).maybeSingle()
+    if (exist) {
+      omitidos++
+      continue
+    }
+
+    let fechaIso = typeof gc.fecha_emision === 'string' ? gc.fecha_emision.slice(0, 10) : ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) fechaIso = fechaFallback()
+
+    const pagoRes = await registrarPagoEmisionGiftCard({
+      giftCardId: gc.id,
+      codigo: gc.codigo,
+      monto: Number(gc.monto_inicial),
+      sucursalId: gc.sucursal_id,
+      clienteId: gc.cliente_id ?? null,
+      empleadoId: gc.empleado_emisor_id ?? null,
+      metodoPagoRaw: (gc.metodo_pago as string | null | undefined) ?? null,
+      fecha: fechaIso,
+      hora: '12:00:00',
+    })
+
+    if (pagoRes.skipped) {
+      omitidos++
+      continue
+    }
+    if (!pagoRes.success || !pagoRes.pagoId) {
+      errores.push(`${gc.codigo}: ${pagoRes.error ?? 'sin detalle'}`)
+      continue
+    }
+
+    insertados++
+    await (supabase as any)
+      .from('gift_card_transacciones')
+      .update({ venta_id: pagoRes.pagoId })
+      .eq('gift_card_id', gc.id)
+      .eq('tipo', 'emision')
+      .is('venta_id', null)
+  }
+
+  return { insertados, omitidos, errores }
 }
 
 // Calcula el resumen de caja directamente desde los pagos ya cargados (sin extra roundtrip a DB)
