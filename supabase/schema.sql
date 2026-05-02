@@ -161,8 +161,8 @@ CREATE TABLE IF NOT EXISTS citas (
 CREATE TABLE IF NOT EXISTS pagos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   cita_id UUID REFERENCES citas(id) ON DELETE SET NULL,
-  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
-  empleado_id UUID NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
+  empleado_id UUID REFERENCES empleados(id) ON DELETE CASCADE,
   sucursal_id UUID NOT NULL REFERENCES sucursales(id) ON DELETE CASCADE,
   monto DECIMAL(10,2) NOT NULL,
   metodo_pago VARCHAR(50) NOT NULL CHECK (metodo_pago IN ('efectivo', 'tarjeta', 'transferencia', 'otro')),

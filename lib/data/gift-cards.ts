@@ -1,4 +1,5 @@
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
+import { registrarPagoEmisionGiftCard } from "@/lib/data/pagos"
 import { supabase } from '@/lib/supabase/client'
 
 // Fecha local (no UTC) para evitar desfase después de las 6 PM
@@ -418,7 +419,7 @@ export async function crearGiftCard(datos: {
   empleadoEmisorId?: string | null
   codigoPersonalizado?: string | null
   metodoPago?: string | null
-}): Promise<{ success: boolean; gc?: GiftCard; error?: string }> {
+}): Promise<{ success: boolean; gc?: GiftCard; error?: string; advertenciaPago?: string }> {
   try {
     const codigo = datos.codigoPersonalizado?.trim().toUpperCase() || generarCodigoGiftCard()
     const hoy = fechaLocal()
@@ -447,10 +448,24 @@ export async function crearGiftCard(datos: {
       return { success: false, error: gcError?.message || 'Error creando gift card' }
     }
 
-    // Registrar transacción de emisión (metodoPago también queda en notas como respaldo)
     const notasEmision = datos.metodoPago
       ? `Emisión de gift card · Pago: ${datos.metodoPago}`
       : 'Emisión de gift card'
+
+    const pagoRes = await registrarPagoEmisionGiftCard({
+      giftCardId: gcData.id,
+      codigo: gcData.codigo,
+      monto: datos.montoInicial,
+      sucursalId: datos.sucursalId,
+      clienteId: datos.clienteId ?? null,
+      empleadoId: datos.empleadoEmisorId ?? null,
+      metodoPagoRaw: datos.metodoPago ?? null,
+      fecha: hoy,
+    })
+
+    if (!pagoRes.success && !pagoRes.skipped) {
+      console.error('[crearGiftCard] Cobro no registrado en pagos:', pagoRes.error)
+    }
 
     await supabase.from('gift_card_transacciones').insert({
       gift_card_id: gcData.id,
@@ -458,6 +473,7 @@ export async function crearGiftCard(datos: {
       monto: datos.montoInicial,
       saldo_anterior: 0,
       saldo_nuevo: datos.montoInicial,
+      venta_id: pagoRes.pagoId ?? null,
       empleado_id: datos.empleadoEmisorId || null,
       fecha: hoy,
       notas: notasEmision,
@@ -481,7 +497,12 @@ export async function crearGiftCard(datos: {
       metodoPago: datos.metodoPago || gcData.metodo_pago || null,
     }
 
-    return { success: true, gc }
+    const advertenciaPago =
+      !pagoRes.success && !pagoRes.skipped
+        ? (pagoRes.error ?? 'No se registró el cobro en caja')
+        : undefined
+
+    return advertenciaPago ? { success: true, gc, advertenciaPago } : { success: true, gc }
   } catch (err: any) {
     return { success: false, error: err.message || 'Error inesperado' }
   }

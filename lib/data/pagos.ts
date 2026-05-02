@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase/client'
 export interface Pago {
   id: string
   citaId: string
-  clienteId: string
+  clienteId: string | null
   clienteNombre: string
   monto: number
   metodoPago: "efectivo" | "tarjeta" | "transferencia" | "otro"
@@ -13,7 +13,7 @@ export interface Pago {
   fecha: string
   hora: string
   sucursalId: string
-  empleadoId: string
+  empleadoId: string | null
   empleadoNombre: string
   servicios: string[]
   notas?: string
@@ -294,16 +294,20 @@ export async function getPagosFromDB(
     return data.map((pago: any) => ({
       id: pago.id,
       citaId: pago.cita_id || '',
-      clienteId: pago.cliente_id,
-      clienteNombre: pago.cliente ? `${pago.cliente.nombre} ${pago.cliente.apellido}` : 'Cliente desconocido',
+      clienteId: pago.cliente_id ?? null,
+      clienteNombre: pago.cliente
+        ? `${pago.cliente.nombre} ${pago.cliente.apellido}`
+        : pago.cliente_id
+          ? 'Cliente desconocido'
+          : 'Sin cliente',
       monto: Number(pago.monto) || 0,
       metodoPago: pago.metodo_pago,
       estado: pago.estado,
       fecha: pago.fecha,
       hora: pago.hora || '',
       sucursalId: pago.sucursal_id,
-      empleadoId: pago.empleado_id,
-      empleadoNombre: pago.empleado ? `${pago.empleado.nombre} ${pago.empleado.apellido}` : 'Empleado desconocido',
+      empleadoId: pago.empleado_id ?? null,
+      empleadoNombre: pago.empleado ? `${pago.empleado.nombre} ${pago.empleado.apellido}` : 'Sin empleado',
       servicios: pago.servicios || [],
       notas: pago.notas || undefined,
       referencia: pago.referencia || undefined,
@@ -318,6 +322,89 @@ export async function getPagosFromDB(
   } catch (error) {
     console.error('Error inesperado obteniendo pagos:', error)
     return []
+  }
+}
+
+/** Prefijo en `pagos.referencia` para cobros por venta/emisión de gift card. */
+export const REFERENCIA_EMISION_GIFT_CARD_PREFIX = 'giftcard_emision:' as const
+
+export function esReferenciaEmisionGiftCard(referencia?: string | null): boolean {
+  return (referencia ?? '').toLowerCase().startsWith(REFERENCIA_EMISION_GIFT_CARD_PREFIX)
+}
+
+/**
+ * Registra el cobro de una gift card recién emitida en `pagos` (caja / Cobros).
+ * Cortesía o monto ≤ 0 no generan fila de pago.
+ */
+export async function registrarPagoEmisionGiftCard(params: {
+  giftCardId: string
+  codigo: string
+  monto: number
+  sucursalId: string
+  clienteId?: string | null
+  empleadoId?: string | null
+  metodoPagoRaw?: string | null
+  fecha: string
+}): Promise<{ success: boolean; skipped?: boolean; pagoId?: string; error?: string }> {
+  try {
+    const monto = Math.round((Number(params.monto) || 0) * 100) / 100
+    const raw = (params.metodoPagoRaw || '').trim().toLowerCase()
+    if (raw === 'cortesia' || monto <= 0) {
+      return { success: true, skipped: true }
+    }
+
+    let metodoPago: 'efectivo' | 'tarjeta' | 'transferencia' | 'otro' = 'otro'
+    let montoEfectivo = 0
+    let montoTarjeta = 0
+
+    if (raw === 'efectivo') {
+      metodoPago = 'efectivo'
+      montoEfectivo = monto
+    } else if (raw === 'tarjeta') {
+      metodoPago = 'tarjeta'
+      montoTarjeta = monto
+    } else if (raw === 'transferencia' || raw.includes('transfer')) {
+      metodoPago = 'transferencia'
+    } else {
+      metodoPago = 'otro'
+    }
+
+    const hora = new Date().toTimeString().slice(0, 8)
+
+    const { data: pagoData, error: pagoError } = await supabase
+      .from('pagos')
+      .insert({
+        cita_id: null,
+        cliente_id: params.clienteId || null,
+        empleado_id: params.empleadoId || null,
+        sucursal_id: params.sucursalId,
+        monto,
+        metodo_pago: metodoPago,
+        estado: 'completado',
+        fecha: params.fecha,
+        hora,
+        servicios: [`Gift card · ${params.codigo}`],
+        notas: `Emisión gift card · ${params.codigo}`,
+        referencia: `${REFERENCIA_EMISION_GIFT_CARD_PREFIX}${params.giftCardId}`,
+        subtotal: monto,
+        descuento_monto: 0,
+        propina: 0,
+        monto_efectivo: montoEfectivo,
+        monto_tarjeta: montoTarjeta,
+      })
+      .select('id')
+      .single()
+
+    if (pagoError) {
+      console.error('Error registrando pago por emisión gift card:', pagoError)
+      return { success: false, error: pagoError.message }
+    }
+
+    return { success: true, pagoId: pagoData?.id as string | undefined }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error inesperado'
+    console.error('registrarPagoEmisionGiftCard:', err)
+    return { success: false, error: msg }
   }
 }
 
@@ -392,16 +479,20 @@ export async function getPagosPendientesFromDB(sucursalId?: string): Promise<Pag
     return data.map((pago: any) => ({
       id: pago.id,
       citaId: pago.cita_id || '',
-      clienteId: pago.cliente_id,
-      clienteNombre: pago.cliente ? `${pago.cliente.nombre} ${pago.cliente.apellido}` : 'Cliente desconocido',
+      clienteId: pago.cliente_id ?? null,
+      clienteNombre: pago.cliente
+        ? `${pago.cliente.nombre} ${pago.cliente.apellido}`
+        : pago.cliente_id
+          ? 'Cliente desconocido'
+          : 'Sin cliente',
       monto: Number(pago.monto) || 0,
       metodoPago: pago.metodo_pago,
       estado: pago.estado,
       fecha: pago.fecha,
       hora: pago.hora || '',
       sucursalId: pago.sucursal_id,
-      empleadoId: pago.empleado_id,
-      empleadoNombre: pago.empleado ? `${pago.empleado.nombre} ${pago.empleado.apellido}` : 'Empleado desconocido',
+      empleadoId: pago.empleado_id ?? null,
+      empleadoNombre: pago.empleado ? `${pago.empleado.nombre} ${pago.empleado.apellido}` : 'Sin empleado',
       servicios: pago.servicios || [],
       notas: pago.notas || undefined,
       referencia: pago.referencia || undefined,
@@ -800,7 +891,7 @@ export async function updatePago(
     monto_tarjeta?: number
     fecha?: string
     servicios?: string[]
-    cliente_id?: string
+    cliente_id?: string | null
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {

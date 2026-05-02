@@ -18,6 +18,7 @@ import {
   distribuirMontoPago,
   etiquetaMetodosPago,
   debePersistirMetodoMixtoEfectivoTarjeta,
+  esReferenciaEmisionGiftCard,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { searchClientes, type Cliente } from "@/lib/data/clientes"
@@ -331,7 +332,7 @@ export default function PagosPage() {
       monto_tarjeta:  tarEd,
       fecha:          editFecha || pagoDetalle.fecha,
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
-      cliente_id:     editClienteId || pagoDetalle.clienteId,
+      cliente_id:     editClienteId || (pagoDetalle.clienteId ?? null),
     })
     setIsSavingPago(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
@@ -346,7 +347,7 @@ export default function PagosPage() {
       montoTarjeta:   tarEd,
       fecha:          editFecha || pagoDetalle.fecha,
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
-      clienteId:      editClienteId || pagoDetalle.clienteId,
+      clienteId:      editClienteId || (pagoDetalle.clienteId ?? null),
       clienteNombre:  editClienteNombre || pagoDetalle.clienteNombre,
     }
     setPagos(prev => prev.map(p => p.id === pagoDetalle.id ? { ...p, ...updated } : p))
@@ -836,10 +837,14 @@ export default function PagosPage() {
             <div className="rounded-lg border overflow-hidden">
               <div className="px-4 py-3 bg-muted/40 border-b">
                 <p className="text-sm font-semibold">Giftcards cobradas hoy</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Cobros donde el cliente pagó con gift card (no incluye venta de tarjetas nuevas).
+                </p>
               </div>
               {(() => {
                 const gcPagos = pagos.filter(p => {
                   if (debePersistirMetodoMixtoEfectivoTarjeta(p.montoEfectivo, p.montoTarjeta)) return false
+                  if (esReferenciaEmisionGiftCard(p.referencia)) return false
                   return p.metodoPago === "otro" || (p.referencia ?? "").toLowerCase().includes("giftcard")
                 })
                 return gcPagos.length === 0 ? (

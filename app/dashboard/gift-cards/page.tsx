@@ -350,6 +350,9 @@ export default function GiftCardsPage() {
       return
     }
     toast.success(`Gift card creada: ${res.gc?.codigo}`)
+    if (res.advertenciaPago) {
+      toast.warning(`Gift card guardada, pero hubo un problema al registrar el cobro en caja: ${res.advertenciaPago}`)
+    }
     resetCreateForm()
     setIsCreateOpen(false)
     await reload()
