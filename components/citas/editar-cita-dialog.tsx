@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Textarea } from "@/components/ui/textarea"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
-import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
+import { getEmpleadosParaAgendaPorSucursalYDia, type Empleado } from "@/lib/data/empleado-sucursal-dia"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { updateCita, type Cita } from "@/lib/data/citas"
 import { Loader2, ChevronsUpDown } from "lucide-react"
@@ -87,10 +87,13 @@ export function EditarCitaDialog({
   // Recargar empleadas cuando cambia la sucursal
   useEffect(() => {
     async function loadEmpleados() {
-      if (!citaForm.sucursalId) return
+      if (!citaForm.sucursalId || !citaForm.fecha) return
       try {
         setIsLoadingEmpleados(true)
-        const empleadosData = await getEmpleadosBySucursalFromDB(citaForm.sucursalId)
+        const empleadosData = await getEmpleadosParaAgendaPorSucursalYDia(
+          citaForm.sucursalId,
+          citaForm.fecha,
+        )
         setEmpleados(empleadosData)
       } catch (error) {
         console.error("Error cargando empleadas:", error)
@@ -99,7 +102,7 @@ export function EditarCitaDialog({
       }
     }
     loadEmpleados()
-  }, [citaForm.sucursalId])
+  }, [citaForm.sucursalId, citaForm.fecha])
 
   const servicioSeleccionado = servicios.find((s) => s.id === citaForm.servicioId)
 

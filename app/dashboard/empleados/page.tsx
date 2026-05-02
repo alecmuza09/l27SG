@@ -6,8 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, Mail, Phone, Calendar, Edit, Trash2, Award, Loader2, Filter, RotateCcw } from "lucide-react"
-import { getEmpleadosFromDB, getEmpleadosEliminadosFromDB, createEmpleado, eliminarEmpleado, restaurarEmpleado, type Empleado } from "@/lib/data/empleados"
+import { Plus, Search, Mail, Phone, CalendarDays, Edit, Trash2, Award, Loader2, Filter, RotateCcw, Building2 } from "lucide-react"
+import {
+  guardarAsignacionSucursalDia,
+  quitarAsignacionSucursalDia,
+  getHistorialEmpleadoSucursalDia,
+  getOverrideSucursalDia,
+  type HistorialEmpleadoSucursalDiaItem,
+} from "@/lib/data/empleado-sucursal-dia"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getCurrentUser, type User } from "@/lib/auth"
 import {
@@ -65,6 +71,19 @@ export default function EmpleadosPage() {
     comision: 30,
   })
 
+  const hoyStr = () => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  }
+
+  const [fechaAsignacionDia, setFechaAsignacionDia] = useState(hoyStr)
+  const [empleadoAsignacionId, setEmpleadoAsignacionId] = useState("")
+  const [sucursalAsignacionDestinoId, setSucursalAsignacionDestinoId] = useState("")
+  const [hayOverrideAsignacion, setHayOverrideAsignacion] = useState(false)
+  const [historialSucursalDia, setHistorialSucursalDia] = useState<HistorialEmpleadoSucursalDiaItem[]>([])
+  const [loadingHistorialSucursal, setLoadingHistorialSucursal] = useState(false)
+  const [guardandoAsignacionDia, setGuardandoAsignacionDia] = useState(false)
+
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
   const userSucursalId = currentUser?.sucursalId
@@ -118,6 +137,41 @@ export default function EmpleadosPage() {
     }
   }, [isDialogOpen, isAdmin, userSucursalId])
 
+  useEffect(() => {
+    if (!empleadoAsignacionId || !fechaAsignacionDia) {
+      setHayOverrideAsignacion(false)
+      setSucursalAsignacionDestinoId("")
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const ov = await getOverrideSucursalDia(empleadoAsignacionId, fechaAsignacionDia)
+      const emp = empleados.find((e) => e.id === empleadoAsignacionId)
+      if (cancelled) return
+      setHayOverrideAsignacion(!!ov)
+      setSucursalAsignacionDestinoId(ov ?? emp?.sucursalId ?? "")
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [empleadoAsignacionId, fechaAsignacionDia, empleados])
+
+  async function loadHistorialSucursal() {
+    if (!isAdmin) return
+    setLoadingHistorialSucursal(true)
+    try {
+      const rows = await getHistorialEmpleadoSucursalDia({ limit: 50 })
+      setHistorialSucursalDia(rows)
+    } finally {
+      setLoadingHistorialSucursal(false)
+    }
+  }
+
+  useEffect(() => {
+    if (currentUser && isAdmin) void loadHistorialSucursal()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar usuario/admin
+  }, [currentUser, isAdmin])
+
   const filteredEmpleados = (activeTab === "activos" ? empleados : empleadosEliminados).filter((e) => {
     const matchesSearch = searchQuery
       ? e.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -157,6 +211,55 @@ export default function EmpleadosPage() {
   const handleEdit = (empleado: Empleado) => {
     setEditingEmpleado(empleado)
     setIsEditDialogOpen(true)
+  }
+
+  const handleGuardarAsignacionDia = async () => {
+    if (!empleadoAsignacionId || !sucursalAsignacionDestinoId) {
+      toast.error("Selecciona empleada y sucursal destino")
+      return
+    }
+    setGuardandoAsignacionDia(true)
+    try {
+      const res = await guardarAsignacionSucursalDia({
+        empleadoId: empleadoAsignacionId,
+        fecha: fechaAsignacionDia,
+        sucursalId: sucursalAsignacionDestinoId,
+        usuarioId: currentUser?.id ?? null,
+      })
+      if (!res.success) {
+        toast.error(res.error ?? "Error al guardar")
+        return
+      }
+      toast.success("Asignación guardada para ese día")
+      await loadHistorialSucursal()
+      const ov = await getOverrideSucursalDia(empleadoAsignacionId, fechaAsignacionDia)
+      setHayOverrideAsignacion(!!ov)
+    } finally {
+      setGuardandoAsignacionDia(false)
+    }
+  }
+
+  const handleQuitarAsignacionDia = async () => {
+    if (!empleadoAsignacionId) return
+    setGuardandoAsignacionDia(true)
+    try {
+      const res = await quitarAsignacionSucursalDia(
+        empleadoAsignacionId,
+        fechaAsignacionDia,
+        currentUser?.id ?? null,
+      )
+      if (!res.success) {
+        toast.error(res.error ?? "Error al quitar asignación")
+        return
+      }
+      toast.success("Se quitó la asignación especial; aplica sucursal base")
+      await loadHistorialSucursal()
+      const emp = empleados.find((e) => e.id === empleadoAsignacionId)
+      setHayOverrideAsignacion(false)
+      setSucursalAsignacionDestinoId(emp?.sucursalId ?? "")
+    } finally {
+      setGuardandoAsignacionDia(false)
+    }
   }
 
   const stats = {
@@ -442,6 +545,150 @@ export default function EmpleadosPage() {
         </Card>
       </div>
 
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Asignación de sucursal por día
+            </CardTitle>
+            <CardDescription>
+              Define en qué sucursal trabajará cada empleada en una fecha concreta. No cambia la sucursal base del perfil.
+              Si la sucursal elegida coincide con la base, se elimina la asignación especial.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 md:items-end">
+              <div className="space-y-2">
+                <Label htmlFor="fecha-asignacion-sucursal">Fecha</Label>
+                <Input
+                  id="fecha-asignacion-sucursal"
+                  type="date"
+                  value={fechaAsignacionDia}
+                  onChange={(e) => setFechaAsignacionDia(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Empleada</Label>
+                <Select value={empleadoAsignacionId || undefined} onValueChange={setEmpleadoAsignacionId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar empleada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {empleados.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nombre} {e.apellido}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Sucursal ese día</Label>
+                <Select
+                  value={sucursalAsignacionDestinoId || undefined}
+                  onValueChange={setSucursalAsignacionDestinoId}
+                  disabled={!empleadoAsignacionId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sucursal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sucursales.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  disabled={guardandoAsignacionDia || !empleadoAsignacionId || !sucursalAsignacionDestinoId}
+                  onClick={() => void handleGuardarAsignacionDia()}
+                >
+                  {guardandoAsignacionDia ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Guardar
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={guardandoAsignacionDia || !empleadoAsignacionId || !hayOverrideAsignacion}
+                  onClick={() => void handleQuitarAsignacionDia()}
+                >
+                  Quitar asignación
+                </Button>
+              </div>
+            </div>
+            {empleadoAsignacionId && hayOverrideAsignacion && (
+              <p className="text-xs text-muted-foreground">
+                Esta empleada tiene una sucursal distinta a la base para la fecha seleccionada.
+              </p>
+            )}
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Últimos movimientos</h3>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Cuándo</TableHead>
+                      <TableHead className="text-xs">Empleada</TableHead>
+                      <TableHead className="text-xs">Fecha día</TableHead>
+                      <TableHead className="text-xs">Acción</TableHead>
+                      <TableHead className="text-xs">De</TableHead>
+                      <TableHead className="text-xs">A</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loadingHistorialSucursal ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          <Loader2 className="inline h-5 w-5 animate-spin" />
+                        </TableCell>
+                      </TableRow>
+                    ) : historialSucursalDia.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground text-sm">
+                          Sin registros aún. Ejecuta la migración SQL en Supabase si la tabla no existe.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      historialSucursalDia.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {new Date(row.createdAt).toLocaleString("es-MX", {
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </TableCell>
+                          <TableCell className="text-xs">{row.empleadoNombre}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{row.fecha}</TableCell>
+                          <TableCell className="text-xs capitalize">{row.accion}</TableCell>
+                          <TableCell className="text-xs">
+                            {row.sucursalEfectivaAnteriorId
+                              ? sucursales.find((s) => s.id === row.sucursalEfectivaAnteriorId)?.nombre ?? "—"
+                              : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.sucursalEfectivaNuevaId
+                              ? sucursales.find((s) => s.id === row.sucursalEfectivaNuevaId)?.nombre ?? "—"
+                              : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Lista de Empleados</CardTitle>
@@ -542,7 +789,7 @@ export default function EmpleadosPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2 text-sm">
-                        <Calendar className="h-3 w-3 text-muted-foreground" />
+                        <CalendarDays className="h-3 w-3 text-muted-foreground" />
                         <span>
                           {empleado.horarioInicio} - {empleado.horarioFin}
                         </span>

@@ -125,7 +125,7 @@ function normalizarHora(h: string | null | undefined): string | undefined {
   return s.length >= 4 ? s : undefined
 }
 
-function transformEmpleado(empleado: EmpleadoRow): Empleado {
+export function transformEmpleado(empleado: EmpleadoRow): Empleado {
   return {
     id: empleado.id,
     nombre: empleado.nombre,

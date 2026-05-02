@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
-import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
+import { getEmpleadosParaAgendaPorSucursalYDia, type Empleado } from "@/lib/data/empleado-sucursal-dia"
 import { createCita } from "@/lib/data/citas"
 import { getCurrentUser } from "@/lib/auth"
 import {
@@ -172,7 +172,7 @@ export function NuevaCitaDialog({
       try {
         const [svc, emp] = await Promise.all([
           getServiciosActivosFromDB(),
-          getEmpleadosBySucursalFromDB(sucursalId),
+          getEmpleadosParaAgendaPorSucursalYDia(sucursalId, fechaGeneral),
         ])
         setServicios(svc)
         setEmpleados(emp)
@@ -183,7 +183,7 @@ export function NuevaCitaDialog({
       }
     }
     load()
-  }, [open, sucursalId])
+  }, [open, sucursalId, fechaGeneral])
 
   useEffect(() => {
     if (!open || !onRegistrarBloqueAgenda) return

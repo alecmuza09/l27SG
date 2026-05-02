@@ -8,13 +8,18 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, UserRound as UserIcon, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History } from "lucide-react"
+import { Clock, UserRound as UserIcon, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History, Building2 } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
-import { getEmpleadosBySucursalFromDB, type Empleado } from "@/lib/data/empleados"
+import { type Empleado } from "@/lib/data/empleados"
+import {
+  getEmpleadosParaAgendaPorSucursalYDia,
+  guardarAsignacionSucursalDia,
+  getAsignacionesPorFecha,
+} from "@/lib/data/empleado-sucursal-dia"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Label } from "@/components/ui/label"
@@ -461,11 +466,19 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     horaFin: '14:00',
     duracionFranjaMin: 60,
   })
-  /** Edición desde ⋮ en la agenda o en la lista del diálogo */
+  /** Overrides empleado_id → sucursal_id para selectedDate (solo lectura UI). */
+  const [asignacionesPorEmpleado, setAsignacionesPorEmpleado] = useState<Record<string, string>>({})
+  const [empleadosAgendaTick, setEmpleadosAgendaTick] = useState(0)
+  const [cambiarSucursalEmpleado, setCambiarSucursalEmpleado] = useState<Empleado | null>(null)
+  const [cambiarSucursalDestinoId, setCambiarSucursalDestinoId] = useState("")
+  const [guardandoCambioSucursal, setGuardandoCambioSucursal] = useState(false)
+
   const [bloqueEditando, setBloqueEditando] = useState<BloqueAgenda | null>(null)
 
   // Calcular isAdmin de forma segura (siempre definido)
-  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
+  const isAdmin: boolean = Boolean(
+    currentUser?.role === "admin" || currentUser?.role === "superadmin",
+  )
   const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
 
   useEffect(() => {
@@ -476,14 +489,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   useEffect(() => {
     async function loadVacaciones() {
       try {
-        const data = await getVacacionesFromDB(selectedSucursal || undefined)
+        const data = await getVacacionesFromDB()
         setVacaciones(data)
       } catch {
         // silencioso — vacaciones no críticas para cargar la vista
       }
     }
     loadVacaciones()
-  }, [selectedSucursal, selectedDate])
+  }, [selectedDate])
 
   useEffect(() => {
     async function loadSucursales() {
@@ -515,13 +528,30 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   useEffect(() => {
     async function loadEmpleados() {
-      if (selectedSucursal) {
-        const empleados = await getEmpleadosBySucursalFromDB(selectedSucursal)
-        setEmpleadosSucursal(empleados)
+      if (!selectedSucursal || !selectedDate) {
+        setEmpleadosSucursal([])
+        setAsignacionesPorEmpleado({})
+        return
+      }
+      try {
+        const [emps, ovMap] = await Promise.all([
+          getEmpleadosParaAgendaPorSucursalYDia(selectedSucursal, selectedDate),
+          getAsignacionesPorFecha(selectedDate),
+        ])
+        setEmpleadosSucursal(emps)
+        setAsignacionesPorEmpleado(Object.fromEntries(ovMap))
+      } catch {
+        setEmpleadosSucursal([])
+        setAsignacionesPorEmpleado({})
       }
     }
-    loadEmpleados()
-  }, [selectedSucursal])
+    void loadEmpleados()
+  }, [selectedSucursal, selectedDate, empleadosAgendaTick])
+
+  useEffect(() => {
+    if (!cambiarSucursalEmpleado || !selectedSucursal) return
+    setCambiarSucursalDestinoId(selectedSucursal)
+  }, [cambiarSucursalEmpleado, selectedSucursal])
 
   const enrichAusenciasList = useCallback(
     (data: Ausencia[]) =>
@@ -1106,6 +1136,28 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     }
   }
 
+  const confirmarCambioSucursalDia = async () => {
+    if (!cambiarSucursalEmpleado || !cambiarSucursalDestinoId) return
+    setGuardandoCambioSucursal(true)
+    try {
+      const res = await guardarAsignacionSucursalDia({
+        empleadoId: cambiarSucursalEmpleado.id,
+        fecha: selectedDate,
+        sucursalId: cambiarSucursalDestinoId,
+        usuarioId: currentUser?.id ?? null,
+      })
+      if (!res.success) {
+        toast.error(res.error ?? "No se pudo guardar la asignación")
+        return
+      }
+      toast.success("Sucursal actualizada para este día")
+      setCambiarSucursalEmpleado(null)
+      setEmpleadosAgendaTick((t) => t + 1)
+    } finally {
+      setGuardandoCambioSucursal(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header con filtros */}
@@ -1291,6 +1343,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       const ausenciaDiaCompleto = ausenciasEmp.find(a => !a.horaInicio && !a.horaFin)
                       const noDisponible = !!(vacacionEmpleado || descansoHoy || ausenciaDiaCompleto)
 
+                      const esCubriendo =
+                        asignacionesPorEmpleado[empleado.id] != null &&
+                        empleado.sucursalId !== selectedSucursal
+
                     return (
                       <div key={empleado.id} className={cn("space-y-1", noDisponible && "opacity-60")}>
                         {/* Encabezado compacto de empleada */}
@@ -1302,45 +1358,120 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                             ausenciaDiaCompleto && "bg-red-50 rounded-t-md px-1.5 pt-1.5",
                           )}
                         >
-                          <div
-                            className={cn(
-                              "h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0",
-                              vacacionEmpleado && "bg-amber-200",
-                              descansoHoy && "bg-slate-300 dark:bg-slate-600",
-                              ausenciaDiaCompleto && "bg-red-200",
-                              !noDisponible && "bg-primary/10",
-                            )}
-                          >
-                            {vacacionEmpleado ? (
-                              <Palmtree className="h-3.5 w-3.5 text-amber-600" />
-                            ) : descansoHoy ? (
-                              <BedDouble className="h-3.5 w-3.5 text-slate-500" />
-                            ) : ausenciaDiaCompleto ? (
-                              <UserX className="h-3.5 w-3.5 text-red-600" />
-                            ) : (
-                              <UserIcon className="h-3.5 w-3.5 text-primary" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-xs truncate leading-tight">
-                              {empleado.nombre} {empleado.apellido}
-                            </p>
-                            {vacacionEmpleado ? (
-                              <p className="text-[10px] text-amber-600 font-medium leading-tight">Vacaciones</p>
-                            ) : descansoHoy ? (
-                              <p className="text-[10px] text-slate-500 leading-tight">Descanso</p>
-                            ) : ausenciaDiaCompleto ? (
-                              <p className="text-[10px] text-red-600 font-medium leading-tight capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]} · {ausenciaDiaCompleto.estatus}</p>
-                            ) : (
-                              <p className="text-[10px] text-muted-foreground leading-tight">
-                                {empleado.horarioInicio} - {empleado.horarioFin}
-                              </p>
-                            )}
-                          </div>
-                          {!noDisponible && (
-                            <Badge variant="outline" className="flex-shrink-0 text-[10px] px-1 py-0 h-4">
-                              {citasEmpleado.length}
-                            </Badge>
+                          {isAdmin ? (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-0.5 pl-0.5 pr-0 text-left outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
+                                  title={`${empleado.nombre} ${empleado.apellido} — opciones`}
+                                >
+                                  <div
+                                    className={cn(
+                                      "h-7 w-7 shrink-0 rounded-full flex items-center justify-center",
+                                      vacacionEmpleado && "bg-amber-200",
+                                      descansoHoy && "bg-slate-300 dark:bg-slate-600",
+                                      ausenciaDiaCompleto && "bg-red-200",
+                                      !noDisponible && "bg-primary/10",
+                                    )}
+                                  >
+                                    {vacacionEmpleado ? (
+                                      <Palmtree className="h-3.5 w-3.5 text-amber-600" />
+                                    ) : descansoHoy ? (
+                                      <BedDouble className="h-3.5 w-3.5 text-slate-500" />
+                                    ) : ausenciaDiaCompleto ? (
+                                      <UserX className="h-3.5 w-3.5 text-red-600" />
+                                    ) : (
+                                      <UserIcon className="h-3.5 w-3.5 text-primary" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="font-semibold text-xs truncate leading-tight flex items-center gap-1">
+                                      {empleado.nombre} {empleado.apellido}
+                                      {esCubriendo && (
+                                        <MapPin className="h-3 w-3 shrink-0 text-blue-600" aria-label="Cubriendo otra sucursal" />
+                                      )}
+                                    </p>
+                                    {vacacionEmpleado ? (
+                                      <p className="text-[10px] text-amber-600 font-medium leading-tight">Vacaciones</p>
+                                    ) : descansoHoy ? (
+                                      <p className="text-[10px] text-slate-500 leading-tight">Descanso</p>
+                                    ) : ausenciaDiaCompleto ? (
+                                      <p className="text-[10px] text-red-600 font-medium leading-tight capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]} · {ausenciaDiaCompleto.estatus}</p>
+                                    ) : (
+                                      <p className="text-[10px] text-muted-foreground leading-tight">
+                                        {empleado.horarioInicio} - {empleado.horarioFin}
+                                        {esCubriendo && (
+                                          <span className="text-blue-600 font-medium"> · Cubriendo</span>
+                                        )}
+                                      </p>
+                                    )}
+                                  </div>
+                                  {!noDisponible && (
+                                    <Badge variant="outline" className="flex-shrink-0 text-[10px] px-1 py-0 h-4">
+                                      {citasEmpleado.length}
+                                    </Badge>
+                                  )}
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start" className="z-[200]">
+                                <DropdownMenuItem
+                                  onSelect={() => setCambiarSucursalEmpleado(empleado)}
+                                >
+                                  <Building2 className="mr-2 h-4 w-4" />
+                                  Cambiar sucursal para este día
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          ) : (
+                            <>
+                              <div
+                                className={cn(
+                                  "h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0",
+                                  vacacionEmpleado && "bg-amber-200",
+                                  descansoHoy && "bg-slate-300 dark:bg-slate-600",
+                                  ausenciaDiaCompleto && "bg-red-200",
+                                  !noDisponible && "bg-primary/10",
+                                )}
+                              >
+                                {vacacionEmpleado ? (
+                                  <Palmtree className="h-3.5 w-3.5 text-amber-600" />
+                                ) : descansoHoy ? (
+                                  <BedDouble className="h-3.5 w-3.5 text-slate-500" />
+                                ) : ausenciaDiaCompleto ? (
+                                  <UserX className="h-3.5 w-3.5 text-red-600" />
+                                ) : (
+                                  <UserIcon className="h-3.5 w-3.5 text-primary" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-xs truncate leading-tight flex items-center gap-1">
+                                  {empleado.nombre} {empleado.apellido}
+                                  {esCubriendo && (
+                                    <MapPin className="h-3 w-3 shrink-0 text-blue-600" aria-label="Cubriendo otra sucursal" />
+                                  )}
+                                </p>
+                                {vacacionEmpleado ? (
+                                  <p className="text-[10px] text-amber-600 font-medium leading-tight">Vacaciones</p>
+                                ) : descansoHoy ? (
+                                  <p className="text-[10px] text-slate-500 leading-tight">Descanso</p>
+                                ) : ausenciaDiaCompleto ? (
+                                  <p className="text-[10px] text-red-600 font-medium leading-tight capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]} · {ausenciaDiaCompleto.estatus}</p>
+                                ) : (
+                                  <p className="text-[10px] text-muted-foreground leading-tight">
+                                    {empleado.horarioInicio} - {empleado.horarioFin}
+                                    {esCubriendo && (
+                                      <span className="text-blue-600 font-medium"> · Cubriendo</span>
+                                    )}
+                                  </p>
+                                )}
+                              </div>
+                              {!noDisponible && (
+                                <Badge variant="outline" className="flex-shrink-0 text-[10px] px-1 py-0 h-4">
+                                  {citasEmpleado.length}
+                                </Badge>
+                              )}
+                            </>
                           )}
                         </div>
 
@@ -2995,6 +3126,66 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           })()}
         </SheetContent>
       </Sheet>
+
+      <Dialog
+        open={!!cambiarSucursalEmpleado}
+        onOpenChange={(open) => {
+          if (!open) setCambiarSucursalEmpleado(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cambiar sucursal para este día</DialogTitle>
+            <DialogDescription>
+              {formatDate(selectedDate)} · Solo afecta este día en la agenda; la sucursal base del perfil no cambia.
+              Si eliges la sucursal base de la empleada, se quita la asignación especial.
+            </DialogDescription>
+          </DialogHeader>
+          {cambiarSucursalEmpleado && (
+            <div className="space-y-4 py-2">
+              <p className="text-sm font-medium">
+                {cambiarSucursalEmpleado.nombre} {cambiarSucursalEmpleado.apellido}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Sucursal base:{" "}
+                <strong>
+                  {sucursales.find((s) => s.id === cambiarSucursalEmpleado.sucursalId)?.nombre ?? "—"}
+                </strong>
+              </p>
+              <div className="space-y-2">
+                <Label>Sucursal para este día</Label>
+                <Select value={cambiarSucursalDestinoId} onValueChange={setCambiarSucursalDestinoId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar sucursal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sucursales.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" type="button" onClick={() => setCambiarSucursalEmpleado(null)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={guardandoCambioSucursal || !cambiarSucursalDestinoId}
+              onClick={() => void confirmarCambioSucursalDia()}
+            >
+              {guardandoCambioSucursal ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

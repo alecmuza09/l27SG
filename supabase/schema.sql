@@ -60,6 +60,36 @@ CREATE TABLE IF NOT EXISTS empleados (
 );
 
 -- ============================================
+-- TABLA: empleado_sucursal_dia
+-- Sobrescribe la sucursal base del empleado solo para una fecha concreta (agenda / citas).
+-- ============================================
+CREATE TABLE IF NOT EXISTS empleado_sucursal_dia (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empleado_id UUID NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  fecha DATE NOT NULL,
+  sucursal_id UUID NOT NULL REFERENCES sucursales(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE (empleado_id, fecha)
+);
+
+-- ============================================
+-- TABLA: empleado_sucursal_dia_historial
+-- Auditoría de cambios de sucursal efectiva por día.
+-- ============================================
+CREATE TABLE IF NOT EXISTS empleado_sucursal_dia_historial (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empleado_id UUID NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  fecha DATE NOT NULL,
+  sucursal_efectiva_anterior UUID REFERENCES sucursales(id) ON DELETE SET NULL,
+  sucursal_efectiva_nueva UUID REFERENCES sucursales(id) ON DELETE SET NULL,
+  accion VARCHAR(20) NOT NULL CHECK (accion IN ('asignar', 'cambiar', 'quitar')),
+  usuario_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================
 -- TABLA: clientes
 -- ============================================
 CREATE TABLE IF NOT EXISTS clientes (
@@ -311,6 +341,12 @@ CREATE INDEX IF NOT EXISTS idx_empleados_sucursal ON empleados(sucursal_id);
 CREATE INDEX IF NOT EXISTS idx_empleados_activo ON empleados(activo);
 CREATE INDEX IF NOT EXISTS idx_empleados_email ON empleados(email);
 
+CREATE INDEX IF NOT EXISTS idx_empleado_sucursal_dia_fecha ON empleado_sucursal_dia (fecha);
+CREATE INDEX IF NOT EXISTS idx_empleado_sucursal_dia_empleado_fecha ON empleado_sucursal_dia (empleado_id, fecha);
+CREATE INDEX IF NOT EXISTS idx_empleado_sucursal_dia_sucursal_fecha ON empleado_sucursal_dia (sucursal_id, fecha);
+CREATE INDEX IF NOT EXISTS idx_empleado_sucursal_dia_hist_empleado ON empleado_sucursal_dia_historial (empleado_id);
+CREATE INDEX IF NOT EXISTS idx_empleado_sucursal_dia_hist_fecha ON empleado_sucursal_dia_historial (fecha DESC);
+
 -- Índices para clientes
 CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
 CREATE INDEX IF NOT EXISTS idx_clientes_telefono ON clientes(telefono);
@@ -369,6 +405,9 @@ CREATE TRIGGER update_usuarios_updated_at BEFORE UPDATE ON usuarios
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_empleados_updated_at BEFORE UPDATE ON empleados
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_empleado_sucursal_dia_updated_at BEFORE UPDATE ON empleado_sucursal_dia
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_clientes_updated_at BEFORE UPDATE ON clientes
@@ -448,6 +487,8 @@ CREATE TRIGGER update_inventario_stock_trigger
 -- ============================================
 COMMENT ON TABLE sucursales IS 'Sucursales del spa Luna27';
 COMMENT ON TABLE empleados IS 'Empleados del spa (terapeutas, esteticistas, etc.)';
+COMMENT ON TABLE empleado_sucursal_dia IS 'Asignación de sucursal por empleado y fecha (temporal; no cambia sucursal base)';
+COMMENT ON TABLE empleado_sucursal_dia_historial IS 'Historial de cambios de sucursal efectiva por día';
 COMMENT ON TABLE clientes IS 'Clientes del spa';
 COMMENT ON TABLE servicios IS 'Servicios ofrecidos por el spa';
 COMMENT ON TABLE citas IS 'Citas/Reservaciones de clientes';
