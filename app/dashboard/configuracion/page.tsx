@@ -398,7 +398,7 @@ export default function ConfiguracionPage() {
                 setEditingUsuario(null)
               }
             }}>
-              <DialogContent className="max-w-md">
+              <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
                     {editingUsuario ? "Editar Usuario" : "Nuevo Usuario"}
@@ -462,7 +462,7 @@ export default function ConfiguracionPage() {
                   {formRol !== 'admin' && (
                     <div className="grid gap-2">
                       <Label>Sucursales *</Label>
-                      <Popover open={sucursalPopoverOpen} onOpenChange={setSucursalPopoverOpen}>
+                      <Popover modal={false} open={sucursalPopoverOpen} onOpenChange={setSucursalPopoverOpen}>
                         <PopoverTrigger asChild>
                           <button
                             type="button"
@@ -478,14 +478,26 @@ export default function ConfiguracionPage() {
                             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
-                          <div className="max-h-56 overflow-y-auto">
+                        <PopoverContent
+                          className="z-[200] flex w-[var(--radix-popover-trigger-width)] flex-col gap-0 overflow-hidden p-0 shadow-md"
+                          align="start"
+                          sideOffset={4}
+                          onWheel={(e) => e.stopPropagation()}
+                        >
+                          <div
+                            role="listbox"
+                            aria-label="Lista de sucursales"
+                            className="max-h-[min(60vh,380px)] min-h-0 overflow-y-auto overscroll-contain p-1 [-webkit-overflow-scrolling:touch]"
+                            onWheel={(e) => e.stopPropagation()}
+                          >
                             {sucursales.map((s) => {
                               const selected = formSucursalIds.includes(s.id)
                               return (
                                 <button
                                   key={s.id}
                                   type="button"
+                                  role="option"
+                                  aria-selected={selected}
                                   onClick={() => toggleSucursal(s.id)}
                                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
                                 >
@@ -495,13 +507,13 @@ export default function ConfiguracionPage() {
                                     aria-hidden
                                   />
                                   <span className="flex-1 text-left">{s.nombre}</span>
-                                  {selected && <Check className="h-3.5 w-3.5 text-primary" />}
+                                  {selected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
                                 </button>
                               )
                             })}
                           </div>
                           {formSucursalIds.length > 0 && (
-                            <div className="border-t pt-1 mt-1">
+                            <div className="shrink-0 border-t bg-popover px-1 pb-1 pt-1">
                               <button
                                 type="button"
                                 onClick={() => setFormSucursalIds([])}
