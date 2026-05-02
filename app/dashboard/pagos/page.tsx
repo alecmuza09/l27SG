@@ -20,6 +20,8 @@ import {
   debePersistirMetodoMixtoEfectivoTarjeta,
   esReferenciaEmisionGiftCard,
   sincronizarPagosEmisionGiftCardsFaltantes,
+  totalizarVentasSaldoGiftCards,
+  esVentaSaldoGiftCard,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { searchClientes, type Cliente } from "@/lib/data/clientes"
@@ -208,11 +210,7 @@ export default function PagosPage() {
     totalOtro += d.otro
   }
 
-  const totalEmisionGiftCards = pagos.reduce((s, p) => {
-    if (p.estado !== "completado") return s
-    if (!esReferenciaEmisionGiftCard(p.referencia)) return s
-    return s + p.monto
-  }, 0)
+  const ventasSaldoGiftCards = totalizarVentasSaldoGiftCards(pagos)
 
   const cobrosCompletadosCount = pagos.filter(p => p.estado === "completado").length
 
@@ -561,7 +559,7 @@ export default function PagosPage() {
 
           <StatRow label="Servicios — Tarjeta" value={fmtMXN(totalTarjeta)} />
           <StatRow label="Servicios — Efectivo" value={fmtMXN(totalEfectivo)} />
-          <StatRow label="Ventas gift card (emisión)" value={fmtMXN(totalEmisionGiftCards)} />
+          <StatRow label="Ventas saldo gift cards" value={fmtMXN(ventasSaldoGiftCards.monto)} />
           <StatRow label="Transferencias" value={fmtMXN(totalTransf)} />
           {totalOtro > 0 && (
             <StatRow label="Otros medios / mixto (detalle)" value={fmtMXN(totalOtro)} />
@@ -870,7 +868,16 @@ export default function PagosPage() {
                         <TableCell className="text-xs text-muted-foreground tabular-nums">{pago.hora?.slice(0, 5)}</TableCell>
                         <TableCell className="text-sm font-medium">{pago.clienteNombre}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{pago.empleadoNombre}</TableCell>
-                        <TableCell className="text-xs max-w-[180px] truncate">{pago.servicios.join(", ")}</TableCell>
+                        <TableCell className="text-xs max-w-[220px]">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate">{pago.servicios.join(", ")}</span>
+                            {esVentaSaldoGiftCard(pago) && (
+                              <Badge variant="outline" className="text-[10px] shrink-0 px-1 py-0 border-violet-300 text-violet-800 bg-violet-50">
+                                Venta saldo
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {(() => {
                             const d = distribuirMontoPago(pago)

@@ -10,7 +10,7 @@ import {
   Download, FileSpreadsheet, TrendingUp, TrendingDown,
   Users, Calendar, Loader2, RefreshCw, Building2,
   CheckCircle2, XCircle, Clock, AlertCircle, DollarSign,
-  BarChart3, Star,
+  BarChart3, Star, Gift,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -19,7 +19,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { getPagosFromDB, distribuirMontoPago, type Pago } from "@/lib/data/pagos"
+import { getPagosFromDB, distribuirMontoPago, totalizarVentasSaldoGiftCards, type Pago } from "@/lib/data/pagos"
 import {
   getServiciosPopulares,
   getTopEmpleadosFromDB,
@@ -210,6 +210,8 @@ export default function ReportesPage() {
   const [ventasPeriodo,        setVentasPeriodo]        = useState<VentaDia[]>([])
   const [statsActual,          setStatsActual]          = useState<KpiStats>({ ingresosTotales: 0, totalServicios: 0, ticketPromedio: 0 })
   const [statsAnterior,        setStatsAnterior]        = useState<KpiStats>({ ingresosTotales: 0, totalServicios: 0, ticketPromedio: 0 })
+  const [ventasSaldoGcActual,  setVentasSaldoGcActual]  = useState({ monto: 0, transacciones: 0 })
+  const [ventasSaldoGcAnt,     setVentasSaldoGcAnt]     = useState({ monto: 0, transacciones: 0 })
   const [citasResumen,         setCitasResumen]         = useState<CitasResumen>({ completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 })
   const [serviciosMasVendidos, setServiciosMasVendidos] = useState<ServicioRow[]>([])
   const [empleadosTop,         setEmpleadosTop]         = useState<EmpleadoRow[]>([])
@@ -266,6 +268,8 @@ export default function ReportesPage() {
       }
       setStatsActual(calcStats(pagos))
       setStatsAnterior(calcStats(pagosAnt))
+      setVentasSaldoGcActual(totalizarVentasSaldoGiftCards(pagos))
+      setVentasSaldoGcAnt(totalizarVentasSaldoGiftCards(pagosAnt))
 
       // Métodos de pago (incluye desglose efectivo/tarjeta en pagos mixtos, sin duplicar montos)
       const metodosMap = new Map<string, { monto: number; count: number }>()
@@ -325,6 +329,8 @@ export default function ReportesPage() {
       ["Ingresos Totales",  statsActual.ingresosTotales,  statsAnterior.ingresosTotales,  statsAnterior.ingresosTotales > 0 ? `${Math.round(((statsActual.ingresosTotales - statsAnterior.ingresosTotales) / statsAnterior.ingresosTotales) * 100)}%` : "—"],
       ["Total Servicios",   statsActual.totalServicios,   statsAnterior.totalServicios,   statsAnterior.totalServicios  > 0 ? `${Math.round(((statsActual.totalServicios  - statsAnterior.totalServicios)  / statsAnterior.totalServicios)  * 100)}%` : "—"],
       ["Ticket Promedio",   statsActual.ticketPromedio,   statsAnterior.ticketPromedio,   statsAnterior.ticketPromedio  > 0 ? `${Math.round(((statsActual.ticketPromedio  - statsAnterior.ticketPromedio)  / statsAnterior.ticketPromedio)  * 100)}%` : "—"],
+      ["Ventas saldo gift cards ($)", ventasSaldoGcActual.monto, ventasSaldoGcAnt.monto, ventasSaldoGcAnt.monto > 0 ? `${Math.round(((ventasSaldoGcActual.monto - ventasSaldoGcAnt.monto) / ventasSaldoGcAnt.monto) * 100)}%` : "—"],
+      ["Cantidad ventas saldo GC", ventasSaldoGcActual.transacciones, ventasSaldoGcAnt.transacciones, ventasSaldoGcAnt.transacciones > 0 ? `${Math.round(((ventasSaldoGcActual.transacciones - ventasSaldoGcAnt.transacciones) / ventasSaldoGcAnt.transacciones) * 100)}%` : "—"],
       ["Citas Completadas", citasResumen.completadas, "", ""],
       ["Tasa de Cancelación", `${citasResumen.tasaCancelacion}%`, "", ""],
     ]), "Resumen")
@@ -533,6 +539,27 @@ export default function ReportesPage() {
               </CardContent>
             </Card>
           )}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <Gift className="h-4 w-4" />Ventas saldo gift cards
+              </CardTitle>
+              <CardDescription className="text-xs leading-snug">
+                Monto cobrado por saldo inicial vendido al emitir tarjetas (Pagos → Cobros).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{fmtMXN(ventasSaldoGcActual.monto)}</div>
+              <p className="text-xs text-muted-foreground mt-1">{ventasSaldoGcActual.transacciones} ventas en el período</p>
+              {!isManager && (
+                <div className="flex items-center gap-2 mt-1">
+                  <Tendencia actual={ventasSaldoGcActual.monto} anterior={ventasSaldoGcAnt.monto} />
+                  <span className="text-xs text-muted-foreground">vs período anterior</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader className="pb-2">

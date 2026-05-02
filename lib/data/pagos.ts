@@ -332,6 +332,19 @@ export function esReferenciaEmisionGiftCard(referencia?: string | null): boolean
   return (referencia ?? '').toLowerCase().startsWith(REFERENCIA_EMISION_GIFT_CARD_PREFIX)
 }
 
+/** Cobro en `pagos` por venta de saldo inicial al emitir una gift card (no es uso de GC como medio de pago). */
+export function esVentaSaldoGiftCard(p: Pick<Pago, 'estado' | 'referencia'>): boolean {
+  return p.estado === 'completado' && esReferenciaEmisionGiftCard(p.referencia)
+}
+
+export function totalizarVentasSaldoGiftCards(pagos: Pago[]): { monto: number; transacciones: number } {
+  const lista = pagos.filter(esVentaSaldoGiftCard)
+  return {
+    monto: lista.reduce((s, p) => s + p.monto, 0),
+    transacciones: lista.length,
+  }
+}
+
 /** Quita acentos y pasa a minúsculas (ej. «Cortesía», «EFECTIVO»). */
 export function textoMetodoPagoNormalizado(raw: string | null | undefined): string {
   if (!raw?.trim()) return ''
@@ -396,8 +409,8 @@ export async function registrarPagoEmisionGiftCard(params: {
         estado: 'completado',
         fecha: params.fecha,
         hora,
-        servicios: [`Gift card · ${params.codigo}`],
-        notas: `Emisión gift card · ${params.codigo}`,
+        servicios: [`Venta saldo gift card · ${params.codigo}`],
+        notas: `Venta de saldo inicial gift card · ${params.codigo} · $${monto.toFixed(2)} MXN`,
         referencia: `${REFERENCIA_EMISION_GIFT_CARD_PREFIX}${params.giftCardId}`,
         subtotal: monto,
         descuento_monto: 0,

@@ -36,8 +36,8 @@ VALUES (
   'completado',
   '2026-04-29'::date,             -- fecha real de la venta
   '12:00:00',
-  ARRAY['Gift card · GC-XXXX-YYYY'],
-  'Emisión gift card · GC-XXXX-YYYY',
+  ARRAY['Venta saldo gift card · GC-XXXX-YYYY'],
+  'Venta de saldo inicial gift card · GC-XXXX-YYYY · $2500.00 MXN',
   'giftcard_emision:UUID_DE_LA_GC'::text,
   2500.00,
   0,
