@@ -332,6 +332,17 @@ export function esReferenciaEmisionGiftCard(referencia?: string | null): boolean
   return (referencia ?? '').toLowerCase().startsWith(REFERENCIA_EMISION_GIFT_CARD_PREFIX)
 }
 
+/** Quita acentos y pasa a minúsculas (ej. «Cortesía», «EFECTIVO»). */
+export function textoMetodoPagoNormalizado(raw: string | null | undefined): string {
+  if (!raw?.trim()) return ''
+  const sinAcentos = raw.normalize('NFD').replace(/\p{M}/gu, '')
+  return sinAcentos.toLowerCase().trim()
+}
+
+export function esMetodoPagoCortesia(raw: string | null | undefined): boolean {
+  return textoMetodoPagoNormalizado(raw) === 'cortesia'
+}
+
 /**
  * Registra el cobro de una gift card recién emitida en `pagos` (caja / Cobros).
  * Cortesía o monto ≤ 0 no generan fila de pago.
@@ -350,8 +361,8 @@ export async function registrarPagoEmisionGiftCard(params: {
 }): Promise<{ success: boolean; skipped?: boolean; pagoId?: string; error?: string }> {
   try {
     const monto = Math.round((Number(params.monto) || 0) * 100) / 100
-    const raw = (params.metodoPagoRaw || '').trim().toLowerCase()
-    if (raw === 'cortesia' || monto <= 0) {
+    const rawNorm = textoMetodoPagoNormalizado(params.metodoPagoRaw)
+    if (rawNorm === 'cortesia' || monto <= 0) {
       return { success: true, skipped: true }
     }
 
@@ -359,13 +370,13 @@ export async function registrarPagoEmisionGiftCard(params: {
     let montoEfectivo = 0
     let montoTarjeta = 0
 
-    if (raw === 'efectivo') {
+    if (rawNorm === 'efectivo') {
       metodoPago = 'efectivo'
       montoEfectivo = monto
-    } else if (raw === 'tarjeta') {
+    } else if (rawNorm === 'tarjeta') {
       metodoPago = 'tarjeta'
       montoTarjeta = monto
-    } else if (raw === 'transferencia' || raw.includes('transfer')) {
+    } else if (rawNorm === 'transferencia' || rawNorm.includes('transfer')) {
       metodoPago = 'transferencia'
     } else {
       metodoPago = 'otro'
@@ -410,13 +421,42 @@ export async function registrarPagoEmisionGiftCard(params: {
   }
 }
 
+/** Todas las gift_cards visibles para el usuario (paginado; PostgREST limita ~1000 filas por request). */
+async function cargarTodasLasGiftCards(opts?: { sucursalId?: string }): Promise<{ rows: any[]; error?: string }> {
+  const PAGE = 1000
+  let offset = 0
+  const rows: any[] = []
+  for (;;) {
+    let q = (supabase as any)
+      .from('gift_cards')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE - 1)
+    if (opts?.sucursalId) q = q.eq('sucursal_id', opts.sucursalId)
+    const { data, error } = await q
+    if (error) return { rows, error: error.message }
+    const chunk = data ?? []
+    rows.push(...chunk)
+    if (chunk.length < PAGE) break
+    offset += PAGE
+    if (offset > 100_000) break
+  }
+  return { rows }
+}
+
+async function existePagoPorReferenciaEmisionGc(ref: string): Promise<{ exists: boolean; error?: string }> {
+  const { data, error } = await (supabase as any).from('pagos').select('id').eq('referencia', ref).limit(1)
+  if (error) return { exists: false, error: error.message }
+  return { exists: Array.isArray(data) && data.length > 0 }
+}
+
 /**
  * Crea filas en `pagos` para gift cards emitidas antes del registro automático de cobros.
  * Respeta cortesía y omite tarjetas que ya tienen `referencia` giftcard_emision:*.
  */
 export async function sincronizarPagosEmisionGiftCardsFaltantes(opts?: {
   sucursalId?: string
-}): Promise<{ insertados: number; omitidos: number; errores: string[] }> {
+}): Promise<{ insertados: number; omitidos: number; errores: string[]; tarjetasRevisadas: number }> {
   const errores: string[] = []
   let insertados = 0
   let omitidos = 0
@@ -426,19 +466,19 @@ export async function sincronizarPagosEmisionGiftCardsFaltantes(opts?: {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }
 
-  // `*` evita fallar si la columna `metodo_pago` no existe aún en algún entorno.
-  let q = (supabase as any).from('gift_cards').select('*')
-  if (opts?.sucursalId) q = q.eq('sucursal_id', opts.sucursalId)
-
-  const { data: gcs, error } = await q
-  if (error) {
-    return { insertados: 0, omitidos: 0, errores: [error.message] }
+  const { rows: gcs, error: loadErr } = await cargarTodasLasGiftCards({ sucursalId: opts?.sucursalId })
+  if (loadErr) {
+    return { insertados: 0, omitidos: 0, errores: [loadErr], tarjetasRevisadas: 0 }
   }
 
-  for (const gc of gcs ?? []) {
+  for (const gc of gcs) {
     const ref = `${REFERENCIA_EMISION_GIFT_CARD_PREFIX}${gc.id}`
-    const { data: exist } = await (supabase as any).from('pagos').select('id').eq('referencia', ref).maybeSingle()
-    if (exist) {
+    const ex = await existePagoPorReferenciaEmisionGc(ref)
+    if (ex.error) {
+      errores.push(`${gc.codigo}: ${ex.error}`)
+      continue
+    }
+    if (ex.exists) {
       omitidos++
       continue
     }
@@ -476,7 +516,7 @@ export async function sincronizarPagosEmisionGiftCardsFaltantes(opts?: {
       .is('venta_id', null)
   }
 
-  return { insertados, omitidos, errores }
+  return { insertados, omitidos, errores, tarjetasRevisadas: gcs.length }
 }
 
 // Calcula el resumen de caja directamente desde los pagos ya cargados (sin extra roundtrip a DB)

@@ -430,22 +430,29 @@ export default function PagosPage() {
     try {
       const sid = sucursalId !== "todas" ? sucursalId : undefined
       const res = await sincronizarPagosEmisionGiftCardsFaltantes({ sucursalId: sid })
+      const detalle = `Gift cards revisadas: ${res.tarjetasRevisadas}. Cobros nuevos: ${res.insertados}. Omitidas (ya en pagos o cortesía): ${res.omitidos}.`
+
       if (res.errores.length > 0) {
         toast.error(
-          `No se pudieron crear algunos cobros: ${res.errores.slice(0, 3).join("; ")}${res.errores.length > 3 ? "…" : ""}`,
+          `${res.errores.slice(0, 5).join(" · ")}${res.errores.length > 5 ? "…" : ""}`,
+          { duration: 14_000 },
         )
       }
-      if (res.insertados > 0) {
+
+      if (res.tarjetasRevisadas === 0 && res.errores.length === 0) {
+        toast.warning(
+          `${detalle} No se obtuvo ninguna fila de gift_cards (revisa políticas RLS en Supabase o que hayas iniciado sesión).`,
+          { duration: 14_000 },
+        )
+      } else if (res.insertados > 0) {
         toast.success(
-          `Se registraron ${res.insertados} cobro(s) por venta de gift card. Si no los ves, revisa la fecha del calendario (debe coincidir con la emisión).`,
+          `${detalle} Usa la fecha de emisión en el calendario y la pestaña Cobros para ver cada movimiento.`,
+          { duration: 10_000 },
         )
       } else if (res.errores.length === 0) {
-        toast.message(
-          sucursalId === "todas"
-            ? "No hay gift cards sin cobro en pagos en ninguna sucursal (o las pendientes son cortesía)."
-            : "No hay gift cards sin cobro en pagos en esta sucursal (o las pendientes son cortesía).",
-        )
+        toast.message(detalle, { duration: 9000 })
       }
+
       await cargarDatos()
     } finally {
       setSyncingGcPagos(false)
