@@ -6,7 +6,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, Mail, Phone, CalendarDays, Edit, Trash2, Award, Loader2, Filter, RotateCcw, Building2 } from "lucide-react"
+import {
+  Plus,
+  Search,
+  Mail,
+  Phone,
+  CalendarDays,
+  Edit,
+  Trash2,
+  Award,
+  Loader2,
+  Filter,
+  RotateCcw,
+  Building2,
+  ChevronsUpDown,
+  Check,
+} from "lucide-react"
 import {
   guardarAsignacionSucursalDia,
   quitarAsignacionSucursalDia,
@@ -30,7 +45,25 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
-import { updateEmpleado } from "@/lib/data/empleados"
+import {
+  getEmpleadosFromDB,
+  getEmpleadosEliminadosFromDB,
+  createEmpleado,
+  eliminarEmpleado,
+  restaurarEmpleado,
+  updateEmpleado,
+  type Empleado,
+} from "@/lib/data/empleados"
+import { cn } from "@/lib/utils"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,6 +116,7 @@ export default function EmpleadosPage() {
   const [historialSucursalDia, setHistorialSucursalDia] = useState<HistorialEmpleadoSucursalDiaItem[]>([])
   const [loadingHistorialSucursal, setLoadingHistorialSucursal] = useState(false)
   const [guardandoAsignacionDia, setGuardandoAsignacionDia] = useState(false)
+  const [empleadoAsignPopoverOpen, setEmpleadoAsignPopoverOpen] = useState(false)
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
@@ -558,8 +592,8 @@ export default function EmpleadosPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 md:items-end">
-              <div className="space-y-2">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-12 xl:items-end">
+              <div className="space-y-2 xl:col-span-2">
                 <Label htmlFor="fecha-asignacion-sucursal">Fecha</Label>
                 <Input
                   id="fecha-asignacion-sucursal"
@@ -568,32 +602,93 @@ export default function EmpleadosPage() {
                   onChange={(e) => setFechaAsignacionDia(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-0 xl:col-span-5">
                 <Label>Empleada</Label>
-                <Select value={empleadoAsignacionId || undefined} onValueChange={setEmpleadoAsignacionId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar empleada" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {empleados.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.nombre} {e.apellido}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover modal={false} open={empleadoAsignPopoverOpen} onOpenChange={setEmpleadoAsignPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-expanded={empleadoAsignPopoverOpen}
+                      className="h-9 w-full justify-between px-3 font-normal"
+                    >
+                      <span className="truncate">
+                        {(() => {
+                          const e = empleados.find((x) => x.id === empleadoAsignacionId)
+                          return e
+                            ? `${e.nombre} ${e.apellido}`
+                            : "Buscar y elegir empleada…"
+                        })()}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="z-[100] w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0 shadow-md sm:min-w-[320px]"
+                    align="start"
+                    sideOffset={4}
+                    onWheel={(e) => e.stopPropagation()}
+                  >
+                    <Command>
+                      <CommandInput placeholder="Buscar por nombre o apellido…" />
+                      <CommandList
+                        className="max-h-[min(320px,55vh)] overflow-y-auto overscroll-contain"
+                        onWheel={(e) => e.stopPropagation()}
+                      >
+                        <CommandEmpty>No hay coincidencias.</CommandEmpty>
+                        <CommandGroup>
+                          {empleados.length === 0 ? (
+                            <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                              No hay empleadas en la lista. Recarga la página o revisa permisos de admin.
+                            </div>
+                          ) : (
+                            empleados.map((e) => {
+                              const sucNombre = sucursales.find((s) => s.id === e.sucursalId)?.nombre ?? ""
+                              return (
+                                <CommandItem
+                                  key={e.id}
+                                  value={`${e.nombre} ${e.apellido} ${e.email ?? ""} ${sucNombre}`}
+                                  onSelect={() => {
+                                    setEmpleadoAsignacionId(e.id)
+                                    setEmpleadoAsignPopoverOpen(false)
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4 shrink-0",
+                                      empleadoAsignacionId === e.id ? "opacity-100" : "opacity-0",
+                                    )}
+                                  />
+                                  <div className="flex min-w-0 flex-col">
+                                    <span className="truncate font-medium">
+                                      {e.nombre} {e.apellido}
+                                    </span>
+                                    <span className="truncate text-xs text-muted-foreground">
+                                      {sucNombre ? `${sucNombre} · ` : ""}
+                                      <span className="capitalize">{e.rol}</span>
+                                    </span>
+                                  </div>
+                                </CommandItem>
+                              )
+                            })
+                          )}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 xl:col-span-3">
                 <Label>Sucursal ese día</Label>
                 <Select
                   value={sucursalAsignacionDestinoId || undefined}
                   onValueChange={setSucursalAsignacionDestinoId}
                   disabled={!empleadoAsignacionId}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sucursal" />
+                  <SelectTrigger className="w-full min-w-0">
+                    <SelectValue placeholder="Elige sucursal destino" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" className="max-h-[min(288px,50vh)]">
                     {sucursales.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.nombre}
@@ -602,7 +697,7 @@ export default function EmpleadosPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 xl:col-span-2">
                 <Button
                   type="button"
                   disabled={guardandoAsignacionDia || !empleadoAsignacionId || !sucursalAsignacionDestinoId}
