@@ -1,6 +1,11 @@
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { registrarPagoEmisionGiftCard } from "@/lib/data/pagos"
 import { supabase } from '@/lib/supabase/client'
+import {
+  analizarFolioTiendaEnLinea,
+  intentandoFormatoTiendaEnLinea,
+  MSG_FOLIO_YA_REGISTRADO,
+} from "@/lib/data/gift-card-folios-tienda"
 
 // Fecha local (no UTC) para evitar desfase después de las 6 PM
 const fechaLocal = () => {
@@ -106,6 +111,24 @@ export async function getGiftCardByIdFromDB(id: string): Promise<GiftCard | null
     return mapGiftCard(data)
   } catch {
     return null
+  }
+}
+
+/** Verifica si ya existe una gift card con el mismo código exacto (antes de insert). */
+export async function giftCardExisteConCodigo(codigo: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("gift_cards")
+      .select("id")
+      .eq("codigo", codigo)
+      .maybeSingle()
+    if (error) {
+      console.error("Error comprobando código gift card:", error)
+      return false
+    }
+    return !!data
+  } catch {
+    return false
   }
 }
 
@@ -421,13 +444,42 @@ export async function crearGiftCard(datos: {
   metodoPago?: string | null
 }): Promise<{ success: boolean; gc?: GiftCard; error?: string; advertenciaPago?: string }> {
   try {
-    const codigo = datos.codigoPersonalizado?.trim().toUpperCase() || generarCodigoGiftCard()
+    const customRaw = datos.codigoPersonalizado?.trim() ?? ""
+    let codigo: string
+    let montoInicialFinal = datos.montoInicial
+    let servicioTiendaLinea: string | null = null
+
+    if (customRaw) {
+      if (intentandoFormatoTiendaEnLinea(customRaw)) {
+        const a = analizarFolioTiendaEnLinea(customRaw)
+        if (a.tipo === "error") {
+          return { success: false, error: a.mensaje }
+        }
+        if (a.tipo === "valido") {
+          codigo = a.codigoNormalizado
+          montoInicialFinal = a.valor
+          servicioTiendaLinea = a.servicio
+        } else {
+          codigo = customRaw.toUpperCase()
+        }
+      } else {
+        codigo = customRaw.toUpperCase()
+      }
+    } else {
+      codigo = generarCodigoGiftCard()
+    }
+
+    const existe = await giftCardExisteConCodigo(codigo)
+    if (existe) {
+      return { success: false, error: MSG_FOLIO_YA_REGISTRADO }
+    }
+
     const hoy = fechaLocal()
 
     const insertPayload: Record<string, any> = {
       codigo,
-      monto_inicial: datos.montoInicial,
-      saldo_actual: datos.montoInicial,
+      monto_inicial: montoInicialFinal,
+      saldo_actual: montoInicialFinal,
       estado: 'activa',
       sucursal_id: datos.sucursalId,
       cliente_id: datos.clienteId || null,
@@ -445,22 +497,31 @@ export async function crearGiftCard(datos: {
       .single()
 
     if (gcError || !gcData) {
-      return { success: false, error: gcError?.message || 'Error creando gift card' }
+      const msg = gcError?.message || "Error creando gift card"
+      const dup =
+        gcError &&
+        typeof gcError === "object" &&
+        (gcError as { code?: string }).code === "23505"
+      if (dup) return { success: false, error: MSG_FOLIO_YA_REGISTRADO }
+      return { success: false, error: msg }
     }
 
-    const notasEmision = datos.metodoPago
-      ? `Emisión de gift card · Pago: ${datos.metodoPago}`
-      : 'Emisión de gift card'
+    const notasEmision = servicioTiendaLinea
+      ? `Tienda en línea · ${servicioTiendaLinea} · ${gcData.codigo}${datos.metodoPago ? ` · Pago: ${datos.metodoPago}` : ""}`
+      : datos.metodoPago
+        ? `Emisión de gift card · Pago: ${datos.metodoPago}`
+        : "Emisión de gift card"
 
     const pagoRes = await registrarPagoEmisionGiftCard({
       giftCardId: gcData.id,
       codigo: gcData.codigo,
-      monto: datos.montoInicial,
+      monto: montoInicialFinal,
       sucursalId: datos.sucursalId,
       clienteId: datos.clienteId ?? null,
       empleadoId: datos.empleadoEmisorId ?? null,
       metodoPagoRaw: datos.metodoPago ?? null,
       fecha: hoy,
+      descripcionServicio: servicioTiendaLinea,
     })
 
     if (!pagoRes.success && !pagoRes.skipped) {
@@ -470,9 +531,9 @@ export async function crearGiftCard(datos: {
     await supabase.from('gift_card_transacciones').insert({
       gift_card_id: gcData.id,
       tipo: 'emision',
-      monto: datos.montoInicial,
+      monto: montoInicialFinal,
       saldo_anterior: 0,
-      saldo_nuevo: datos.montoInicial,
+      saldo_nuevo: montoInicialFinal,
       venta_id: pagoRes.pagoId ?? null,
       empleado_id: datos.empleadoEmisorId || null,
       fecha: hoy,

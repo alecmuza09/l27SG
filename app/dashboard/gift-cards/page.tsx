@@ -69,6 +69,11 @@ import {
   cancelarGiftCard,
   eliminarGiftCard,
 } from "@/lib/data/gift-cards"
+import {
+  analizarFolioTiendaEnLinea,
+  detectarFolioTiendaCompleto,
+  intentandoFormatoTiendaEnLinea,
+} from "@/lib/data/gift-card-folios-tienda"
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, type User } from "@/lib/auth"
@@ -193,6 +198,12 @@ export default function GiftCardsPage() {
   const [consultaCodigo, setConsultaCodigo] = useState("")
   const [consultaCard,   setConsultaCard]   = useState<GiftCard | null>(null)
   const [consultaError,  setConsultaError]  = useState("")
+  /** Folio válido tienda en línea aún no dado de alta */
+  const [consultaTiendaPreview, setConsultaTiendaPreview] = useState<{
+    codigoNormalizado: string
+    servicio: string
+    valor: number
+  } | null>(null)
   const [isSearching,    setIsSearching]    = useState(false)
 
   // ── Cargar datos ───────────────────────────────────────────────────────
@@ -284,6 +295,18 @@ export default function GiftCardsPage() {
   // Los filtros son server-side; la tabla muestra la página actual tal cual
   const filtered = giftCards
 
+  /** Autocompletado folio tienda en línea (modal crear). */
+  const tiendaDetectadaForm = detectarFolioTiendaCompleto(newCodigo)
+
+  const abrirRegistroTiendaPreview = () => {
+    if (!consultaTiendaPreview) return
+    setNewCodigo(consultaTiendaPreview.codigoNormalizado)
+    setNewMonto(String(consultaTiendaPreview.valor))
+    setConsultaTiendaPreview(null)
+    setConsultaError("")
+    setIsCreateOpen(true)
+  }
+
   // ── KPIs (desde query COUNT rápida) ───────────────────────────────────
   const { totalEmitidas, totalActivas, totalPendientes, saldoTotal } = kpis
 
@@ -301,6 +324,20 @@ export default function GiftCardsPage() {
 
   const handleCreate = async () => {
     if (!newMonto || !newSucursalId) return
+
+    const codigoTrim = newCodigo.trim()
+    if (intentandoFormatoTiendaEnLinea(codigoTrim)) {
+      const a = analizarFolioTiendaEnLinea(codigoTrim)
+      if (a.tipo === "error") {
+        toast.error(a.mensaje)
+        return
+      }
+      if (a.tipo !== "valido") {
+        toast.error("Completa el folio de 10 caracteres (prefijo tienda en línea + 4 caracteres).")
+        return
+      }
+    }
+
     if (!newMetodoPago) {
       toast.error("Selecciona el método de pago")
       return
@@ -440,13 +477,44 @@ export default function GiftCardsPage() {
   }
 
   const handleConsultarCodigo = async () => {
-    const codigo = consultaCodigo.trim().toUpperCase()
-    if (!codigo) return
+    const raw = consultaCodigo.trim()
+    if (!raw) return
     setIsSearching(true)
     setConsultaError("")
     setConsultaCard(null)
-    // Buscar en la página local primero (evita una llamada si ya está visible)
-    const local = giftCards.find(c => c.codigo.toUpperCase() === codigo)
+    setConsultaTiendaPreview(null)
+
+    if (intentandoFormatoTiendaEnLinea(raw)) {
+      const a = analizarFolioTiendaEnLinea(raw)
+      if (a.tipo === "error") {
+        setConsultaError(a.mensaje)
+        setIsSearching(false)
+        return
+      }
+      if (a.tipo === "valido") {
+        const local = giftCards.find(
+          (c) => c.codigo.toLowerCase() === a.codigoNormalizado.toLowerCase(),
+        )
+        if (local) {
+          setConsultaCard(local)
+        } else {
+          const found = await getGiftCardByCodigoFromDB(a.codigoNormalizado)
+          if (found) setConsultaCard(found)
+          else {
+            setConsultaTiendaPreview({
+              codigoNormalizado: a.codigoNormalizado,
+              servicio: a.servicio,
+              valor: a.valor,
+            })
+          }
+        }
+        setIsSearching(false)
+        return
+      }
+    }
+
+    const codigo = raw.toUpperCase()
+    const local = giftCards.find((c) => c.codigo.toUpperCase() === codigo)
     if (local) {
       setConsultaCard(local)
     } else {
@@ -508,9 +576,14 @@ export default function GiftCardsPage() {
           </div>
           <div className="flex gap-2">
             <Input
-              placeholder="Código de gift card (ej. LUNA02lAoMN, PEDI2049PASS...)"
+              placeholder="Código (GC-… o folio tienda: LUNA1m••••, 10 caracteres)"
               value={consultaCodigo}
-              onChange={(e) => { setConsultaCodigo(e.target.value); setConsultaCard(null); setConsultaError("") }}
+              onChange={(e) => {
+                setConsultaCodigo(e.target.value)
+                setConsultaCard(null)
+                setConsultaError("")
+                setConsultaTiendaPreview(null)
+              }}
               onKeyDown={(e) => e.key === "Enter" && handleConsultarCodigo()}
               className="font-mono bg-white"
             />
@@ -525,6 +598,34 @@ export default function GiftCardsPage() {
             <p className="mt-3 text-sm text-red-600 flex items-center gap-1.5">
               <XCircle className="h-4 w-4" /> {consultaError}
             </p>
+          )}
+
+          {consultaTiendaPreview && !consultaCard && (
+            <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <BadgeCheck className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground">Folio de tienda en línea reconocido</p>
+                  <p className="text-sm text-muted-foreground">
+                    Aún no está registrado en el sistema. Al registrarlo quedará <strong>activo</strong> con saldo{" "}
+                    <strong>{fmtMXN(consultaTiendaPreview.valor)}</strong>.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 text-sm border-t border-primary/10 pt-3">
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Servicio</p>
+                  <p className="font-medium">{consultaTiendaPreview.servicio}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase font-medium">Código normalizado</p>
+                  <p className="font-mono font-semibold">{consultaTiendaPreview.codigoNormalizado}</p>
+                </div>
+              </div>
+              <Button type="button" className="w-full sm:w-auto" onClick={abrirRegistroTiendaPreview}>
+                <Plus className="h-4 w-4 mr-2" /> Registrar en sistema…
+              </Button>
+            </div>
           )}
 
           {consultaCard && (() => {
@@ -856,9 +957,14 @@ export default function GiftCardsPage() {
               <Label>Código / Clave de la tarjeta *</Label>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Ej. LUNA-2025-001"
+                  placeholder="Ej. GC-… o folio tienda LUNA1m + 4 caracteres"
                   value={newCodigo}
-                  onChange={(e) => setNewCodigo(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setNewCodigo(v)
+                    const det = detectarFolioTiendaCompleto(v)
+                    if (det) setNewMonto(String(det.valor))
+                  }}
                   className="font-mono"
                 />
                 <Button
@@ -872,8 +978,14 @@ export default function GiftCardsPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Escribe el código de la tarjeta o usa el botón para generar uno automáticamente.
+                Folios LUNA1m, LUNA2m, LUNA3m o LUNA4m (10 caracteres en total): se reconoce el servicio y el monto; la tarjeta queda activa al crear.
               </p>
+              {tiendaDetectadaForm && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
+                  <span className="font-semibold">Tienda en línea:</span> {tiendaDetectadaForm.servicio} —{" "}
+                  {fmtMXN(tiendaDetectadaForm.valor)}
+                </div>
+              )}
             </div>
 
             <div className="grid gap-2">
@@ -887,9 +999,13 @@ export default function GiftCardsPage() {
                   placeholder="500.00"
                   value={newMonto}
                   onChange={(e) => setNewMonto(e.target.value)}
-                  className="pl-7"
+                  readOnly={!!tiendaDetectadaForm}
+                  className={cn("pl-7", tiendaDetectadaForm && "bg-muted/60 cursor-not-allowed")}
                 />
               </div>
+              {tiendaDetectadaForm && (
+                <p className="text-xs text-muted-foreground">El monto lo fija el folio de la tienda en línea.</p>
+              )}
             </div>
             {/* Método de pago */}
             <div className="grid gap-2">

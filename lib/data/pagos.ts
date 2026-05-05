@@ -371,6 +371,8 @@ export async function registrarPagoEmisionGiftCard(params: {
   fecha: string
   /** Si se omite, se usa la hora actual (emisión nueva). Para sincronización retroactiva usar p.ej. `12:00:00`. */
   hora?: string
+  /** Servicio asociado (p. ej. folio tienda en línea) para el texto en cobros. */
+  descripcionServicio?: string | null
 }): Promise<{ success: boolean; skipped?: boolean; pagoId?: string; error?: string }> {
   try {
     const monto = Math.round((Number(params.monto) || 0) * 100) / 100
@@ -397,6 +399,14 @@ export async function registrarPagoEmisionGiftCard(params: {
 
     const hora = params.hora ?? new Date().toTimeString().slice(0, 8)
 
+    const lineaServicio = params.descripcionServicio?.trim()
+    const tituloServicio = lineaServicio
+      ? `Venta saldo gift card · ${lineaServicio} · ${params.codigo}`
+      : `Venta saldo gift card · ${params.codigo}`
+    const notasServicio = lineaServicio
+      ? `Venta de saldo inicial gift card (tienda en línea) · ${lineaServicio} · ${params.codigo} · $${monto.toFixed(2)} MXN`
+      : `Venta de saldo inicial gift card · ${params.codigo} · $${monto.toFixed(2)} MXN`
+
     const { data: pagoData, error: pagoError } = await (supabase as any)
       .from('pagos')
       .insert({
@@ -409,8 +419,8 @@ export async function registrarPagoEmisionGiftCard(params: {
         estado: 'completado',
         fecha: params.fecha,
         hora,
-        servicios: [`Venta saldo gift card · ${params.codigo}`],
-        notas: `Venta de saldo inicial gift card · ${params.codigo} · $${monto.toFixed(2)} MXN`,
+        servicios: [tituloServicio],
+        notas: notasServicio,
         referencia: `${REFERENCIA_EMISION_GIFT_CARD_PREFIX}${params.giftCardId}`,
         subtotal: monto,
         descuento_monto: 0,
