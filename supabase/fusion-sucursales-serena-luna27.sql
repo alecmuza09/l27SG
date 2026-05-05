@@ -13,8 +13,8 @@
 -- La fusión mueve todas las FK conocidas hacia la sucursal que se conserva y
 -- borra la duplicada. Incluye tablas opcionales solo si existen (agenda_bloques).
 --
--- NOTA: Los usuarios que tengan la sucursal vieja guardada en localStorage del
--- navegador pueden tener que cerrar sesión o refrescar tras el cambio de IDs.
+-- Si un intento anterior falló en agenda_bloques, Postgres habrá hecho ROLLBACK de todo
+-- el bloque BEGIN…COMMIT (nada aplicado). Vuelve a ejecutar este archivo completo.
 -- =============================================================================
 
 -- ─── PRE-CHECK (ejecutar primero; no modifica datos) ─────────────────────────
@@ -107,7 +107,24 @@ BEGIN
     SELECT 1 FROM information_schema.tables
     WHERE table_schema = 'public' AND table_name = 'agenda_bloques'
   ) THEN
-    EXECUTE format('UPDATE agenda_bloques SET sucursal_id = %L WHERE sucursal_id = %L', id_keep, id_old);
+    -- UNIQUE (sucursal_id, fecha): si ambas sucursales tienen fila el mismo día,
+    -- concatenamos los bloques JSON en la sucursal que se conserva y borramos la duplicada.
+    UPDATE agenda_bloques k
+    SET
+      bloques = COALESCE(k.bloques, '[]'::jsonb) || COALESCE(o.bloques, '[]'::jsonb),
+      updated_at = NOW()
+    FROM agenda_bloques o
+    WHERE k.sucursal_id = id_keep
+      AND o.sucursal_id = id_old
+      AND k.fecha = o.fecha;
+
+    DELETE FROM agenda_bloques o
+    USING agenda_bloques k
+    WHERE o.sucursal_id = id_old
+      AND k.sucursal_id = id_keep
+      AND o.fecha = k.fecha;
+
+    UPDATE agenda_bloques SET sucursal_id = id_keep WHERE sucursal_id = id_old;
   END IF;
 
   -- promociones.sucursales_aplicables: reemplazar UUID en arrays
@@ -152,7 +169,7 @@ COMMIT;
 -- SELECT COUNT(*) AS mov_origen FROM inventario_movimientos WHERE sucursal_origen = ':id_old';
 -- SELECT COUNT(*) AS mov_dest FROM inventario_movimientos WHERE sucursal_destino = ':id_old';
 -- SELECT COUNT(*) AS gift_cards FROM gift_cards WHERE sucursal_id = ':id_old';
--- SELECT COUNT(*) AS periodos FROM periodos_bloqueados WHERE sucursal_id = ':id_old';
+-- SELECT COUNT(*) AS agenda_bloques FROM agenda_bloques WHERE sucursal_id = ':id_old';
 
 -- Listar cualquier columna FK hacia sucursales que siga referenciando id viejo:
 -- SELECT conrelid::regclass AS tabla, a.attname AS columna
