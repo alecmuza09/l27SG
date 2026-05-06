@@ -372,10 +372,14 @@ export function NuevaCitaDialog({
                   </TabsList>
 
                   <TabsContent value="existing" className="space-y-2 mt-3">
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <div className="flex gap-2 flex-wrap items-stretch">
+                      <div className="relative flex-1 min-w-[160px]">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                         <Input
+                          aria-label="Texto para buscar clienta (solo ejecuta al pulsar Buscar o Enter)"
+                          autoComplete="off"
+                          spellCheck={false}
+                          enterKeyHint="search"
                           placeholder="Nombre, teléfono o email…"
                           value={clienteNombreBusqueda}
                           onChange={(e) => setClienteNombreBusqueda(e.target.value)}
@@ -388,12 +392,23 @@ export function NuevaCitaDialog({
                           className="pl-9"
                         />
                       </div>
-                      <Button type="button" variant="secondary" className="shrink-0" onClick={() => void ejecutarBusquedaClientes()}>
+                      <Button
+                        type="button"
+                        variant="default"
+                        className="shrink-0 px-6"
+                        onClick={() => void ejecutarBusquedaClientes()}
+                      >
                         Buscar
                       </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      La búsqueda no se ejecuta al escribir: presiona <strong className="text-foreground">Enter</strong> o <strong className="text-foreground">Buscar</strong> cuando hayas terminado.
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Escribir aquí{" "}
+                      <strong className="text-foreground font-medium">no</strong>
+                      {" "}inicia ninguna búsqueda ni recarga la lista. Solo al pulsar{" "}
+                      <strong className="text-foreground font-medium">Buscar</strong>
+                      {" "}o{" "}
+                      <strong className="text-foreground font-medium">Enter</strong>
+                      {" "}se consultan las clientas en la base de datos.
                     </p>
                     {selectedCliente && (
                       <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-primary/5 border border-primary/20">

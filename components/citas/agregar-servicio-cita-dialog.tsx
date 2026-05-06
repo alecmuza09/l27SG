@@ -12,13 +12,26 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Loader2, ListPlus } from "lucide-react"
+import { ChevronsUpDown, Loader2, ListPlus } from "lucide-react"
 import { toast } from "sonner"
 import { createCita, type Cita } from "@/lib/data/citas"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
@@ -77,10 +90,12 @@ export function AgregarServicioCitaDialog({
   const [empleadoId, setEmpleadoId] = useState("")
   const [horaInicio, setHoraInicio] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [servicioPopoverOpen, setServicioPopoverOpen] = useState(false)
 
   useEffect(() => {
     if (!open || !citaBase) return
     setServicioId("")
+    setServicioPopoverOpen(false)
     setEmpleadoId(citaBase.empleadoId)
     const refFin = (citaBase.horaFin || citaBase.horaInicio).slice(0, 5)
     setHoraInicio(primeraHoraDisponibleTras(refFin))
@@ -213,18 +228,56 @@ export function AgregarServicioCitaDialog({
 
             <div className="space-y-2">
               <Label>Servicio a agregar *</Label>
-              <Select value={servicioId} onValueChange={setServicioId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona servicio" />
-                </SelectTrigger>
-                <SelectContent>
-                  {servicios.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.nombre} — ${s.precio} ({s.duracion} min)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={servicioPopoverOpen} onOpenChange={setServicioPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={servicioPopoverOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    {servicioSel
+                      ? `${servicioSel.nombre} — $${servicioSel.precio} (${servicioSel.duracion} min)`
+                      : "Buscar o elegir servicio…"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command
+                    filter={(value, search) => {
+                      const s = servicios.find((sv) => sv.id === value)
+                      if (!s) return 0
+                      const term = search.toLowerCase().trim()
+                      if (!term) return 1
+                      const nombre = s.nombre.toLowerCase()
+                      const matchNombre = nombre.includes(term)
+                      const matchPrecio = String(s.precio).includes(term)
+                      const matchDur = String(s.duracion).includes(term)
+                      return matchNombre || matchPrecio || matchDur ? 1 : 0
+                    }}
+                  >
+                    <CommandInput placeholder="Filtrar por nombre, precio o duración…" />
+                    <CommandList>
+                      <CommandEmpty>Ningún servicio coincide.</CommandEmpty>
+                      <CommandGroup>
+                        {servicios.map((s) => (
+                          <CommandItem
+                            key={s.id}
+                            value={s.id}
+                            onSelect={() => {
+                              setServicioId(s.id)
+                              setServicioPopoverOpen(false)
+                            }}
+                          >
+                            {s.nombre} — ${s.precio} ({s.duracion} min)
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="space-y-2">
