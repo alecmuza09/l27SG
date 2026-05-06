@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -93,10 +93,13 @@ export function NuevaCitaDialog({
 }: NuevaCitaDialogProps) {
   // ── Estado: cliente ────────────────────────────────────────────────────────
   const [clienteMode, setClienteMode] = useState<"existing" | "new">("existing")
-  const [searchQuery, setSearchQuery] = useState("")
+  /** Texto que escribe la usuaria (la búsqueda no corre hasta Enter o clic en Buscar). */
+  const [clienteNombreBusqueda, setClienteNombreBusqueda] = useState("")
   const [selectedClienteId, setSelectedClienteId] = useState("")
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null)
   const [clientesBusqueda, setClientesBusqueda] = useState<Cliente[]>([])
+  /** True después de ejecutar al menos una búsqueda con Enter/Buscar. */
+  const [clienteBusquedaEjecutada, setClienteBusquedaEjecutada] = useState(false)
   const [isLoadingClientes, setIsLoadingClientes] = useState(false)
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre: "", apellido: "", email: "", telefono: "", notas: "",
@@ -139,30 +142,32 @@ export function NuevaCitaDialog({
       setSelectedClienteId("")
       setSelectedCliente(null)
       setClienteMode("existing")
-      setSearchQuery("")
+      setClienteNombreBusqueda("")
+      setClienteBusquedaEjecutada(false)
       setClientesBusqueda([])
       setNuevoCliente({ nombre: "", apellido: "", email: "", telefono: "", notas: "" })
       setOpenPopovers({})
     }
   }, [open, selectedDate, selectedTime, selectedEmpleadoId])
 
-  // ── Búsqueda de clientes ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!open || clienteMode !== "existing") return
-    const trimmed = searchQuery.trim()
-    if (!trimmed) { setClientesBusqueda([]); return }
-    const timer = setTimeout(async () => {
-      setIsLoadingClientes(true)
-      try {
-        setClientesBusqueda(await searchClientes(trimmed, 100))
-      } catch {
-        toast.error("Error al buscar clientes")
-      } finally {
-        setIsLoadingClientes(false)
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [open, clienteMode, searchQuery])
+  const ejecutarBusquedaClientes = useCallback(async () => {
+    const trimmed = clienteNombreBusqueda.trim()
+    if (!trimmed) {
+      setClientesBusqueda([])
+      toast.info("Escribe un nombre o teléfono y vuelve a buscar")
+      return
+    }
+    setClienteBusquedaEjecutada(true)
+    setIsLoadingClientes(true)
+    try {
+      setClientesBusqueda(await searchClientes(trimmed, 100))
+    } catch {
+      toast.error("Error al buscar clientes")
+      setClientesBusqueda([])
+    } finally {
+      setIsLoadingClientes(false)
+    }
+  }, [clienteNombreBusqueda])
 
   // ── Carga de catálogos ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -353,22 +358,43 @@ export function NuevaCitaDialog({
               {/* ── CLIENTE ─────────────────────────────────────────────────── */}
               <section className="space-y-3">
                 <Label className="text-base font-semibold">Cliente</Label>
-                <Tabs value={clienteMode} onValueChange={(v) => setClienteMode(v as any)}>
+                <Tabs value={clienteMode} onValueChange={(v) => {
+                  setClienteMode(v as "existing" | "new")
+                  setClienteNombreBusqueda("")
+                  setClienteBusquedaEjecutada(false)
+                  setClientesBusqueda([])
+                  setSelectedClienteId("")
+                  setSelectedCliente(null)
+                }}>
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="existing">Cliente existente</TabsTrigger>
                     <TabsTrigger value="new">Nuevo cliente</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="existing" className="space-y-2 mt-3">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Buscar por nombre, teléfono o email..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-9"
-                      />
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Nombre, teléfono o email…"
+                          value={clienteNombreBusqueda}
+                          onChange={(e) => setClienteNombreBusqueda(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault()
+                              void ejecutarBusquedaClientes()
+                            }
+                          }}
+                          className="pl-9"
+                        />
+                      </div>
+                      <Button type="button" variant="secondary" className="shrink-0" onClick={() => void ejecutarBusquedaClientes()}>
+                        Buscar
+                      </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      La búsqueda no se ejecuta al escribir: presiona <strong className="text-foreground">Enter</strong> o <strong className="text-foreground">Buscar</strong> cuando hayas terminado.
+                    </p>
                     {selectedCliente && (
                       <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-primary/5 border border-primary/20">
                         <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
@@ -390,9 +416,9 @@ export function NuevaCitaDialog({
                               <div className="flex items-center justify-center py-8">
                                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                               </div>
-                            ) : searchQuery.trim() === "" ? (
+                            ) : !clienteBusquedaEjecutada ? (
                               <p className="p-4 text-sm text-muted-foreground text-center">
-                                Escribe para buscar entre todos los clientes
+                                Escribe el nombre completo (o teléfono) y usa Enter o Buscar.
                               </p>
                             ) : clientesBusqueda.length === 0 ? (
                               <p className="p-4 text-sm text-muted-foreground text-center">

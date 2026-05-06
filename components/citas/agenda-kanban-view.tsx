@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, UserRound as UserIcon, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History, Building2 } from "lucide-react"
+import { Clock, UserRound as UserIcon, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History, Building2, ListPlus } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { type Empleado } from "@/lib/data/empleados"
 import {
@@ -29,6 +29,7 @@ import { toast } from "sonner"
 import { cn, formatHora12 } from "@/lib/utils"
 import { NuevaCitaDialog } from "./nueva-cita-dialog"
 import { EditarCitaDialog } from "./editar-cita-dialog"
+import { AgregarServicioCitaDialog } from "./agregar-servicio-cita-dialog"
 import { CajaDialog } from "./caja-dialog"
 import { getVacacionesFromDB } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
@@ -410,6 +411,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [isLoadingCitas, setIsLoadingCitas] = useState(false)
   const [editingCita, setEditingCita] = useState<Cita | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isAgregarServicioOpen, setIsAgregarServicioOpen] = useState(false)
+  const [citaParaAgregarServicio, setCitaParaAgregarServicio] = useState<Cita | null>(null)
   const [cajaCita, setCajaCita] = useState<Cita | null>(null)
   const [isCajaOpen, setIsCajaOpen] = useState(false)
   // Bloques manuales (comida / descanso) — por sucursal + fecha en Supabase (visible para admin)
@@ -1923,6 +1926,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                               </DropdownMenuItem>
                                               <DropdownMenuItem
                                                 onSelect={() => {
+                                                  setCitaParaAgregarServicio(cita)
+                                                  setIsAgregarServicioOpen(true)
+                                                }}
+                                              >
+                                                <ListPlus className="h-4 w-4 mr-2" />
+                                                Agregar servicio
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                onSelect={() => {
                                                   setEditingDuracionCita(cita)
                                                   setNuevaDuracion(cita.duracion)
                                                   setIsDuracionDialogOpen(true)
@@ -2281,6 +2293,19 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         cita={editingCita}
         sucursalId={selectedSucursal}
         onCitaUpdated={handleCitaCreated}
+      />
+
+      <AgregarServicioCitaDialog
+        open={isAgregarServicioOpen && !!citaParaAgregarServicio}
+        onOpenChange={(open) => {
+          setIsAgregarServicioOpen(open)
+          if (!open) setCitaParaAgregarServicio(null)
+        }}
+        citaBase={citaParaAgregarServicio}
+        sucursalId={selectedSucursal}
+        fecha={selectedDate}
+        citasExistentes={citas}
+        onSuccess={handleCitaCreated}
       />
 
       <CajaDialog
