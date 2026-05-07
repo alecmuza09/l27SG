@@ -1,0 +1,248 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { getProductividadSucursalesFromDB, type ProductividadSucursal } from "@/lib/data/dashboard"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from "recharts"
+import { TrendingUp, TrendingDown, Loader2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+
+const COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+  "#8b5cf6", // violet
+  "#ec4899", // pink
+  "#f59e0b", // amber
+  "#10b981", // emerald
+  "#3b82f6", // blue
+  "#ef4444", // red
+]
+
+const chartConfig = {
+  ingresos: {
+    label: "Ingresos",
+    color: "hsl(var(--chart-1))",
+  },
+  citas: {
+    label: "Citas",
+    color: "hsl(var(--chart-2))",
+  },
+  ocupacion: {
+    label: "Ocupación",
+    color: "hsl(var(--chart-3))",
+  },
+}
+
+interface ProductividadSucursalesChartProps {
+  isManager?: boolean
+  sucursalId?: string
+}
+
+export function ProductividadSucursalesChart({ isManager = false, sucursalId }: ProductividadSucursalesChartProps) {
+  const [data, setData] = useState<ProductividadSucursal[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setIsLoading(true)
+        const productividad = await getProductividadSucursalesFromDB(isManager ? sucursalId : undefined)
+        setData(productividad.sort((a, b) => b.citas - a.citas))
+      } catch (err) {
+        console.error('Error cargando productividad de sucursales:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <Card className="col-span-full">
+        <CardContent className="flex items-center justify-center h-[400px]">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Cargando productividad...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (data.length === 0) {
+    return (
+      <Card className="col-span-full">
+        <CardHeader>
+          <CardTitle className="text-xl font-bold">Productividad por Sucursal</CardTitle>
+          <CardDescription>Comparativa de citas y ocupación por sucursal</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12 text-muted-foreground">
+            <p>No hay datos de productividad disponibles aún</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const chartData = data.map((sucursal) => ({
+    nombre: sucursal.nombre.replace("Luna27 ", ""),
+    ingresos: sucursal.ingresos,
+    citas: sucursal.citas,
+    ocupacion: sucursal.ocupacion,
+    promedioTicket: sucursal.promedioTicket,
+    tendencia: sucursal.tendencia,
+    fullName: sucursal.nombre,
+  }))
+
+  return (
+    <Card className="col-span-full">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-xl font-bold">Productividad por Sucursal</CardTitle>
+            <CardDescription className="mt-1">
+              {isManager
+                ? "Comparativa de citas y ocupación por sucursal"
+                : "Comparativa de ingresos, citas y ocupación por sucursal"}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-6">
+          {/* Gráfico de barras */}
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">
+                {isManager ? "Citas por Sucursal" : "Ingresos por Sucursal"}
+              </h3>
+              <span className="text-xs text-muted-foreground">Último período</span>
+            </div>
+            <ChartContainer config={chartConfig} className="h-[300px]">
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="nombre"
+                  tick={{ fontSize: 12 }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  className="text-muted-foreground"
+                />
+                <YAxis
+                  tick={{ fontSize: 12 }}
+                  className="text-muted-foreground"
+                  tickFormatter={isManager
+                    ? (value) => `${value}`
+                    : (value) => `$${(value / 1000).toFixed(0)}k`}
+                />
+                <ChartTooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const d = payload[0].payload
+                    return (
+                      <div className="rounded-lg border bg-background p-3 shadow-lg">
+                        <div className="font-semibold mb-2">{d.fullName}</div>
+                        <div className="space-y-1 text-sm">
+                          {!isManager && (
+                            <div className="flex justify-between gap-4">
+                              <span className="text-muted-foreground">Ingresos:</span>
+                              <span className="font-semibold">${d.ingresos.toLocaleString()}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">Citas:</span>
+                            <span className="font-semibold">{d.citas}</span>
+                          </div>
+                          {!isManager && (
+                            <div className="flex justify-between gap-4">
+                              <span className="text-muted-foreground">Ticket Promedio:</span>
+                              <span className="font-semibold">${d.promedioTicket}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between gap-4 items-center">
+                            <span className="text-muted-foreground">Tendencia:</span>
+                            <Badge
+                              variant={d.tendencia >= 0 ? "default" : "destructive"}
+                              className="gap-1"
+                            >
+                              {d.tendencia >= 0 ? (
+                                <TrendingUp className="h-3 w-3" />
+                              ) : (
+                                <TrendingDown className="h-3 w-3" />
+                              )}
+                              {Math.abs(d.tendencia).toFixed(1)}%
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }}
+                />
+                <Bar dataKey={isManager ? "citas" : "ingresos"} fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          </div>
+
+          {/* Métricas adicionales en grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+            {data.slice(0, 4).map((sucursal, index) => (
+              <div
+                key={sucursal.sucursalId}
+                className="rounded-lg border p-4 bg-gradient-to-br from-background to-muted/20"
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <h4 className="text-sm font-semibold text-foreground line-clamp-1">
+                    {sucursal.nombre.replace("Luna27 ", "")}
+                  </h4>
+                  <div
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  {!isManager && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Ingresos</span>
+                      <span className="text-sm font-bold">${sucursal.ingresos.toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Ocupación</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${sucursal.ocupacion}%`,
+                            backgroundColor: COLORS[index % COLORS.length],
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold">{sucursal.ocupacion}%</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Citas</span>
+                    <span className="text-sm font-semibold">{sucursal.citas}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}

@@ -1,0 +1,429 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Plus, MapPin, Phone, Mail, Clock, Edit, Trash2, Loader2 } from "lucide-react"
+import {
+  getSucursalesActivasFromDB,
+  getSucursalByIdFromDB,
+  createSucursal,
+  updateSucursal,
+  deleteSucursal,
+  type Sucursal,
+} from "@/lib/data/sucursales"
+import { getCurrentUser, type User } from "@/lib/auth"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+
+export default function SucursalesPage() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [sucursalEliminar, setSucursalEliminar] = useState<Sucursal | null>(null)
+  const [editingSucursal, setEditingSucursal] = useState<Sucursal | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  // Calcular isAdmin de forma segura (siempre definido)
+  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
+  const userSucursalId = currentUser?.sucursalId
+
+  useEffect(() => {
+    const user = getCurrentUser()
+    setCurrentUser(user)
+  }, [])
+
+  async function loadSucursales() {
+    try {
+      setIsLoading(true)
+      if (isAdmin) {
+        const sucursalesData = await getSucursalesActivasFromDB()
+        setSucursales(sucursalesData)
+      } else if (userSucursalId) {
+        const sucursal = await getSucursalByIdFromDB(userSucursalId)
+        if (sucursal) setSucursales([sucursal])
+      }
+    } catch (err) {
+      console.error('Error cargando sucursales:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (currentUser) loadSucursales()
+  }, [currentUser, isAdmin, userSucursalId])
+
+  const handleCreateSucursal = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const form = e.target as HTMLFormElement
+    const formData = new FormData(form)
+    const nombre = (formData.get('nombre') as string)?.trim()
+    const direccion = (formData.get('direccion') as string)?.trim()
+    const telefono = (formData.get('telefono') as string)?.trim()
+    const email = (formData.get('email') as string)?.trim()
+    if (!nombre || !direccion || !telefono || !email) {
+      toast.error("Completa nombre, dirección, teléfono y email")
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = await createSucursal({
+        nombre,
+        direccion,
+        telefono,
+        email,
+        ciudad: (formData.get('ciudad') as string)?.trim() || null,
+        horario: (formData.get('horario') as string)?.trim() || null,
+      })
+      if (result.success) {
+        toast.success("Sucursal creada correctamente")
+        setIsDialogOpen(false)
+        form.reset()
+        await loadSucursales()
+      } else {
+        toast.error(result.error || "Error al crear sucursal")
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error("Error al crear sucursal")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleGuardarEdicion = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingSucursal) return
+    const form = e.target as HTMLFormElement
+    const formData = new FormData(form)
+    const nombre = (formData.get("nombre") as string)?.trim()
+    const direccion = (formData.get("direccion") as string)?.trim()
+    const telefono = (formData.get("telefono") as string)?.trim()
+    const email = (formData.get("email") as string)?.trim()
+    if (!nombre || !direccion || !telefono || !email) {
+      toast.error("Completa nombre, dirección, teléfono y email")
+      return
+    }
+    setIsSavingEdit(true)
+    try {
+      const result = await updateSucursal(editingSucursal.id, {
+        nombre,
+        direccion,
+        telefono,
+        email,
+        ciudad: (formData.get("ciudad") as string)?.trim() || null,
+        horario: (formData.get("horario") as string)?.trim() || null,
+      })
+      if (result.success) {
+        toast.success("Sucursal actualizada correctamente")
+        setEditingSucursal(null)
+        await loadSucursales()
+      } else {
+        toast.error(result.error ?? "Error al actualizar sucursal")
+      }
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  const handleConfirmarEliminar = async () => {
+    if (!sucursalEliminar) return
+    setIsDeleting(true)
+    try {
+      const result = await deleteSucursal(sucursalEliminar.id)
+      if (result.success) {
+        if (result.mode === "deactivated") {
+          toast.success(
+            "La sucursal tenía datos vinculados (empleados, citas, etc.), así que se desactivó. Ya no aparecerá en la lista de activas.",
+          )
+        } else {
+          toast.success("Sucursal eliminada correctamente")
+        }
+        setSucursalEliminar(null)
+        await loadSucursales()
+      } else {
+        toast.error(result.error ?? "No se pudo eliminar la sucursal")
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Cargando sucursales...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Sucursales</h1>
+          <p className="text-muted-foreground">
+            {isAdmin ? "Gestiona las ubicaciones de Luna27" : "Información de tu sucursal"}
+          </p>
+        </div>
+        {isAdmin && (
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Nueva Sucursal
+              </Button>
+            </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Nueva Sucursal</DialogTitle>
+              <DialogDescription>Agrega una nueva ubicación de Luna27</DialogDescription>
+            </DialogHeader>
+            <form className="space-y-4" onSubmit={handleCreateSucursal}>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="nombre">Nombre *</Label>
+                  <Input id="nombre" name="nombre" placeholder="Luna27 Centro" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ciudad">Ciudad</Label>
+                  <Input id="ciudad" name="ciudad" placeholder="Ciudad de México" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="direccion">Dirección *</Label>
+                <Textarea id="direccion" name="direccion" placeholder="Av. Principal 123, Centro" required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="telefono">Teléfono *</Label>
+                  <Input id="telefono" name="telefono" placeholder="+52 55 1234 5678" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email *</Label>
+                  <Input id="email" name="email" type="email" placeholder="centro@luna27.com" required />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="horario">Horario</Label>
+                <Input id="horario" name="horario" placeholder="Lun-Sab: 10:00 - 20:00" defaultValue="Lun-Sab: 10:00 - 20:00" />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Guardando..." : "Guardar Sucursal"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+        )}
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {sucursales.map((sucursal) => (
+          <Card key={sucursal.id} className="relative overflow-hidden">
+            <CardHeader>
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="text-xl">{sucursal.nombre}</CardTitle>
+                  <CardDescription>{sucursal.ciudad}</CardDescription>
+                </div>
+                <Badge variant={sucursal.activa ? "default" : "secondary"}>
+                  {sucursal.activa ? "Activa" : "Inactiva"}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 text-sm">
+                  <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                  <span className="text-muted-foreground">{sucursal.direccion}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-muted-foreground">{sucursal.telefono}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-muted-foreground">{sucursal.email}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-muted-foreground">{sucursal.horario}</span>
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 bg-transparent"
+                    onClick={() => setEditingSucursal(sucursal)}
+                  >
+                    <Edit className="mr-2 h-4 w-4" />
+                    Editar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 bg-transparent text-destructive hover:text-destructive"
+                    onClick={() => setSucursalEliminar(sucursal)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Eliminar
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <AlertDialog open={!!sucursalEliminar} onOpenChange={(open) => !open && setSucursalEliminar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta sucursal?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Vas a quitar{" "}
+                <strong className="text-foreground">{sucursalEliminar?.nombre}</strong> del listado de sucursales
+                activas.
+              </span>
+              <span className="block text-sm">
+                Si la sucursal está vacía (sin empleados ni citas enlazadas), se borrará por completo. Si tiene datos
+                asociados, se desactivará para que no siga apareciendo aquí ni en los selectores.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={() => void handleConfirmarEliminar()}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin inline" />
+                  Procesando…
+                </>
+              ) : (
+                "Eliminar"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={!!editingSucursal} onOpenChange={(open) => !open && setEditingSucursal(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar sucursal</DialogTitle>
+            <DialogDescription>Actualiza los datos de la ubicación</DialogDescription>
+          </DialogHeader>
+          {editingSucursal && (
+            <form className="space-y-4" onSubmit={handleGuardarEdicion} key={editingSucursal.id}>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-nombre">Nombre *</Label>
+                  <Input id="edit-nombre" name="nombre" placeholder="Luna27 Centro" defaultValue={editingSucursal.nombre} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-ciudad">Ciudad</Label>
+                  <Input id="edit-ciudad" name="ciudad" placeholder="Monterrey" defaultValue={editingSucursal.ciudad || ""} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-direccion">Dirección *</Label>
+                <Textarea id="edit-direccion" name="direccion" placeholder="Av. Principal 123" defaultValue={editingSucursal.direccion} required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-telefono">Teléfono *</Label>
+                  <Input id="edit-telefono" name="telefono" placeholder="+52 55 1234 5678" defaultValue={editingSucursal.telefono} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-email">Email *</Label>
+                  <Input id="edit-email" name="email" type="email" placeholder="centro@luna27.com" defaultValue={editingSucursal.email} required />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-horario">Horario</Label>
+                <Input id="edit-horario" name="horario" placeholder="Lun-Sab: 10:00 - 20:00" defaultValue={editingSucursal.horario || ""} />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setEditingSucursal(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={isSavingEdit}>
+                  {isSavingEdit ? "Guardando..." : "Guardar cambios"}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Estadísticas por Sucursal</CardTitle>
+          <CardDescription>Comparativa de rendimiento entre ubicaciones</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {sucursales.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">No hay sucursales registradas</p>
+            ) : (
+              sucursales.map((sucursal) => (
+                <div key={sucursal.id} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{sucursal.nombre}</span>
+                    <div className="text-sm text-muted-foreground">
+                      <Badge variant={sucursal.activa ? "default" : "secondary"}>
+                        {sucursal.activa ? "Activa" : "Inactiva"}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
