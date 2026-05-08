@@ -96,14 +96,17 @@ export default function VacacionesPage() {
   const [calendarMonth, setCalendarMonth] = useState(new Date())
 
   const isAdmin = Boolean(currentUser?.role === "admin" || currentUser?.role === "superadmin")
+  const branchIds = collectEffectiveSucursalIds(currentUser)
   const primarySucursalScope = effectivePrimarySucursalId(currentUser)
-  const vacacionesScope = isAdmin ? undefined : primarySucursalScope
+  /** Una sede: filtra datos a esa sede. Varias o admin: sin filtro extra (RLS + filtros en UI). */
+  const vacacionesScope = isAdmin ? undefined : branchIds.length > 1 ? undefined : primarySucursalScope
 
   const reloadVacacionesData = useCallback(async () => {
     const u = currentUser
     if (!u) return
     const adm = u.role === "admin" || u.role === "superadmin"
-    const sc = adm ? undefined : effectivePrimarySucursalId(u)
+    const ids = collectEffectiveSucursalIds(u)
+    const sc = adm ? undefined : ids.length > 1 ? undefined : effectivePrimarySucursalId(u)
     const [v, s] = await Promise.all([getVacacionesFromDB(sc), getSaldosVacaciones(sc)])
     setVacaciones(v)
     setSaldos(s)
@@ -126,14 +129,15 @@ export default function VacacionesPage() {
       setCurrentUser(user)
       const isAdm = user.role === "admin" || user.role === "superadmin"
       const primary = effectivePrimarySucursalId(user)
-      const scope = isAdm ? undefined : primary
-      if (!isAdm && primary) {
+      const ids = collectEffectiveSucursalIds(user)
+      const scope = isAdm ? undefined : ids.length > 1 ? undefined : primary
+      if (!isAdm && ids.length > 1) {
+        setFilterSucursal("todos")
+      } else if (!isAdm && primary) {
         setFilterSucursal(primary)
       } else {
         setFilterSucursal("todos")
       }
-
-      const ids = collectEffectiveSucursalIds(user)
 
       try {
         const [vacacionesData, saldosData, empleadosData, sucursalesAll, sucursalesPorId] =
@@ -198,8 +202,11 @@ export default function VacacionesPage() {
 
   const resetForm = () => {
     const adm = currentUser?.role === "admin" || currentUser?.role === "superadmin"
+    const ids = collectEffectiveSucursalIds(currentUser)
     const pid = effectivePrimarySucursalId(currentUser)
-    setFormSucursal(adm ? "" : pid ?? "")
+    if (adm) setFormSucursal("")
+    else if (ids.length > 1) setFormSucursal("")
+    else setFormSucursal(pid ?? "")
     setFormEmpleado("")
     setFormFechaInicio(undefined)
     setFormFechaFin(undefined)
@@ -210,8 +217,9 @@ export default function VacacionesPage() {
   useEffect(() => {
     if (!isCreateDialogOpen || !currentUser) return
     const adm = currentUser.role === "admin" || currentUser.role === "superadmin"
+    const ids = collectEffectiveSucursalIds(currentUser)
     const pid = effectivePrimarySucursalId(currentUser)
-    if (!adm && pid) {
+    if (!adm && ids.length === 1 && pid) {
       setFormSucursal(pid)
     }
   }, [isCreateDialogOpen, currentUser])
@@ -219,6 +227,11 @@ export default function VacacionesPage() {
   const handleCreateVacacion = async () => {
     if (!formEmpleado || !formFechaInicio || !formFechaFin) {
       setError("Completa todos los campos requeridos")
+      return
+    }
+    const ids = collectEffectiveSucursalIds(currentUser)
+    if (!isAdmin && ids.length > 1 && !formSucursal) {
+      setError("Selecciona la sucursal")
       return
     }
 
@@ -229,7 +242,7 @@ export default function VacacionesPage() {
     const fechaFinStr = format(formFechaFin, "yyyy-MM-dd")
 
     // Verificar conflictos
-    const conflicto = await verificarConflictoVacaciones(formEmpleado, fechaInicioStr, fechaFinStr, undefined, vacacionesScope)
+    const conflicto = await verificarConflictoVacaciones(formEmpleado, fechaInicioStr, fechaFinStr, undefined, branchIds.length > 1 ? undefined : vacacionesScope)
     if (conflicto) {
       setError(
         `El empleado ya tiene vacaciones del ${formatDate(conflicto.fechaInicio)} al ${formatDate(conflicto.fechaFin)}`,
@@ -283,7 +296,7 @@ export default function VacacionesPage() {
       fechaInicioStr,
       fechaFinStr,
       selectedVacacion.id,
-      vacacionesScope,
+      branchIds.length > 1 ? undefined : vacacionesScope,
     )
     if (conflicto) {
       setEditError(
@@ -476,13 +489,15 @@ export default function VacacionesPage() {
                   <Select
                     value={filterSucursal}
                     onValueChange={setFilterSucursal}
-                    disabled={!isAdmin && Boolean(primarySucursalScope)}
+                    disabled={!isAdmin && branchIds.length <= 1}
                   >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue placeholder="Sucursal" />
                     </SelectTrigger>
                     <SelectContent>
-                      {isAdmin && <SelectItem value="todos">Todas las sucursales</SelectItem>}
+                      {(isAdmin || branchIds.length > 1) && (
+                        <SelectItem value="todos">Todas las sucursales</SelectItem>
+                      )}
                       {sucursales.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.nombre}
@@ -719,7 +734,7 @@ export default function VacacionesPage() {
               <Select
                 value={formSucursal}
                 onValueChange={(v) => { setFormSucursal(v); setFormEmpleado("") }}
-                disabled={!isAdmin && Boolean(primarySucursalScope)}
+                disabled={!isAdmin && branchIds.length <= 1}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar sucursal" />

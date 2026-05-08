@@ -28,8 +28,8 @@ import {
   type MetricaSucursal,
 } from "@/lib/data/dashboard"
 import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, type User } from "@/lib/auth"
+import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import * as XLSX from "xlsx"
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -199,7 +199,9 @@ export default function ReportesPage() {
   const isSuperAdmin   = currentUser?.role === "superadmin"
   const isAdmin        = isGlobalAdministrator(currentUser)
   const isManager      = currentUser?.role === "manager"
-  const sucursalFija   = isAdmin ? undefined : effectivePrimarySucursalId(currentUser)
+  const multiBranch    = userHasMultiBranchScope(currentUser)
+  const branchIds      = collectEffectiveSucursalIds(currentUser)
+  const sucursalFija   = isAdmin || multiBranch ? undefined : effectivePrimarySucursalId(currentUser)
 
   // ── Filtros ──
   const [periodo,          setPeriodo]          = useState<Periodo>("mes")
@@ -228,8 +230,10 @@ export default function ReportesPage() {
   useEffect(() => {
     if (isAdmin) {
       getSucursalesActivasFromDB().then(setSucursales).catch(() => {})
+    } else if (multiBranch && branchIds.length > 0) {
+      getSucursalesByIdsFromDB(branchIds).then(setSucursales).catch(() => {})
     }
-  }, [isAdmin])
+  }, [isAdmin, multiBranch, branchIds.join(",")])
 
   // ── Carga de datos reactiva ──────────────────────────────────────────────
   const cargarDatos = useCallback(async () => {
@@ -238,10 +242,11 @@ export default function ReportesPage() {
       const { fechaDesde, fechaHasta } = calcularPeriodo(periodo)
       const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(periodo)
 
-      // sucursal efectiva: si admin seleccionó "all" → undefined (todas), si eligió una → esa id
-      const sucId = isAdmin
-        ? (sucursalFilter === "all" ? undefined : sucursalFilter)
-        : sucursalFija
+      // sucursal efectiva: admin o multi-sucursal con «all» → undefined (RLS acota); una sede concreta → id
+      const sucId =
+        isAdmin || multiBranch
+          ? (sucursalFilter === "all" ? undefined : sucursalFilter)
+          : sucursalFija
 
       const [pagos, pagosAnt, citasRes, servicios, empleados, cliStats, topCli, metSuc] = await Promise.all([
         getPagosFromDB(sucId, undefined, fechaDesde, fechaHasta),
@@ -310,7 +315,7 @@ export default function ReportesPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [periodo, sucursalFilter, sucursalFija, isAdmin])
+  }, [periodo, sucursalFilter, sucursalFija, isAdmin, multiBranch])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 
@@ -318,7 +323,7 @@ export default function ReportesPage() {
   const handleExportExcel = () => {
     const { label } = calcularPeriodo(periodo)
     const sucNombre  = sucursalFilter === "all"
-      ? "Todas las sucursales"
+      ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
       : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
     const wb = XLSX.utils.book_new()
 
@@ -400,7 +405,7 @@ export default function ReportesPage() {
   const maxEmpleado = Math.max(...empleadosTop.map(e => e.ingresos), 1)
   const { label: periodoLabel } = calcularPeriodo(periodo)
   const sucNombreActiva = sucursalFilter === "all"
-    ? "Todas las sucursales"
+    ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
     : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? "")
 
   if (isLoading) {
@@ -439,14 +444,14 @@ export default function ReportesPage() {
 
           <div className="flex flex-wrap gap-2 items-center no-print">
             {/* Filtro sucursal (solo admin) */}
-            {isAdmin && sucursales.length > 0 && (
+            {(isAdmin || multiBranch) && sucursales.length > 0 && (
               <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
                 <SelectTrigger className="w-52">
                   <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
                   <SelectValue placeholder="Sucursal" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todas las sucursales</SelectItem>
+                  <SelectItem value="all">{multiBranch ? "Todas mis sucursales" : "Todas las sucursales"}</SelectItem>
                   {sucursales.map(s => (
                     <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
                   ))}
@@ -487,7 +492,7 @@ export default function ReportesPage() {
         {/* Badges de contexto */}
         <div className="flex flex-wrap gap-2 text-xs">
           <Badge variant="outline"><Calendar className="mr-1 h-3 w-3" />{periodoLabel}</Badge>
-          {isAdmin && <Badge variant="outline"><Building2 className="mr-1 h-3 w-3" />{sucNombreActiva}</Badge>}
+          {(isAdmin || multiBranch) && <Badge variant="outline"><Building2 className="mr-1 h-3 w-3" />{sucNombreActiva}</Badge>}
           <Badge variant="outline" className="text-muted-foreground">
             Generado: {new Date().toLocaleDateString("es-MX", { dateStyle: "medium" })}
           </Badge>

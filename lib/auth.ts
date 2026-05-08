@@ -178,3 +178,9 @@ export function checkPermission(user: User | null, requiredRole: User["role"]): 
 export function isGlobalAdministrator(user: User | null): boolean {
   return user?.role === "admin" || user?.role === "superadmin"
 }
+
+/** Usuario con más de una sucursal asignada (columna + usuario_sucursales), sin ser admin global. */
+export function userHasMultiBranchScope(user: User | null): boolean {
+  if (!user || isGlobalAdministrator(user)) return false
+  return collectEffectiveSucursalIds(user).length > 1
+}

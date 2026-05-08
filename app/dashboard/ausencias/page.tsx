@@ -55,7 +55,7 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, type User, isGlobalAdministrator, collectEffectiveSucursalIds, effectivePrimarySucursalId } from "@/lib/auth"
+import { getCurrentUser, type User, isGlobalAdministrator, collectEffectiveSucursalIds, effectivePrimarySucursalId, userHasMultiBranchScope } from "@/lib/auth"
 import {
   getAusenciasFromDB,
   createAusencia,
@@ -169,7 +169,11 @@ export default function AusenciasPage() {
     setIsLoading(true)
     try {
       const u = currentUser ?? getCurrentUser()
-      const scope = isGlobalAdministrator(u) ? undefined : effectivePrimarySucursalId(u)
+      const scope = isGlobalAdministrator(u)
+        ? undefined
+        : userHasMultiBranchScope(u)
+          ? undefined
+          : effectivePrimarySucursalId(u)
       const ids = collectEffectiveSucursalIds(u)
 
       const [ausenciasRaw, empleadosData, sucursalesLista] = await Promise.all([

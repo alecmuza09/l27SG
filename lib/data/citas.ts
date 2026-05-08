@@ -332,6 +332,38 @@ export async function getCitasByDateAndSucursalFromDB(fecha: string, sucursalId:
   }
 }
 
+/** Citas del día en una o varias sucursales (combina resultados con el mismo orden por hora). */
+export async function getCitasByDateAndSucursalesFromDB(fecha: string, sucursalIds: string[]): Promise<Cita[]> {
+  if (sucursalIds.length === 0) return []
+  if (sucursalIds.length === 1) return getCitasByDateAndSucursalFromDB(fecha, sucursalIds[0])
+  try {
+    const { data, error } = await supabase
+      .from("citas")
+      .select(`
+        *,
+        cliente:clientes(nombre, apellido),
+        servicio:servicios(nombre),
+        empleado:empleados(nombre, apellido)
+      `)
+      .eq("fecha", fecha)
+      .in("sucursal_id", sucursalIds)
+      .order("hora_inicio")
+
+    if (error) {
+      console.error("Error obteniendo citas (multi-sucursal):", error)
+      return []
+    }
+    if (!data) return []
+
+    return data.map((cita: any) =>
+      transformCita(cita, cita.cliente, cita.servicio, cita.empleado),
+    )
+  } catch (error) {
+    console.error("Error inesperado obteniendo citas (multi-sucursal):", error)
+    return []
+  }
+}
+
 // Obtener citas por empleado y fecha desde Supabase
 export async function getCitasByEmpleadoAndDateFromDB(empleadoId: string, fecha: string): Promise<Cita[]> {
   try {

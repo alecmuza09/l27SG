@@ -30,7 +30,7 @@ import {
   type HistorialEmpleadoSucursalDiaItem,
 } from "@/lib/data/empleado-sucursal-dia"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { getCurrentUser, type User } from "@/lib/auth"
+import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, userHasMultiBranchScope, type User } from "@/lib/auth"
 import {
   Dialog,
   DialogContent,
@@ -42,7 +42,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 import {
@@ -120,31 +120,32 @@ export default function EmpleadosPage() {
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
-  const userSucursalId = currentUser?.sucursalId
+  const userBranchIds = collectEffectiveSucursalIds(currentUser)
+  const multiBranch = userHasMultiBranchScope(currentUser)
+  const singleBranchId = userBranchIds.length === 1 ? userBranchIds[0] : undefined
 
   async function loadEmpleados() {
     try {
       setIsLoading(true)
       setError(null)
       
-      // Si es manager o staff, filtrar por su sucursal
-      const sucursalIdFilter = isAdmin ? undefined : userSucursalId
+      const sucursalIdFilter = isAdmin ? undefined : multiBranch ? undefined : effectivePrimarySucursalId(currentUser)
       
       const [empleadosData, empleadosEliminadosData, sucursalesData] = await Promise.all([
         getEmpleadosFromDB(sucursalIdFilter),
         getEmpleadosEliminadosFromDB(sucursalIdFilter),
-        isAdmin ? getSucursalesActivasFromDB() : getSucursalesActivasFromDB().then(s => 
-          userSucursalId ? s.filter(suc => suc.id === userSucursalId) : []
-        )
+        isAdmin ? getSucursalesActivasFromDB() : getSucursalesByIdsFromDB(userBranchIds),
       ])
       
       setEmpleados(empleadosData)
       setEmpleadosEliminados(empleadosEliminadosData)
       setSucursales(sucursalesData)
       
-      // Si es manager/staff, establecer el filtro a su sucursal automáticamente
-      if (!isAdmin && userSucursalId && sucursalesData.length > 0) {
-        setSucursalFilter(userSucursalId)
+      if (!isAdmin && singleBranchId && sucursalesData.length > 0) {
+        setSucursalFilter(singleBranchId)
+      }
+      if (!isAdmin && multiBranch) {
+        setSucursalFilter("todas")
       }
     } catch (err) {
       console.error('Error cargando empleados:', err)
@@ -166,10 +167,10 @@ export default function EmpleadosPage() {
   }, [currentUser])
 
   useEffect(() => {
-    if (isDialogOpen && !isAdmin && userSucursalId) {
-      setFormNuevo((prev) => ({ ...prev, sucursalId: userSucursalId }))
+    if (isDialogOpen && !isAdmin && !multiBranch && singleBranchId) {
+      setFormNuevo((prev) => ({ ...prev, sucursalId: singleBranchId }))
     }
-  }, [isDialogOpen, isAdmin, userSucursalId])
+  }, [isDialogOpen, isAdmin, multiBranch, singleBranchId])
 
   useEffect(() => {
     if (!empleadoAsignacionId || !fechaAsignacionDia) {
@@ -376,14 +377,14 @@ export default function EmpleadosPage() {
           <p className="text-muted-foreground">Gestiona tu equipo de trabajo</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          {isAdmin && (
+          {isAdmin || multiBranch ? (
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
                 Nuevo Empleado
               </Button>
             </DialogTrigger>
-          )}
+          ) : null}
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Nuevo Empleado</DialogTitle>
@@ -456,9 +457,9 @@ export default function EmpleadosPage() {
                 <div className="space-y-2">
                   <Label htmlFor="sucursal">Sucursal *</Label>
                   <Select
-                    value={formNuevo.sucursalId || (!isAdmin && userSucursalId ? userSucursalId : "")}
+                    value={formNuevo.sucursalId || (!isAdmin && !multiBranch && singleBranchId ? singleBranchId : "")}
                     onValueChange={(v) => setFormNuevo({ ...formNuevo, sucursalId: v })}
-                    disabled={!isAdmin && !!userSucursalId}
+                    disabled={!isAdmin && !multiBranch && !!singleBranchId}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar sucursal" />
@@ -471,7 +472,7 @@ export default function EmpleadosPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {!isAdmin && userSucursalId && (
+                  {!isAdmin && singleBranchId && !multiBranch && (
                     <p className="text-xs text-muted-foreground">
                       Solo puedes agregar empleados a tu sucursal
                     </p>
@@ -1013,8 +1014,7 @@ export default function EmpleadosPage() {
             <EditarEmpleadoDialog
               empleado={editingEmpleado}
               sucursales={sucursales}
-              isAdmin={isAdmin}
-              userSucursalId={userSucursalId}
+              canEditSucursal={isAdmin || multiBranch}
               onClose={() => {
                 setIsEditDialogOpen(false)
                 setEditingEmpleado(null)
@@ -1032,15 +1032,13 @@ export default function EmpleadosPage() {
 function EditarEmpleadoDialog({
   empleado,
   sucursales,
-  isAdmin,
-  userSucursalId,
+  canEditSucursal,
   onClose,
   onSuccess,
 }: {
   empleado: Empleado
   sucursales: Sucursal[]
-  isAdmin: boolean
-  userSucursalId?: string
+  canEditSucursal: boolean
   onClose: () => void
   onSuccess: () => void
 }) {
@@ -1163,7 +1161,7 @@ function EditarEmpleadoDialog({
           <Select 
             value={formData.sucursalId} 
             onValueChange={(value) => setFormData({ ...formData, sucursalId: value })}
-            disabled={!isAdmin}
+            disabled={!canEditSucursal}
           >
             <SelectTrigger id="edit-sucursal">
               <SelectValue />
@@ -1176,9 +1174,9 @@ function EditarEmpleadoDialog({
               ))}
             </SelectContent>
           </Select>
-          {!isAdmin && userSucursalId && (
+          {!canEditSucursal && (
             <p className="text-xs text-muted-foreground">
-              Solo puedes editar empleados de tu sucursal
+              La sucursal base no se puede cambiar desde tu perfil
             </p>
           )}
         </div>

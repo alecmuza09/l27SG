@@ -25,7 +25,7 @@ import {
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { searchClientes, type Cliente } from "@/lib/data/clientes"
-import { getCitasByDateAndSucursalFromDB, updateCita, updateCitaEstado, type Cita } from "@/lib/data/citas"
+import { getCitasByDateAndSucursalFromDB, getCitasByDateAndSucursalesFromDB, updateCita, updateCitaEstado, type Cita } from "@/lib/data/citas"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, getSucursalById, type Sucursal } from "@/lib/data/sucursales"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -91,7 +91,8 @@ export default function PagosPage() {
   const [sucursalId, setSucursalId]             = useState<string>(() => {
     const u = getCurrentUser()
     if (isGlobalAdministrator(u)) return "todas"
-    return effectivePrimarySucursalId(u) ?? "todas"
+    const ids = collectEffectiveSucursalIds(u)
+    return ids.length > 1 ? "todas" : (effectivePrimarySucursalId(u) ?? "todas")
   })
   const [citas, setCitas]                       = useState<Cita[]>([])
   const [pagos, setPagos]                       = useState<Pago[]>([])
@@ -140,10 +141,12 @@ export default function PagosPage() {
           ? sucursalId
           : isAdmin
             ? undefined
-            : primarySucursal
+            : userSucursalIds.length > 1
+              ? undefined
+              : primarySucursal
 
       const sidFiltro = resolvedFilter
-      const citasSucursalId = resolvedFilter ?? null
+      const citasSucursalSingle = resolvedFilter ?? null
 
       const [sucData, pagosData, citasData] = await Promise.all([
         isAdmin
@@ -152,9 +155,11 @@ export default function PagosPage() {
             ? getSucursalesByIdsFromDB(userSucursalIds)
             : Promise.resolve([] as Sucursal[]),
         getPagosFromDB(sidFiltro, fecha),
-        citasSucursalId
-          ? getCitasByDateAndSucursalFromDB(fecha, citasSucursalId)
-          : Promise.resolve([] as Cita[]),
+        citasSucursalSingle
+          ? getCitasByDateAndSucursalFromDB(fecha, citasSucursalSingle)
+          : !isAdmin && userSucursalIds.length > 1
+            ? getCitasByDateAndSucursalesFromDB(fecha, userSucursalIds)
+            : Promise.resolve([] as Cita[]),
       ])
 
       if (isAdmin || userSucursalIds.length > 0) setSucursales(sucData)
@@ -164,12 +169,14 @@ export default function PagosPage() {
       setResumen(calcularResumenDesdePagos(pagosData, fecha))
 
       // Citas
-      if (citasSucursalId) {
+      if (citasSucursalSingle) {
         setCitas(citasData)
       } else if (isAdmin && sucData.length > 0) {
         // Admin con "todas" → cargar primera sucursal de la lista
         const primerasCitas = await getCitasByDateAndSucursalFromDB(fecha, sucData[0].id)
         setCitas(primerasCitas)
+      } else if (!isAdmin && userSucursalIds.length > 1 && sucursalId === "todas") {
+        setCitas(citasData)
       } else {
         setCitas([])
       }

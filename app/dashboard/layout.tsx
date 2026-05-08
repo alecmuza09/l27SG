@@ -7,7 +7,7 @@ import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Loader2 } from "lucide-react"
-import { refreshSession } from "@/lib/auth"
+import { refreshSession, collectEffectiveSucursalIds } from "@/lib/auth"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
 
 // Catálogo y configuración global: sólo admin / superadmin
@@ -40,6 +40,8 @@ export default function DashboardLayout({
       }
       const isGlobalAdmin = user.role === "admin" || user.role === "superadmin"
       const isBranchAdmin = user.role === "branch-admin"
+      const branchIds = collectEffectiveSucursalIds(user)
+      const managerMultiSucursal = user.role === "manager" && branchIds.length > 1
 
       if (!isGlobalAdmin) {
         const onGlobalStrict = GLOBAL_ADMIN_ONLY_ROUTES.some((r) => pathname.startsWith(r))
@@ -50,7 +52,7 @@ export default function DashboardLayout({
       }
 
       if (pathname.startsWith(EMPLEADOS_ROUTE)) {
-        if (!isGlobalAdmin && !isBranchAdmin) {
+        if (!isGlobalAdmin && !isBranchAdmin && !managerMultiSucursal) {
           router.replace("/dashboard/citas")
           return
         }
@@ -59,15 +61,14 @@ export default function DashboardLayout({
         router.replace("/dashboard/citas")
         return
       }
-      // Managers: sin dashboard ni reportes (datos sólo desde citas/u otros).
-      // branch-admin sí puede usar /dashboard/reportes (alcance ya filtrado en la página).
-      if (user.role === "manager") {
+      // Managers de una sola sucursal: sin dashboard ni reportes. Manager multi-sucursal: permitido.
+      if (user.role === "manager" && !managerMultiSucursal) {
         if (pathname === "/dashboard" || pathname.startsWith("/dashboard/reportes")) {
           router.replace("/dashboard/citas")
           return
         }
       }
-      if (user.role === "branch-admin" && pathname === "/dashboard") {
+      if (user.role === "branch-admin" && pathname === "/dashboard" && branchIds.length <= 1) {
         router.replace("/dashboard/citas")
         return
       }

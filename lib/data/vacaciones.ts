@@ -75,9 +75,11 @@ export const vacacionesData: Vacacion[] = [
 ]
 
 // Helper para generar datos iniciales de saldos (para compatibilidad con localStorage)
-async function getSaldoVacacionesDataInitial(sucursalId?: string): Promise<SaldoVacaciones[]> {
+async function getSaldoVacacionesDataInitial(sucursalScope?: string | string[]): Promise<SaldoVacaciones[]> {
   try {
-    const empleados = await getEmpleadosFromDB(sucursalId)
+    const empleados = await getEmpleadosFromDB(
+      Array.isArray(sucursalScope) ? undefined : sucursalScope,
+    )
     return empleados.map((emp) => ({
       id: `saldo-${emp.id}-${new Date().getFullYear()}`,
       empleadoId: emp.id,
@@ -137,10 +139,10 @@ export function saveVacaciones(vacaciones: Vacacion[]): void {
   }
 }
 
-export async function getSaldosVacaciones(sucursalId?: string): Promise<SaldoVacaciones[]> {
+export async function getSaldosVacaciones(sucursalScope?: string | string[]): Promise<SaldoVacaciones[]> {
   // Intentar desde BD primero, luego localStorage como fallback
   try {
-    const saldosBD = await getSaldosVacacionesFromDB(sucursalId)
+    const saldosBD = await getSaldosVacacionesFromDB(sucursalScope)
     if (saldosBD.length > 0) return saldosBD
   } catch (err) {
     console.error('Error obteniendo saldos desde BD, usando localStorage:', err)
@@ -148,12 +150,12 @@ export async function getSaldosVacaciones(sucursalId?: string): Promise<SaldoVac
   
   // Fallback a localStorage
   if (typeof window === "undefined") {
-    const initialData = await getSaldoVacacionesDataInitial(sucursalId)
+    const initialData = await getSaldoVacacionesDataInitial(sucursalScope)
     return initialData
   }
   const stored = localStorage.getItem(SALDOS_KEY)
   if (stored) return JSON.parse(stored)
-  const initialData = await getSaldoVacacionesDataInitial(sucursalId)
+  const initialData = await getSaldoVacacionesDataInitial(sucursalScope)
   localStorage.setItem(SALDOS_KEY, JSON.stringify(initialData))
   return initialData
 }
@@ -192,10 +194,10 @@ export async function verificarConflictoVacaciones(
   fechaInicio: string,
   fechaFin: string,
   vacacionId?: string,
-  sucursalId?: string,
+  sucursalScope?: string | string[],
 ): Promise<Vacacion | null> {
   try {
-    const vacaciones = await getVacacionesFromDB(sucursalId)
+    const vacaciones = await getVacacionesFromDB(sucursalScope)
     const inicio = new Date(fechaInicio)
     const fin = new Date(fechaFin)
 
@@ -339,7 +341,7 @@ export async function deleteVacacionInDB(id: string): Promise<boolean> {
 }
 
 // Obtener vacaciones desde Supabase
-export async function getVacacionesFromDB(sucursalId?: string): Promise<Vacacion[]> {
+export async function getVacacionesFromDB(sucursalScope?: string | string[]): Promise<Vacacion[]> {
   try {
     let query = supabase
       .from('vacaciones')
@@ -359,12 +361,16 @@ export async function getVacacionesFromDB(sucursalId?: string): Promise<Vacacion
     
     if (!data) return []
     
-    // Filtrar por sucursal si se especifica (a través del empleado)
     let vacacionesFiltradas = data
-    if (sucursalId) {
-      vacacionesFiltradas = data.filter((v: any) => 
-        v.empleado?.sucursal?.id === sucursalId
-      )
+    if (sucursalScope !== undefined) {
+      const allow = Array.isArray(sucursalScope)
+        ? new Set(sucursalScope)
+        : null
+      vacacionesFiltradas = data.filter((v: any) => {
+        const sid = v.empleado?.sucursal?.id
+        if (allow) return sid != null && allow.has(sid)
+        return sid === sucursalScope
+      })
     }
     
     return vacacionesFiltradas.map((v: any) => ({
@@ -391,7 +397,7 @@ export async function getVacacionesFromDB(sucursalId?: string): Promise<Vacacion
 }
 
 // Obtener saldos de vacaciones desde Supabase
-export async function getSaldosVacacionesFromDB(sucursalId?: string): Promise<SaldoVacaciones[]> {
+export async function getSaldosVacacionesFromDB(sucursalScope?: string | string[]): Promise<SaldoVacaciones[]> {
   try {
     const { data, error } = await supabase
       .from('saldo_vacaciones')
@@ -410,8 +416,13 @@ export async function getSaldosVacacionesFromDB(sucursalId?: string): Promise<Sa
     if (!data) return []
 
     let rows = data as any[]
-    if (sucursalId) {
-      rows = rows.filter((s) => s.empleado?.sucursal_id === sucursalId)
+    if (sucursalScope !== undefined) {
+      const allow = Array.isArray(sucursalScope) ? new Set(sucursalScope) : null
+      rows = rows.filter((s) => {
+        const sid = s.empleado?.sucursal_id
+        if (allow) return sid != null && allow.has(sid)
+        return sid === sucursalScope
+      })
     }
     
     return rows.map((s: any) => ({

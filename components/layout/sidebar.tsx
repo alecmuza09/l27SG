@@ -24,7 +24,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { logout, getCurrentUser } from "@/lib/auth"
+import { logout, getCurrentUser, userHasMultiBranchScope } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { canAccessVacacionesModule, userIsSucursalScopedLike } from "@/lib/auth-vacaciones"
 
@@ -86,9 +86,10 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
     ? navigation
     : navigation.filter((i) => {
         if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
-        if (i.href === "/dashboard/empleados" && !isBranchAdmin) return false
+        if (i.href === "/dashboard/empleados" && !isBranchAdmin && !userHasMultiBranchScope(currentUser))
+          return false
         if (i.href === "/dashboard" && isSucursalScoped) return false
-        if (i.href === "/dashboard/reportes" && isManager) return false
+        if (i.href === "/dashboard/reportes" && isManager && !userHasMultiBranchScope(currentUser)) return false
         return true
       })
   const visibleModules = isGlobalAdmin

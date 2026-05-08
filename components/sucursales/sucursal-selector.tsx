@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, type User } from "@/lib/auth"
+import { getCurrentUser, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 
 interface SucursalSelectorProps {
   value?: string
   onChange?: (sucursalId: string) => void
+  /** Opción «todas»: todas las sedes (admin global) o todas las sedes asignadas al usuario (multi-sucursal). */
   showAllOption?: boolean
 }
 
@@ -21,10 +22,10 @@ export function SucursalSelector({ value, onChange, showAllOption = true }: Sucu
   const [selectedValue, setSelectedValue] = useState(value || "all")
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
 
-  // Calcular isAdmin de forma segura (siempre definido)
-  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
-  const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
-  const hasMultipleSucursales = isAdmin || userSucursalIds.length > 1
+  const isGlobalAdmin = isGlobalAdministrator(currentUser)
+  const userSucursalIds = collectEffectiveSucursalIds(currentUser)
+  const hasMultipleSucursales = isGlobalAdmin || userSucursalIds.length > 1
+  const showCombinedAllOption = showAllOption && hasMultipleSucursales
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -33,14 +34,14 @@ export function SucursalSelector({ value, onChange, showAllOption = true }: Sucu
 
   useEffect(() => {
     async function loadSucursales() {
-      if (isAdmin) {
+      if (isGlobalAdmin) {
         const sucursalesData = await getSucursalesActivasFromDB()
         setSucursales(sucursalesData)
       } else if (userSucursalIds.length > 0) {
         const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
-          if (!value && onChange) {
+          if (!value && onChange && userSucursalIds.length === 1) {
             onChange(sucursalesData[0].id)
             setSelectedValue(sucursalesData[0].id)
           }
@@ -50,7 +51,7 @@ export function SucursalSelector({ value, onChange, showAllOption = true }: Sucu
     if (currentUser) {
       loadSucursales()
     }
-  }, [currentUser, isAdmin, userSucursalIds.join(',')])
+  }, [currentUser, isGlobalAdmin, userSucursalIds.join(',')])
 
   const handleSelect = (currentValue: string) => {
     setSelectedValue(currentValue)
@@ -59,7 +60,11 @@ export function SucursalSelector({ value, onChange, showAllOption = true }: Sucu
   }
 
   const selectedSucursal = sucursales.find((s) => s.id === selectedValue)
-  const displayText = selectedValue === "all" && isAdmin ? "Todas las Sucursales" : selectedSucursal?.nombre || "Seleccionar..."
+  const allOptionLabel = isGlobalAdmin ? "Todas las Sucursales" : "Todas mis sucursales"
+  const displayText =
+    selectedValue === "all" && showCombinedAllOption
+      ? allOptionLabel
+      : selectedSucursal?.nombre || "Seleccionar..."
 
   // Manager con una sola sucursal: mostrar como texto fijo
   if (!hasMultipleSucursales && sucursales.length === 1) {
@@ -93,10 +98,10 @@ export function SucursalSelector({ value, onChange, showAllOption = true }: Sucu
           <CommandList>
             <CommandEmpty>No se encontraron sucursales.</CommandEmpty>
             <CommandGroup>
-              {showAllOption && isAdmin && hasMultipleSucursales && (
+              {showCombinedAllOption && (
                 <CommandItem value="all" onSelect={() => handleSelect("all")}>
                   <Check className={cn("mr-2 h-4 w-4", selectedValue === "all" ? "opacity-100" : "opacity-0")} />
-                  Todas las Sucursales
+                  {allOptionLabel}
                 </CommandItem>
               )}
               {sucursales.map((sucursal) => (

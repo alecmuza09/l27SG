@@ -3,10 +3,13 @@ import { PASEO_TEC_SUCURSAL_ID, collectEffectiveSucursalIds } from "@/lib/auth"
 
 export { PASEO_TEC_SUCURSAL_ID } from "@/lib/auth"
 
-/** Cuentas de sucursal (bloqueo de dashboard raíz para manager/branch-admin), análogo a manager. */
+/** Cuentas de sucursal (bloqueo de dashboard raíz típico). Manager / branch-admin con varias sedes: acceso tipo regional. */
 export function userIsSucursalScopedLike(user: User | null): boolean {
   if (!user) return false
-  return user.role === "manager" || user.role === "branch-admin"
+  const n = collectEffectiveSucursalIds(user).length
+  if (user.role === "branch-admin") return n <= 1
+  if (user.role === "manager") return n <= 1
+  return false
 }
 
 /**

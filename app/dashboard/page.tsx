@@ -15,21 +15,26 @@ import {
   getServiciosPopulares, 
   getResumenSucursales 
 } from "@/lib/data/dashboard"
-import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, type User } from "@/lib/auth"
+import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, type User } from "@/lib/auth"
 
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [selectedSucursal, setSelectedSucursal] = useState("all")
 
   const isGlobalAdmin = isGlobalAdministrator(currentUser)
+  const multiBranch = userHasMultiBranchScope(currentUser)
   const branchScopeId = effectivePrimarySucursalId(currentUser)
 
   useEffect(() => {
     const user = getCurrentUser()
     setCurrentUser(user)
     if (user && !isGlobalAdministrator(user)) {
-      const sid = effectivePrimarySucursalId(user)
-      if (sid) setSelectedSucursal(sid)
+      if (userHasMultiBranchScope(user)) {
+        setSelectedSucursal("all")
+      } else {
+        const sid = effectivePrimarySucursalId(user)
+        if (sid) setSelectedSucursal(sid)
+      }
     }
   }, [])
   const [stats, setStats] = useState({ citasHoy: 0, clientesActivos: 0, ingresosHoy: 0, ocupacion: 0 })
@@ -43,9 +48,10 @@ export default function DashboardPage() {
     async function loadDashboardData() {
       try {
         setIsLoading(true)
-        const sucursalId = isGlobalAdministrator(currentUser)
-          ? (selectedSucursal === 'all' ? undefined : selectedSucursal)
-          : branchScopeId
+        const sucursalId =
+          isGlobalAdministrator(currentUser) || userHasMultiBranchScope(currentUser)
+            ? (selectedSucursal === "all" ? undefined : selectedSucursal)
+            : branchScopeId
 
         const isManager = currentUser?.role === 'manager'
         const hoy = new Date()
@@ -56,7 +62,9 @@ export default function DashboardPage() {
           getEstadoCitas(sucursalId),
           getProximasCitas(4, sucursalId),
           getServiciosPopulares(4, sucursalId, isManager ? fechaHoy : undefined),
-          isGlobalAdministrator(currentUser) ? getResumenSucursales(sucursalId) : Promise.resolve([])
+          isGlobalAdministrator(currentUser) || multiBranch
+            ? getResumenSucursales(sucursalId)
+            : Promise.resolve([])
         ])
         
         setStats(statsData)
@@ -94,7 +102,7 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
           <p className="text-muted-foreground">Resumen general de operaciones y productividad</p>
         </div>
-        {isGlobalAdmin && (
+        {(isGlobalAdmin || multiBranch) && (
           <div className="w-64">
             <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} />
           </div>
@@ -135,13 +143,21 @@ export default function DashboardPage() {
       {/* Gráfico de Productividad por Sucursales */}
       <ProductividadSucursalesChart
         isManager={currentUser?.role === 'manager' || currentUser?.role === 'branch-admin'}
-        sucursalId={!isGlobalAdministrator(currentUser) ? branchScopeId : undefined}
+        sucursalId={
+          isGlobalAdministrator(currentUser) || multiBranch
+            ? (selectedSucursal === "all" ? undefined : selectedSucursal)
+            : branchScopeId
+        }
       />
 
       {/* Top 10 Empleados */}
       <TopEmpleados
         isManager={currentUser?.role === 'manager' || currentUser?.role === 'branch-admin'}
-        sucursalId={!isGlobalAdministrator(currentUser) ? branchScopeId : undefined}
+        sucursalId={
+          isGlobalAdministrator(currentUser) || multiBranch
+            ? (selectedSucursal === "all" ? undefined : selectedSucursal)
+            : branchScopeId
+        }
       />
 
       {/* Cards de información adicional */}
