@@ -92,7 +92,10 @@ export default function PagosPage() {
     const u = getCurrentUser()
     if (isGlobalAdministrator(u)) return "todas"
     const ids = collectEffectiveSucursalIds(u)
-    return ids.length > 1 ? "todas" : (effectivePrimarySucursalId(u) ?? "todas")
+    const principal = effectivePrimarySucursalId(u)
+    // Una sede o varias: siempre una sucursal concreta por defecto (columna sucursal_id del perfil en Supabase).
+    if (ids.length === 0) return principal ?? ""
+    return principal && ids.includes(principal) ? principal : ids[0]
   })
   const [citas, setCitas]                       = useState<Cita[]>([])
   const [pagos, setPagos]                       = useState<Pago[]>([])
@@ -681,9 +684,6 @@ export default function PagosPage() {
                     {citasPendientesFiltradas.length} por cobrar
                   </span>
                 </span>
-                {sucursalId === "todas" && (
-                  <span className="text-amber-600 font-medium">Selecciona una sucursal para ver citas</span>
-                )}
               </div>
             </div>
 
@@ -693,7 +693,7 @@ export default function PagosPage() {
                 <div className="flex items-center justify-center py-20">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : sucursalId === "todas" ? (
+              ) : !sucursalId || (sucursalId === "todas" && !isAdmin) ? (
                 <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                   <Receipt className="h-10 w-10 mb-3 opacity-20" />
                   <p className="text-sm font-medium">Selecciona una sucursal</p>
