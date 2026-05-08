@@ -12,6 +12,8 @@ export const MSG_FOLIO_TIENDA_INVALIDO =
 
 export const MSG_FOLIO_YA_REGISTRADO = "Este folio ya fue registrado previamente"
 
+const BASES_FOLIO_TIENDA = ["LUNA1M", "LUNA2M", "LUNA3M", "LUNA4M"] as const
+
 const DEFINICION_POR_PREFIJO: Record<string, { servicio: string; valor: number }> = {
   LUNA1M: { servicio: "Mani Spa c/gel", valor: 559 },
   LUNA2M: { servicio: "Mani y Pedi Jelly Detox", valor: 770 },
@@ -24,22 +26,27 @@ export type AnalisisFolioTienda =
   | { tipo: "valido"; codigoNormalizado: string; servicio: string; valor: number }
   | { tipo: "error"; mensaje: string }
 
-/** True si el usuario parece estar escribiendo un folio LUNA[1-4]m... */
+/**
+ * True solo si el texto es/puede ser un folio LUNA[1-4]m… (tienda en línea).
+ * No basta con "LUNA" (p. ej. otros códigos tipo LUNA27-… no entran aquí).
+ */
 export function intentandoFormatoTiendaEnLinea(codigo: string): boolean {
   const raw = codigo.trim()
-  return raw.length >= 4 && raw.slice(0, 4).toUpperCase() === "LUNA"
+  if (raw.length <= 4) return false
+  const u = raw.toUpperCase()
+  return BASES_FOLIO_TIENDA.some((b) => b.startsWith(u) || u.startsWith(b))
 }
 
 /**
  * Interpreta folio tienda en línea para autocompletar o validar.
- * - Solo aplica errores cuando el texto parece formato tienda (empieza por LUNA) o tiene 10 chars y prefijo válido según contexto del caller.
+ * La regla de 10 caracteres solo aplica cuando el código coincide con LUNA[1-4]m + 4 caracteres;
+ * cualquier otro código devuelve no_aplica (sin restricción de longitud en el caller).
  */
 export function analizarFolioTiendaEnLinea(codigo: string): AnalisisFolioTienda {
   const raw = codigo.trim()
   if (!raw) return { tipo: "no_aplica" }
 
-  const esLuna = raw.slice(0, 4).toUpperCase() === "LUNA"
-  if (!esLuna) return { tipo: "no_aplica" }
+  if (!intentandoFormatoTiendaEnLinea(raw)) return { tipo: "no_aplica" }
 
   if (raw.length !== FOLIO_TIENDA_ONLINE_LONGITUD) {
     return { tipo: "error", mensaje: MSG_FOLIO_TIENDA_LONGITUD }
