@@ -7,7 +7,7 @@ import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Loader2 } from "lucide-react"
-import { refreshSession, collectEffectiveSucursalIds } from "@/lib/auth"
+import { refreshSession, collectEffectiveSucursalIds, isSanJeronimoRestrictedNavUser, pathnameAllowedForSanJeronimoUser } from "@/lib/auth"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
 
 // Catálogo y configuración global: sólo admin / superadmin
@@ -46,6 +46,13 @@ export default function DashboardLayout({
       if (!isGlobalAdmin) {
         const onGlobalStrict = GLOBAL_ADMIN_ONLY_ROUTES.some((r) => pathname.startsWith(r))
         if (onGlobalStrict) {
+          router.replace("/dashboard/citas")
+          return
+        }
+      }
+
+      if (!isGlobalAdmin && isSanJeronimoRestrictedNavUser(user)) {
+        if (!pathnameAllowedForSanJeronimoUser(pathname)) {
           router.replace("/dashboard/citas")
           return
         }

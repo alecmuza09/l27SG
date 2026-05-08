@@ -24,7 +24,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { logout, getCurrentUser, userHasMultiBranchScope } from "@/lib/auth"
+import { logout, getCurrentUser, userHasMultiBranchScope, isSanJeronimoRestrictedNavUser } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { canAccessVacacionesModule, userIsSucursalScopedLike } from "@/lib/auth-vacaciones"
 
@@ -34,6 +34,17 @@ const GLOBAL_ADMIN_ONLY = new Set([
   "/dashboard/inventario",
   "/dashboard/sucursales",
   "/dashboard/promociones",
+])
+
+const SAN_JERONIMO_NAV_HREFS = new Set([
+  "/dashboard/citas",
+  "/dashboard/clientes",
+  "/dashboard/pagos",
+])
+const SAN_JERONIMO_MODULE_HREFS = new Set([
+  "/dashboard/gift-cards",
+  "/dashboard/vacaciones",
+  "/dashboard/ausencias",
 ])
 
 // ─── sidebar: branch-admin ───────────────────────────────────────────────
@@ -81,24 +92,34 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const isManager = currentUser?.role === "manager"
   /** Cuentas con alcance de sucursala (bloquear «Dashboard» global; managers sin reportes) */
   const isSucursalScoped = userIsSucursalScopedLike(currentUser)
+  const sanJerRestrictedMenu =
+    !isGlobalAdmin && isSanJeronimoRestrictedNavUser(currentUser)
 
   const visibleNav = isGlobalAdmin
     ? navigation
-    : navigation.filter((i) => {
-        if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
-        if (i.href === "/dashboard/empleados" && !isBranchAdmin && !userHasMultiBranchScope(currentUser))
-          return false
-        if (i.href === "/dashboard" && isSucursalScoped) return false
-        if (i.href === "/dashboard/reportes" && isManager && !userHasMultiBranchScope(currentUser)) return false
-        return true
-      })
+    : sanJerRestrictedMenu
+      ? navigation.filter((i) => SAN_JERONIMO_NAV_HREFS.has(i.href))
+      : navigation.filter((i) => {
+          if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
+          if (i.href === "/dashboard/empleados" && !isBranchAdmin && !userHasMultiBranchScope(currentUser))
+            return false
+          if (i.href === "/dashboard" && isSucursalScoped) return false
+          if (i.href === "/dashboard/reportes" && isManager && !userHasMultiBranchScope(currentUser)) return false
+          return true
+        })
   const visibleModules = isGlobalAdmin
     ? newModules
-    : newModules.filter((i) => {
-        if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
-        if (i.href === "/dashboard/vacaciones" && !canAccessVacacionesModule(currentUser)) return false
-        return true
-      })
+    : sanJerRestrictedMenu
+      ? newModules.filter((i) => {
+          if (!SAN_JERONIMO_MODULE_HREFS.has(i.href)) return false
+          if (i.href === "/dashboard/vacaciones" && !canAccessVacacionesModule(currentUser)) return false
+          return true
+        })
+      : newModules.filter((i) => {
+          if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
+          if (i.href === "/dashboard/vacaciones" && !canAccessVacacionesModule(currentUser)) return false
+          return true
+        })
 
   const handleLogout = async () => {
     await logout()
@@ -204,7 +225,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
           </>
         )}
 
-        {settingsNav.length > 0 && (
+        {settingsNav.length > 0 && !sanJerRestrictedMenu && (
           <>
             <div className="my-4 border-t border-border" />
             {settingsNav.map((item) => {

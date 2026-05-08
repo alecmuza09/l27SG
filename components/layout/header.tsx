@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getCurrentUser, logout, type User } from "@/lib/auth"
+import { getCurrentUser, logout, type User, isSanJeronimoRestrictedNavUser } from "@/lib/auth"
 import { getSucursalById } from "@/lib/data/sucursales"
 import { Bell, ChevronDown, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -78,7 +78,9 @@ export function Header({ children }: HeaderProps) {
               <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem>Perfil</DropdownMenuItem>
-              <DropdownMenuItem>Configuración</DropdownMenuItem>
+              {!isSanJeronimoRestrictedNavUser(user) && (
+                <DropdownMenuItem>Configuración</DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />

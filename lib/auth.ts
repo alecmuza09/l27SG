@@ -184,3 +184,27 @@ export function userHasMultiBranchScope(user: User | null): boolean {
   if (!user || isGlobalAdministrator(user)) return false
   return collectEffectiveSucursalIds(user).length > 1
 }
+
+/** Email de la cuenta operativa San Jerónimo (menú reducido y rutas acotadas). */
+export const SAN_JERONIMO_RESTRICTED_NAV_EMAIL = "sanjeronimo@luna27.mx"
+
+export function isSanJeronimoRestrictedNavUser(user: User | null): boolean {
+  if (!user?.email) return false
+  return user.email.trim().toLowerCase() === SAN_JERONIMO_RESTRICTED_NAV_EMAIL.toLowerCase()
+}
+
+/** Rutas bajo `/dashboard` permitidas para la cuenta San Jerónimo; cualquier otra redirige a citas. */
+export const SAN_JERONIMO_ALLOWED_ROUTE_PREFIXES = [
+  "/dashboard/citas",
+  "/dashboard/clientes",
+  "/dashboard/pagos",
+  "/dashboard/gift-cards",
+  "/dashboard/vacaciones",
+  "/dashboard/ausencias",
+] as const
+
+export function pathnameAllowedForSanJeronimoUser(pathname: string): boolean {
+  return SAN_JERONIMO_ALLOWED_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  )
+}
