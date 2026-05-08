@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/dialog"
 import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 import { cn } from "@/lib/utils"
-import { getCurrentUser } from "@/lib/auth"
+import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
 import { toast } from "sonner"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -78,18 +78,21 @@ function StatRow({
 
 export default function PagosPage() {
   const currentUser = getCurrentUser()
-  const isAdmin     = currentUser?.role === "admin" || currentUser?.role === "superadmin"
+  const isAdmin = isGlobalAdministrator(currentUser)
   const isSuperAdmin = currentUser?.role === "superadmin"
 
-  // Sucursales asignadas al usuario (para managers con múltiples sucursales)
-  const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
+  const userSucursalIds = collectEffectiveSucursalIds(currentUser)
   const hasMultipleSucursales = isAdmin || userSucursalIds.length > 1
+
+  const primarySucursal = effectivePrimarySucursalId(currentUser)
 
   const [fecha, setFecha]                       = useState(hoy())
   const [sucursales, setSucursales]             = useState<Sucursal[]>([])
-  const [sucursalId, setSucursalId]             = useState<string>(
-    currentUser?.sucursalId ?? "todas",
-  )
+  const [sucursalId, setSucursalId]             = useState<string>(() => {
+    const u = getCurrentUser()
+    if (isGlobalAdministrator(u)) return "todas"
+    return effectivePrimarySucursalId(u) ?? "todas"
+  })
   const [citas, setCitas]                       = useState<Cita[]>([])
   const [pagos, setPagos]                       = useState<Pago[]>([])
   const [resumen, setResumen]                   = useState<ResumenCajaDiario | null>(null)
@@ -132,13 +135,20 @@ export default function PagosPage() {
   const cargarDatos = useCallback(async () => {
     setIsLoading(true)
     try {
-      const sidFiltro = sucursalId !== "todas" ? sucursalId : undefined
-      const citasSucursalId = sucursalId !== "todas" ? sucursalId : null
+      const resolvedFilter =
+        sucursalId !== "todas"
+          ? sucursalId
+          : isAdmin
+            ? undefined
+            : primarySucursal
+
+      const sidFiltro = resolvedFilter
+      const citasSucursalId = resolvedFilter ?? null
 
       const [sucData, pagosData, citasData] = await Promise.all([
         isAdmin
           ? getSucursalesActivasFromDB()
-          : userSucursalIds.length > 1
+          : userSucursalIds.length > 0
             ? getSucursalesByIdsFromDB(userSucursalIds)
             : Promise.resolve([] as Sucursal[]),
         getPagosFromDB(sidFiltro, fecha),
@@ -147,8 +157,7 @@ export default function PagosPage() {
           : Promise.resolve([] as Cita[]),
       ])
 
-      // Sucursales — admins ven todas; managers multi-sucursal ven las suyas
-      if (isAdmin || userSucursalIds.length > 1) setSucursales(sucData)
+      if (isAdmin || userSucursalIds.length > 0) setSucursales(sucData)
 
       // Pagos + resumen
       setPagos(pagosData)
@@ -157,17 +166,19 @@ export default function PagosPage() {
       // Citas
       if (citasSucursalId) {
         setCitas(citasData)
-      } else if (sucData.length > 0) {
+      } else if (isAdmin && sucData.length > 0) {
         // Admin con "todas" → cargar primera sucursal de la lista
         const primerasCitas = await getCitasByDateAndSucursalFromDB(fecha, sucData[0].id)
         setCitas(primerasCitas)
+      } else {
+        setCitas([])
       }
     } catch (e) {
       console.error(e)
     } finally {
       setIsLoading(false)
     }
-  }, [fecha, sucursalId, isAdmin, userSucursalIds.join(',')])
+  }, [fecha, sucursalId, isAdmin, userSucursalIds.join(","), primarySucursal])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 

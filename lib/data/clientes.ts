@@ -231,13 +231,61 @@ export async function searchClientesPaginated(
 }
 
 // Obtener estadísticas de clientes
-export async function getClientesStats(): Promise<{
+export async function getClientesStats(sucursalId?: string): Promise<{
   total: number
   activos: number
   vip: number
   nuevos: number
 }> {
   try {
+    if (sucursalId) {
+      const { data: cRows } = await supabase.from("citas").select("cliente_id").eq("sucursal_id", sucursalId)
+      const { data: pRows } = await supabase
+        .from("pagos")
+        .select("cliente_id")
+        .eq("sucursal_id", sucursalId)
+        .eq("estado", "completado")
+
+      const idSet = new Set<string>()
+      for (const r of cRows ?? []) {
+        const id = (r as { cliente_id: string }).cliente_id
+        if (id) idSet.add(id)
+      }
+      for (const r of pRows ?? []) {
+        const id = (r as { cliente_id: string }).cliente_id
+        if (id) idSet.add(id)
+      }
+      const ids = [...idSet]
+      if (ids.length === 0) return { total: 0, activos: 0, vip: 0, nuevos: 0 }
+
+      const chunks: string[][] = []
+      for (let i = 0; i < ids.length; i += 400) chunks.push(ids.slice(i, i + 400))
+
+      let activos = 0
+      let vip = 0
+      let nuevos = 0
+      const hoy = new Date()
+      const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const fechaLimite = hace30Dias.toISOString().split("T")[0]
+
+      for (const chunk of chunks) {
+        const { data: rows } = await supabase
+          .from("clientes")
+          .select("estado, fecha_registro")
+          .in("id", chunk)
+
+        for (const row of rows ?? []) {
+          const estado = (row as { estado: string | null }).estado
+          const fr = (row as { fecha_registro: string | null }).fecha_registro
+          if (estado === "activo") activos++
+          if (estado === "vip") vip++
+          if (fr && fr >= fechaLimite) nuevos++
+        }
+      }
+
+      return { total: ids.length, activos, vip, nuevos }
+    }
+
     // Obtener el total de clientes usando count
     const { count: totalCount, error: totalError } = await supabase
       .from('clientes')

@@ -15,22 +15,21 @@ import {
   getServiciosPopulares, 
   getResumenSucursales 
 } from "@/lib/data/dashboard"
-import { getCurrentUser, type User } from "@/lib/auth"
+import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, type User } from "@/lib/auth"
 
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [selectedSucursal, setSelectedSucursal] = useState("all")
 
-  // Calcular isAdmin de forma segura (siempre definido)
-  const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
-  const userSucursalId = currentUser?.sucursalId
+  const isGlobalAdmin = isGlobalAdministrator(currentUser)
+  const branchScopeId = effectivePrimarySucursalId(currentUser)
 
   useEffect(() => {
     const user = getCurrentUser()
     setCurrentUser(user)
-    // Si no es admin, establecer su sucursal automáticamente
-    if (user && user.role !== 'admin' && user.sucursalId) {
-      setSelectedSucursal(user.sucursalId)
+    if (user && !isGlobalAdministrator(user)) {
+      const sid = effectivePrimarySucursalId(user)
+      if (sid) setSelectedSucursal(sid)
     }
   }, [])
   const [stats, setStats] = useState({ citasHoy: 0, clientesActivos: 0, ingresosHoy: 0, ocupacion: 0 })
@@ -44,10 +43,9 @@ export default function DashboardPage() {
     async function loadDashboardData() {
       try {
         setIsLoading(true)
-        // Determinar sucursal a usar (filtrar por rol)
-        const sucursalId = !isAdmin && userSucursalId 
-          ? userSucursalId 
-          : (selectedSucursal === 'all' ? undefined : selectedSucursal)
+        const sucursalId = isGlobalAdministrator(currentUser)
+          ? (selectedSucursal === 'all' ? undefined : selectedSucursal)
+          : branchScopeId
 
         const isManager = currentUser?.role === 'manager'
         const hoy = new Date()
@@ -58,7 +56,7 @@ export default function DashboardPage() {
           getEstadoCitas(sucursalId),
           getProximasCitas(4, sucursalId),
           getServiciosPopulares(4, sucursalId, isManager ? fechaHoy : undefined),
-          isAdmin ? getResumenSucursales(sucursalId) : Promise.resolve([]) // Solo admin ve resumen de todas
+          isGlobalAdministrator(currentUser) ? getResumenSucursales(sucursalId) : Promise.resolve([])
         ])
         
         setStats(statsData)
@@ -76,7 +74,7 @@ export default function DashboardPage() {
     if (currentUser) {
       loadDashboardData()
     }
-  }, [selectedSucursal, currentUser, isAdmin, userSucursalId])
+  }, [selectedSucursal, currentUser, branchScopeId])
 
   if (isLoading) {
     return (
@@ -96,7 +94,7 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
           <p className="text-muted-foreground">Resumen general de operaciones y productividad</p>
         </div>
-        {isAdmin && (
+        {isGlobalAdmin && (
           <div className="w-64">
             <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} />
           </div>
@@ -136,14 +134,14 @@ export default function DashboardPage() {
 
       {/* Gráfico de Productividad por Sucursales */}
       <ProductividadSucursalesChart
-        isManager={currentUser?.role === 'manager'}
-        sucursalId={currentUser?.sucursalId ?? undefined}
+        isManager={currentUser?.role === 'manager' || currentUser?.role === 'branch-admin'}
+        sucursalId={!isGlobalAdministrator(currentUser) ? branchScopeId : undefined}
       />
 
       {/* Top 10 Empleados */}
       <TopEmpleados
-        isManager={currentUser?.role === 'manager'}
-        sucursalId={currentUser?.sucursalId ?? undefined}
+        isManager={currentUser?.role === 'manager' || currentUser?.role === 'branch-admin'}
+        sucursalId={!isGlobalAdministrator(currentUser) ? branchScopeId : undefined}
       />
 
       {/* Cards de información adicional */}

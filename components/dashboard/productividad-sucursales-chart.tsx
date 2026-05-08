@@ -50,7 +50,7 @@ export function ProductividadSucursalesChart({ isManager = false, sucursalId }: 
     async function loadData() {
       try {
         setIsLoading(true)
-        const productividad = await getProductividadSucursalesFromDB(isManager ? sucursalId : undefined)
+        const productividad = await getProductividadSucursalesFromDB(sucursalId)
         setData(productividad.sort((a, b) => b.citas - a.citas))
       } catch (err) {
         console.error('Error cargando productividad de sucursales:', err)
@@ -60,7 +60,7 @@ export function ProductividadSucursalesChart({ isManager = false, sucursalId }: 
     }
 
     loadData()
-  }, [])
+  }, [sucursalId, isManager])
 
   if (isLoading) {
     return (

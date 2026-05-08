@@ -33,7 +33,7 @@ export function TopEmpleados({ isManager = false, sucursalId }: TopEmpleadosProp
     async function loadData() {
       try {
         setIsLoading(true)
-        const empleados = await getTopEmpleadosFromDB(10, isManager ? sucursalId : undefined)
+        const empleados = await getTopEmpleadosFromDB(10, sucursalId)
         setTopEmpleados(empleados)
       } catch (err) {
         console.error('Error cargando top empleados:', err)
@@ -43,7 +43,7 @@ export function TopEmpleados({ isManager = false, sucursalId }: TopEmpleadosProp
     }
 
     loadData()
-  }, [])
+  }, [sucursalId, isManager])
 
   if (isLoading) {
     return (

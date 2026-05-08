@@ -1,17 +1,9 @@
 import type { User } from "@/lib/auth"
+import { PASEO_TEC_SUCURSAL_ID, collectEffectiveSucursalIds } from "@/lib/auth"
 
-/** Sucursal "Paseo Tec": acceso al módulo de vacaciones solo con rol `branch-admin`. */
-export const PASEO_TEC_SUCURSAL_ID = "b37b010f-6e12-4700-abde-f646956a271f"
+export { PASEO_TEC_SUCURSAL_ID } from "@/lib/auth"
 
-function collectUserSucursalIds(user: User): string[] {
-  const fromArray = user.sucursalIds?.filter(Boolean) ?? []
-  if (user.sucursalId && !fromArray.includes(user.sucursalId)) {
-    return [...fromArray, user.sucursalId]
-  }
-  return fromArray
-}
-
-/** Cuentas de sucursal (bloqueo de dashboard raíz y reportes), análogo a manager. */
+/** Cuentas de sucursal (bloqueo de dashboard raíz para manager/branch-admin), análogo a manager. */
 export function userIsSucursalScopedLike(user: User | null): boolean {
   if (!user) return false
   return user.role === "manager" || user.role === "branch-admin"
@@ -26,7 +18,7 @@ export function canAccessVacacionesModule(user: User | null): boolean {
   if (!user) return false
   if (user.role === "admin" || user.role === "superadmin") return true
 
-  const ids = collectUserSucursalIds(user)
+  const ids = collectEffectiveSucursalIds(user)
   const touchesPaseoTec = ids.includes(PASEO_TEC_SUCURSAL_ID)
 
   if (touchesPaseoTec && user.role !== "branch-admin") return false

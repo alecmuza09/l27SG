@@ -54,8 +54,8 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, type User } from "@/lib/auth"
+import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getCurrentUser, type User, isGlobalAdministrator, collectEffectiveSucursalIds, effectivePrimarySucursalId } from "@/lib/auth"
 import {
   getAusenciasFromDB,
   createAusencia,
@@ -135,7 +135,7 @@ export default function AusenciasPage() {
   const [isDetalleOpen, setIsDetalleOpen] = useState(false)
   const [detalleAusencia, setDetalleAusencia] = useState<Ausencia | null>(null)
 
-  const isAdmin: boolean = Boolean(currentUser?.role === "admin")
+  const isAdmin: boolean = isGlobalAdministrator(currentUser)
 
   // ─── Carga inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -143,8 +143,8 @@ export default function AusenciasPage() {
   }, [])
 
   useEffect(() => {
-    loadAll()
-  }, [])
+    if (currentUser) loadAll()
+  }, [currentUser])
 
   useEffect(() => {
     if (!ausenciaParaEditar) return
@@ -168,14 +168,28 @@ export default function AusenciasPage() {
   async function loadAll() {
     setIsLoading(true)
     try {
-      const [ausenciasData, empleadosData, sucursalesData] = await Promise.all([
+      const u = currentUser ?? getCurrentUser()
+      const scope = isGlobalAdministrator(u) ? undefined : effectivePrimarySucursalId(u)
+      const ids = collectEffectiveSucursalIds(u)
+
+      const [ausenciasRaw, empleadosData, sucursalesLista] = await Promise.all([
         getAusenciasFromDB(),
-        getEmpleadosFromDB(),
-        getSucursalesActivasFromDB(),
+        getEmpleadosFromDB(scope),
+        isGlobalAdministrator(u)
+          ? getSucursalesActivasFromDB()
+          : ids.length > 0
+            ? getSucursalesByIdsFromDB(ids)
+            : Promise.resolve([] as Sucursal[]),
       ])
+
+      const empIds = new Set(empleadosData.map((e) => e.id))
+      const ausenciasData = isGlobalAdministrator(u)
+        ? ausenciasRaw
+        : ausenciasRaw.filter((a) => empIds.has(a.empleadoId))
+
       setAusencias(ausenciasData)
       setEmpleados(empleadosData)
-      setSucursales(sucursalesData)
+      setSucursales(sucursalesLista)
     } catch (err) {
       toast.error("Error al cargar datos")
     } finally {

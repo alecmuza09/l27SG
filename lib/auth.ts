@@ -18,6 +18,37 @@ export interface AuthState {
 
 const USER_KEY = "luna27_user"
 
+/** UUID sucursal Paseo Tec (debe coincidir con BD y scripts). */
+export const PASEO_TEC_SUCURSAL_ID = "b37b010f-6e12-4700-abde-f646956a271f"
+
+/** Une junction + columna base; evita `sucursalIds: []` cuando `usuario_sucursales` viene vacío pero hay `sucursal_id`. */
+function mergeSucursalIdsFromUsuarioRow(usuarioData: Record<string, unknown> | null | undefined): string[] {
+  if (!usuarioData) return []
+  const junction = usuarioData.usuario_sucursales as Array<{ sucursal_id: string }> | undefined
+  const fromJunction =
+    Array.isArray(junction) ? junction.map((r) => r.sucursal_id).filter(Boolean) : []
+  const baseId = usuarioData.sucursal_id as string | null | undefined
+  const merged = new Set<string>(fromJunction)
+  if (baseId) merged.add(baseId)
+  return [...merged]
+}
+
+/** IDs de sucursal efectivos para filtrado en UI (corrige objetos guardados antes del merge correcto). */
+export function collectEffectiveSucursalIds(user: User | null): string[] {
+  if (!user) return []
+  const s = new Set<string>()
+  for (const id of user.sucursalIds ?? []) if (id) s.add(id)
+  if (user.sucursalId) s.add(user.sucursalId)
+  const arr = [...s]
+  if (arr.length === 0 && user.role === "branch-admin") return [PASEO_TEC_SUCURSAL_ID]
+  return arr
+}
+
+/** Primera sucursal para consultas KPI / citas cuando el usuario no es admin global. */
+export function effectivePrimarySucursalId(user: User | null): string | undefined {
+  return collectEffectiveSucursalIds(user)[0]
+}
+
 export async function login(email: string, password: string): Promise<User> {
   // 1. Autenticar con Supabase Auth
   const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
@@ -34,23 +65,19 @@ export async function login(email: string, password: string): Promise<User> {
     .eq("activo", true)
     .maybeSingle()
 
-  const usuarioData = usuarioRaw as any
+  const usuarioData = usuarioRaw as Record<string, unknown> | undefined
 
-  const sucursalIds: string[] = usuarioData?.usuario_sucursales
-    ? (usuarioData.usuario_sucursales as Array<{ sucursal_id: string }>)
-        .map((r: { sucursal_id: string }) => r.sucursal_id)
-        .filter(Boolean)
-    : usuarioData?.sucursal_id
-      ? [usuarioData.sucursal_id]
-      : []
+  const sucursalIds = mergeSucursalIdsFromUsuarioRow(usuarioData)
+  const primarySucursal =
+    (usuarioData?.sucursal_id as string | undefined) ?? sucursalIds[0] ?? undefined
 
   const user: User = usuarioData
     ? {
-        id: usuarioData.id,
-        email: usuarioData.email,
-        name: usuarioData.nombre,
+        id: usuarioData.id as string,
+        email: usuarioData.email as string,
+        name: usuarioData.nombre as string,
         role: (usuarioData.rol as User["role"]) || "staff",
-        sucursalId: sucursalIds[0] ?? usuarioData.sucursal_id ?? undefined,
+        sucursalId: primarySucursal,
         sucursalIds,
       }
     : {
@@ -106,23 +133,19 @@ export async function refreshSession(): Promise<User | null> {
     .eq("activo", true)
     .maybeSingle()
 
-  const usuarioRefresh = usuarioRefreshRaw as any
+  const usuarioRefresh = usuarioRefreshRaw as Record<string, unknown> | undefined
 
-  const sucursalIds: string[] = usuarioRefresh?.usuario_sucursales
-    ? (usuarioRefresh.usuario_sucursales as Array<{ sucursal_id: string }>)
-        .map((r: { sucursal_id: string }) => r.sucursal_id)
-        .filter(Boolean)
-    : usuarioRefresh?.sucursal_id
-      ? [usuarioRefresh.sucursal_id]
-      : []
+  const sucursalIds = mergeSucursalIdsFromUsuarioRow(usuarioRefresh)
+  const primarySucursal =
+    (usuarioRefresh?.sucursal_id as string | undefined) ?? sucursalIds[0] ?? undefined
 
   const user: User = usuarioRefresh
     ? {
-        id: usuarioRefresh.id,
-        email: usuarioRefresh.email,
-        name: usuarioRefresh.nombre,
+        id: usuarioRefresh.id as string,
+        email: usuarioRefresh.email as string,
+        name: usuarioRefresh.nombre as string,
         role: (usuarioRefresh.rol as User["role"]) || "staff",
-        sucursalId: sucursalIds[0] ?? usuarioRefresh.sucursal_id ?? undefined,
+        sucursalId: primarySucursal,
         sucursalIds,
       }
     : {

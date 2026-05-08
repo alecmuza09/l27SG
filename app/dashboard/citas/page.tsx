@@ -6,7 +6,7 @@ import { Plus } from "lucide-react"
 import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, type User } from "@/lib/auth"
+import { getCurrentUser, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 
 export default function CitasPage() {
   const getTodayLocal = () => {
@@ -29,7 +29,7 @@ export default function CitasPage() {
   const isAdmin: boolean = Boolean(
     currentUser?.role === 'admin' || currentUser?.role === 'superadmin'
   )
-  const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
+  const userSucursalIds = collectEffectiveSucursalIds(currentUser)
 
   // Detectar breakpoint lg (≥1024px) en tiempo de ejecución
   useEffect(() => {

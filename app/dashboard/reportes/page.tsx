@@ -29,7 +29,7 @@ import {
 } from "@/lib/data/dashboard"
 import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser } from "@/lib/auth"
+import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, type User } from "@/lib/auth"
 import * as XLSX from "xlsx"
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -190,12 +190,16 @@ function BarraHorizontal({ valor, max, colorClass = "bg-primary" }: { valor: num
 // ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function ReportesPage() {
-  const currentUser    = getCurrentUser()
+  const [viewer, setViewer] = useState<User | null>(null)
+  useEffect(() => {
+    void refreshSession().then(setViewer)
+  }, [])
+
+  const currentUser    = viewer ?? getCurrentUser()
   const isSuperAdmin   = currentUser?.role === "superadmin"
-  const isAdmin        = currentUser?.role === "admin" || isSuperAdmin
+  const isAdmin        = isGlobalAdministrator(currentUser)
   const isManager      = currentUser?.role === "manager"
-  // managers tienen su propia sucursal fija; admins pueden seleccionar
-  const sucursalFija   = isAdmin ? undefined : (currentUser?.sucursalId ?? undefined)
+  const sucursalFija   = isAdmin ? undefined : effectivePrimarySucursalId(currentUser)
 
   // ── Filtros ──
   const [periodo,          setPeriodo]          = useState<Periodo>("mes")
@@ -245,7 +249,7 @@ export default function ReportesPage() {
         getCitasResumenPeriodo(fechaDesde, fechaHasta, sucId),
         getServiciosPopulares(10, sucId, undefined, fechaDesde, fechaHasta),
         getTopEmpleadosFromDB(10, sucId, fechaDesde, fechaHasta),
-        getClientesStats(),
+        getClientesStats(sucId),
         getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucId),
         isAdmin && sucursalFilter === "all"
           ? getMetricasSucursales(fechaDesde, fechaHasta)

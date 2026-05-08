@@ -76,7 +76,7 @@ import {
 } from "@/lib/data/gift-card-folios-tienda"
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, refreshSession, isGlobalAdministrator, type User } from "@/lib/auth"
+import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 
 // ─── Configuración de estados ─────────────────────────────────────────────
 
@@ -107,12 +107,11 @@ const fmtMXN = (n: number) =>
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" }) : "—"
 
-/** Alcance cuando el usuario pertenece a una sola sucursal explícita; si hay varias, RLS acota. */
+/** Una sola sucursal explícita para KPI/tablas; si hay varias o sólo RLS, undefined. */
 function narrowGiftCardScopeSucursalId(user: User | null): string | undefined {
   if (!user || isGlobalAdministrator(user)) return undefined
-  if (user.sucursalIds?.length === 1) return user.sucursalIds[0]
-  if ((!user.sucursalIds || user.sucursalIds.length === 0) && user.sucursalId) return user.sucursalId
-  return undefined
+  const ids = collectEffectiveSucursalIds(user)
+  return ids.length === 1 ? ids[0] : undefined
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

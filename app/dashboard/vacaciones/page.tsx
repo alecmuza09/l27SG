@@ -26,7 +26,13 @@ import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns
 import { es } from "date-fns/locale"
 import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Edit, Trash2, Loader2 } from "lucide-react"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import {
+  refreshSession,
+  effectivePrimarySucursalId,
+  collectEffectiveSucursalIds,
+  type User,
+} from "@/lib/auth"
+import { getSucursalesByIdsFromDB, getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
   getVacacionesFromDB,
   getSaldosVacaciones,
@@ -37,7 +43,6 @@ import {
   deleteVacacionInDB,
 } from "@/lib/data/vacaciones"
 import type { Vacacion, SaldoVacaciones } from "@/lib/types/vacaciones"
-import { refreshSession, type User } from "@/lib/auth"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
 
 const estadoColors: Record<Vacacion["estado"], string> = {
@@ -91,14 +96,14 @@ export default function VacacionesPage() {
   const [calendarMonth, setCalendarMonth] = useState(new Date())
 
   const isAdmin = Boolean(currentUser?.role === "admin" || currentUser?.role === "superadmin")
-  const userSucursalId = currentUser?.sucursalId
-  const vacacionesScope = isAdmin ? undefined : userSucursalId
+  const primarySucursalScope = effectivePrimarySucursalId(currentUser)
+  const vacacionesScope = isAdmin ? undefined : primarySucursalScope
 
   const reloadVacacionesData = useCallback(async () => {
     const u = currentUser
     if (!u) return
     const adm = u.role === "admin" || u.role === "superadmin"
-    const sc = adm ? undefined : u.sucursalId
+    const sc = adm ? undefined : effectivePrimarySucursalId(u)
     const [v, s] = await Promise.all([getVacacionesFromDB(sc), getSaldosVacaciones(sc)])
     setVacaciones(v)
     setSaldos(s)
@@ -120,22 +125,26 @@ export default function VacacionesPage() {
       }
       setCurrentUser(user)
       const isAdm = user.role === "admin" || user.role === "superadmin"
-      const sid = user.sucursalId
-      const scope = isAdm ? undefined : sid
-      if (!isAdm && sid) {
-        setFilterSucursal(sid)
+      const primary = effectivePrimarySucursalId(user)
+      const scope = isAdm ? undefined : primary
+      if (!isAdm && primary) {
+        setFilterSucursal(primary)
       } else {
         setFilterSucursal("todos")
       }
 
+      const ids = collectEffectiveSucursalIds(user)
+
       try {
-        const [vacacionesData, saldosData, empleadosData, sucursalesAll] = await Promise.all([
+        const [vacacionesData, saldosData, empleadosData, sucursalesAll, sucursalesPorId] =
+          await Promise.all([
           getVacacionesFromDB(scope),
           getSaldosVacaciones(scope),
           getEmpleadosFromDB(scope),
           getSucursalesActivasFromDB(),
+          !isAdm && ids.length > 0 ? getSucursalesByIdsFromDB(ids) : Promise.resolve([] as Sucursal[]),
         ])
-        const sucursalesData = isAdm ? sucursalesAll : sid ? sucursalesAll.filter((s) => s.id === sid) : []
+        const sucursalesData = isAdm ? sucursalesAll : sucursalesPorId
         if (cancelled) return
         setVacaciones(vacacionesData)
         setSaldos(saldosData)
@@ -189,8 +198,8 @@ export default function VacacionesPage() {
 
   const resetForm = () => {
     const adm = currentUser?.role === "admin" || currentUser?.role === "superadmin"
-    const sid = currentUser?.sucursalId
-    setFormSucursal(adm ? "" : sid ?? "")
+    const pid = effectivePrimarySucursalId(currentUser)
+    setFormSucursal(adm ? "" : pid ?? "")
     setFormEmpleado("")
     setFormFechaInicio(undefined)
     setFormFechaFin(undefined)
@@ -201,8 +210,9 @@ export default function VacacionesPage() {
   useEffect(() => {
     if (!isCreateDialogOpen || !currentUser) return
     const adm = currentUser.role === "admin" || currentUser.role === "superadmin"
-    if (!adm && currentUser.sucursalId) {
-      setFormSucursal(currentUser.sucursalId)
+    const pid = effectivePrimarySucursalId(currentUser)
+    if (!adm && pid) {
+      setFormSucursal(pid)
     }
   }, [isCreateDialogOpen, currentUser])
 
@@ -466,7 +476,7 @@ export default function VacacionesPage() {
                   <Select
                     value={filterSucursal}
                     onValueChange={setFilterSucursal}
-                    disabled={!isAdmin && Boolean(userSucursalId)}
+                    disabled={!isAdmin && Boolean(primarySucursalScope)}
                   >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue placeholder="Sucursal" />
@@ -709,7 +719,7 @@ export default function VacacionesPage() {
               <Select
                 value={formSucursal}
                 onValueChange={(v) => { setFormSucursal(v); setFormEmpleado("") }}
-                disabled={!isAdmin && Boolean(userSucursalId)}
+                disabled={!isAdmin && Boolean(primarySucursalScope)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar sucursal" />
