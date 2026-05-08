@@ -28,17 +28,16 @@ import { logout, getCurrentUser } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { canAccessVacacionesModule, userIsSucursalScopedLike } from "@/lib/auth-vacaciones"
 
-// Rutas exclusivas para admin — manager/staff no las ven en el sidebar
-const ADMIN_ONLY = new Set([
-  "/dashboard/empleados",
+// Catálogo y sedes globales: sólo admin / superadmin en el sidebar
+const GLOBAL_ADMIN_ONLY = new Set([
   "/dashboard/servicios",
   "/dashboard/inventario",
   "/dashboard/sucursales",
   "/dashboard/promociones",
 ])
 
-// Rutas ocultas para cuentas de sucursal (manager / branch-admin)
-const SUCURSAL_SCOPED_HIDDEN = new Set(["/dashboard", "/dashboard/reportes"])
+// ─── sidebar: branch-admin ───────────────────────────────────────────────
+// Ocultamos el dashboard raíz para cuentas de sucursal; reportes sólo ocultos para manager.
 
 const navigation = [
   { name: "Dashboard",  href: "/dashboard",           icon: BarChart3  },
@@ -76,21 +75,26 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const router = useRouter()
 
   const currentUser = getCurrentUser()
-  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "superadmin"
+  const isGlobalAdmin = currentUser?.role === "admin" || currentUser?.role === "superadmin"
   const isSuperAdmin = currentUser?.role === "superadmin"
+  const isBranchAdmin = currentUser?.role === "branch-admin"
+  const isManager = currentUser?.role === "manager"
+  /** Cuentas con alcance de sucursala (bloquear «Dashboard» global; managers sin reportes) */
   const isSucursalScoped = userIsSucursalScopedLike(currentUser)
 
-  const visibleNav = isAdmin
+  const visibleNav = isGlobalAdmin
     ? navigation
     : navigation.filter((i) => {
-        if (ADMIN_ONLY.has(i.href)) return false
-        if (isSucursalScoped && SUCURSAL_SCOPED_HIDDEN.has(i.href)) return false
+        if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
+        if (i.href === "/dashboard/empleados" && !isBranchAdmin) return false
+        if (i.href === "/dashboard" && isSucursalScoped) return false
+        if (i.href === "/dashboard/reportes" && isManager) return false
         return true
       })
-  const visibleModules = isAdmin
+  const visibleModules = isGlobalAdmin
     ? newModules
     : newModules.filter((i) => {
-        if (ADMIN_ONLY.has(i.href)) return false
+        if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
         if (i.href === "/dashboard/vacaciones" && !canAccessVacacionesModule(currentUser)) return false
         return true
       })
@@ -168,7 +172,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
           )
         })}
 
-        {isAdmin && (
+        {isSuperAdmin && (
           <>
             <div className="my-4 border-t border-border" />
             {!isCollapsed && (

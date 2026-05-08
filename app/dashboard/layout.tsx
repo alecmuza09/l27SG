@@ -8,19 +8,18 @@ import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Loader2 } from "lucide-react"
 import { refreshSession } from "@/lib/auth"
-import { canAccessVacacionesModule, userIsSucursalScopedLike } from "@/lib/auth-vacaciones"
+import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
 
-// Rutas que solo puede visitar un admin
-const ADMIN_ONLY_ROUTES = [
-  "/dashboard/empleados",
+// Catálogo y configuración global: sólo admin / superadmin
+const GLOBAL_ADMIN_ONLY_ROUTES = [
   "/dashboard/servicios",
   "/dashboard/inventario",
   "/dashboard/sucursales",
   "/dashboard/promociones",
 ]
 
-// Rutas bloqueadas para managers y branch-admin (cuentas de sucursal)
-const SUCURSAL_SCOPED_BLOCKED_ROUTES = ["/dashboard/reportes"]
+// Empleados: admin global superadmin + branch-admin (lectura equipo de su sucursal)
+const EMPLEADOS_ROUTE = "/dashboard/empleados"
 
 export default function DashboardLayout({
   children,
@@ -39,10 +38,19 @@ export default function DashboardLayout({
         router.replace("/")
         return
       }
-      // Redirigir manager/staff si intentan acceder a rutas exclusivas de admin
-      if (user.role !== "admin") {
-        const isAdminRoute = ADMIN_ONLY_ROUTES.some(r => pathname.startsWith(r))
-        if (isAdminRoute) {
+      const isGlobalAdmin = user.role === "admin" || user.role === "superadmin"
+      const isBranchAdmin = user.role === "branch-admin"
+
+      if (!isGlobalAdmin) {
+        const onGlobalStrict = GLOBAL_ADMIN_ONLY_ROUTES.some((r) => pathname.startsWith(r))
+        if (onGlobalStrict) {
+          router.replace("/dashboard/citas")
+          return
+        }
+      }
+
+      if (pathname.startsWith(EMPLEADOS_ROUTE)) {
+        if (!isGlobalAdmin && !isBranchAdmin) {
           router.replace("/dashboard/citas")
           return
         }
@@ -51,14 +59,17 @@ export default function DashboardLayout({
         router.replace("/dashboard/citas")
         return
       }
-      // Redirigir managers / branch-admin si intentan acceder a dashboard principal o reportes
-      if (userIsSucursalScopedLike(user)) {
-        const isSucursalBlocked =
-          pathname === "/dashboard" || SUCURSAL_SCOPED_BLOCKED_ROUTES.some((r) => pathname.startsWith(r))
-        if (isSucursalBlocked) {
+      // Managers: sin dashboard ni reportes (datos sólo desde citas/u otros).
+      // branch-admin sí puede usar /dashboard/reportes (alcance ya filtrado en la página).
+      if (user.role === "manager") {
+        if (pathname === "/dashboard" || pathname.startsWith("/dashboard/reportes")) {
           router.replace("/dashboard/citas")
           return
         }
+      }
+      if (user.role === "branch-admin" && pathname === "/dashboard") {
+        router.replace("/dashboard/citas")
+        return
       }
       setAuthChecked(true)
     }

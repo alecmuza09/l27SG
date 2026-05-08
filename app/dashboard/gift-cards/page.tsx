@@ -76,7 +76,7 @@ import {
 } from "@/lib/data/gift-card-folios-tienda"
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, type User } from "@/lib/auth"
+import { getCurrentUser, refreshSession, isGlobalAdministrator, type User } from "@/lib/auth"
 
 // ─── Configuración de estados ─────────────────────────────────────────────
 
@@ -106,6 +106,14 @@ const fmtMXN = (n: number) =>
 
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" }) : "—"
+
+/** Alcance cuando el usuario pertenece a una sola sucursal explícita; si hay varias, RLS acota. */
+function narrowGiftCardScopeSucursalId(user: User | null): string | undefined {
+  if (!user || isGlobalAdministrator(user)) return undefined
+  if (user.sucursalIds?.length === 1) return user.sucursalIds[0]
+  if ((!user.sucursalIds || user.sucursalIds.length === 0) && user.sucursalId) return user.sucursalId
+  return undefined
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Página
@@ -141,6 +149,8 @@ export default function GiftCardsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isActivandoTarjeta, setIsActivandoTarjeta] = useState(false)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
+  /** Filtro explícito sólo cuando el usuario tiene una sucursal (p. ej. branch-admin). */
+  const [giftCardsSucursalScope, setGiftCardsSucursalScope] = useState<string | undefined>(undefined)
 
   // ── KPIs ───────────────────────────────────────────────────────────────
   const [kpis, setKpis] = useState({
@@ -213,6 +223,7 @@ export default function GiftCardsPage() {
       pageSize: PAGE_SIZE,
       estado: estado !== 'todos' ? estado : undefined,
       search: search || undefined,
+      sucursalId: giftCardsSucursalScope,
     })
     setGiftCards(result.data)
     setTotalCount(result.total)
@@ -225,8 +236,9 @@ export default function GiftCardsPage() {
         pageSize: PAGE_SIZE,
         estado: filterEstado !== 'todos' ? filterEstado : undefined,
         search: debouncedSearch || undefined,
+        sucursalId: giftCardsSucursalScope,
       }),
-      getGiftCardsKPIsFromDB(),
+      getGiftCardsKPIsFromDB(giftCardsSucursalScope),
     ])
     setGiftCards(result.data)
     setTotalCount(result.total)
@@ -235,13 +247,16 @@ export default function GiftCardsPage() {
 
   // Carga inicial: sucursales + KPIs + primera página en paralelo
   useEffect(() => {
-    setCurrentUser(getCurrentUser())
     async function init() {
       setIsLoading(true)
       try {
+        const user = await refreshSession()
+        setCurrentUser(user ?? getCurrentUser())
+        const sid = narrowGiftCardScopeSucursalId(user ?? getCurrentUser())
+        setGiftCardsSucursalScope(sid)
         const [result, kpiData, sucData] = await Promise.all([
-          getGiftCardsFromDB({ page: 0, pageSize: PAGE_SIZE }),
-          getGiftCardsKPIsFromDB(),
+          getGiftCardsFromDB({ page: 0, pageSize: PAGE_SIZE, sucursalId: sid }),
+          getGiftCardsKPIsFromDB(sid),
           getSucursalesActivasFromDB(),
         ])
         setGiftCards(result.data)
@@ -272,7 +287,7 @@ export default function GiftCardsPage() {
   useEffect(() => {
     if (!initialized.current) return
     loadGiftCards(currentPage, debouncedSearch, filterEstado)
-  }, [currentPage, debouncedSearch, filterEstado]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentPage, debouncedSearch, filterEstado, giftCardsSucursalScope]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Búsqueda de clientes (modal Crear) ────────────────────────────────
   useEffect(() => {

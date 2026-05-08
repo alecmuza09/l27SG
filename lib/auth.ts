@@ -57,7 +57,7 @@ export async function login(email: string, password: string): Promise<User> {
         id: authData.user.id,
         email: authData.user.email!,
         name: authData.user.user_metadata?.nombre || authData.user.email!.split("@")[0],
-        role: (authData.user.user_metadata?.rol || "admin") as User["role"],
+        role: (authData.user.user_metadata?.rol as User["role"]) || "staff",
       }
 
   if (typeof window !== "undefined") {
@@ -129,7 +129,7 @@ export async function refreshSession(): Promise<User | null> {
         id: data.session.user.id,
         email: data.session.user.email!,
         name: data.session.user.user_metadata?.nombre || data.session.user.email!.split("@")[0],
-        role: (data.session.user.user_metadata?.rol || "admin") as User["role"],
+        role: (data.session.user.user_metadata?.rol as User["role"]) || "staff",
       }
 
   if (typeof window !== "undefined") {
@@ -149,4 +149,9 @@ export function checkPermission(user: User | null, requiredRole: User["role"]): 
     staff: 1,
   }
   return roleHierarchy[user.role] >= roleHierarchy[requiredRole]
+}
+
+/** Vista de todas las sucursales en la app cliente (roles admin / superadmin). */
+export function isGlobalAdministrator(user: User | null): boolean {
+  return user?.role === "admin" || user?.role === "superadmin"
 }
