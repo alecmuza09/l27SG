@@ -959,12 +959,19 @@ export default function GiftCardsPage() {
 
       {/* Crear */}
       <Dialog open={isCreateOpen} onOpenChange={(open) => { if (!open) resetCreateForm(); setIsCreateOpen(open) }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent
+          showCloseButton
+          className={cn(
+            "max-w-md gap-0 p-0 sm:max-w-lg",
+            "flex max-h-[min(90dvh,calc(100dvh-2rem))] flex-col overflow-hidden",
+          )}
+        >
+          <DialogHeader className="shrink-0 space-y-2 border-border border-b px-6 pb-4 pt-6 pr-14 text-center sm:text-left">
             <DialogTitle>Nueva Gift Card</DialogTitle>
             <DialogDescription>Ingresa los datos de la nueva tarjeta de regalo</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-2 pt-4">
+          <div className="grid gap-4 pb-4">
 
             {/* Código */}
             <div className="grid gap-2">
@@ -1228,7 +1235,8 @@ export default function GiftCardsPage() {
               )}
             </div>
           </div>
-          <DialogFooter>
+          </div>
+          <DialogFooter className="shrink-0 gap-3 border-border border-t bg-background px-6 py-4">
             <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
