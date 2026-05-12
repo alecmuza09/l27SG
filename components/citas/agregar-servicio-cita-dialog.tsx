@@ -125,6 +125,7 @@ export function AgregarServicioCitaDialog({
     const start = mins(horaInicio)
     const end = start + servicioSel.duracion
     return citasExistentes.some((c) => {
+      if (c.estado === "cancelada") return false
       if (c.empleadoId !== empleadoId || c.fecha !== fecha) return false
       return overlaps(
         start,

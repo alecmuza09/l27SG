@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, UserRound as UserIcon, DollarSign, ChevronLeft, ChevronRight, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History, Building2, ListPlus } from "lucide-react"
+import { Clock, UserRound as UserIcon, DollarSign, ChevronLeft, ChevronRight, ChevronDown, CalendarIcon, MapPin, Plus, Palmtree, Loader2, Edit, MoreVertical, UtensilsCrossed, BedDouble, X, ShoppingBag, Timer, UserX, CheckCircle, XCircle, FileText, Stethoscope, LogOut, AlertTriangle, History, Building2, ListPlus } from "lucide-react"
 import { getCitasByDateAndSucursalFromDB, getCitasByEmpleadoAndDateFromDB, type Cita } from "@/lib/data/citas"
 import { type Empleado } from "@/lib/data/empleados"
 import {
@@ -54,6 +54,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { getClienteById, type Cliente } from "@/lib/data/clientes"
 import {
   getAgendaBloquesFromDB,
@@ -169,6 +170,11 @@ function bloqueTieneVentanaHoraria(b: Pick<BloqueAgenda, "horaInicio" | "horaFin
 
 function esDescansoDiaCompleto(b: BloqueAgenda): boolean {
   return b.tipo === "descanso" && !bloqueTieneVentanaHoraria(b)
+}
+
+/** Citas canceladas no bloquean la rejilla ni el solapamiento en la agenda visual. */
+function citaOcupaFranjaEnAgenda(c: Cita): boolean {
+  return c.estado !== "cancelada"
 }
 
 // Detecta si dos citas se solapan en tiempo
@@ -728,6 +734,20 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     () => citas.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
     [citas, selectedDate, selectedSucursal],
   )
+
+  const citasCanceladasDia = useMemo(
+    () =>
+      citasFiltradas
+        .filter((c) => c.estado === "cancelada")
+        .sort((a, b) => horaToMins(a.horaInicio) - horaToMins(b.horaInicio)),
+    [citasFiltradas],
+  )
+
+  const [citasCanceladasOpen, setCitasCanceladasOpen] = useState(false)
+
+  useEffect(() => {
+    setCitasCanceladasOpen(false)
+  }, [selectedDate, selectedSucursal])
 
   const citasPorEstado = useMemo(() => {
     return ESTADOS.reduce(
@@ -1340,6 +1360,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   >
                     {[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].map((empleado) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
+                      const citasEmpleadoAgenda = citasEmpleado.filter(citaOcupaFranjaEnAgenda)
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
                       const descansoHoy = bloquesAgenda.some((b) => b.empleadoId === empleado.id && esDescansoDiaCompleto(b))
                       const ausenciasEmp = getAusenciasEmpleadoHoy(empleado.id)
@@ -1412,7 +1433,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                   </div>
                                   {!noDisponible && (
                                     <Badge variant="outline" className="flex-shrink-0 text-[10px] px-1 py-0 h-4">
-                                      {citasEmpleado.length}
+                                      {citasEmpleadoAgenda.length}
                                     </Badge>
                                   )}
                                 </button>
@@ -1471,7 +1492,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                               </div>
                               {!noDisponible && (
                                 <Badge variant="outline" className="flex-shrink-0 text-[10px] px-1 py-0 h-4">
-                                  {citasEmpleado.length}
+                                  {citasEmpleadoAgenda.length}
                                 </Badge>
                               )}
                             </>
@@ -1583,7 +1604,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                         ) : (
                           /* Timeline absoluto — soporta citas solapadas */
                           (() => {
-                            const overlapMap = getOverlapInfo(citasEmpleado)
+                            const overlapMap = getOverlapInfo(citasEmpleadoAgenda)
                             const totalH = TIME_SLOTS.length * SLOT_H
                             return (
                               <div className="relative" style={{ height: `${totalH}px` }}>
@@ -1603,7 +1624,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                   const isBloqueVentana = !!(isVentanaComida || isVentanaDescanso)
                                   const ausenciaSlot = isSlotBloqueadoPorAusencia(slot, ausenciasEmp)
                                   const isAusenciaParcial = !!ausenciaSlot
-                                  const isOcupado = citasEmpleado.some((c) => {
+                                  const isOcupado = citasEmpleadoAgenda.some((c) => {
                                     const ni = c.horaInicio.substring(0, 5)
                                     const nf = c.horaFin.substring(0, 5)
                                     return slot >= ni && slot < nf
@@ -1829,7 +1850,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                   })}
 
                                 {/* Tarjetas de citas — posicionadas absolutamente */}
-                                {citasEmpleado.map((cita) => {
+                                {citasEmpleadoAgenda.map((cita) => {
                                   const { col, totalCols } = overlapMap.get(cita.id) ?? { col: 0, totalCols: 1 }
                                   const topPx = horaToPx(cita.horaInicio)
                                   const heightPx = duracionToPx(cita.duracion)
@@ -2061,6 +2082,68 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </CardContent>
         </Card>
       </div>
+
+      {citasCanceladasDia.length > 0 && (
+        <Card className="border-red-200/60 dark:border-red-900/50">
+          <Collapsible open={citasCanceladasOpen} onOpenChange={setCitasCanceladasOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-muted/40 rounded-t-xl transition-colors"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <XCircle className="h-4 w-4 shrink-0 text-red-500" aria-hidden />
+                  <span className="text-sm font-medium">Citas canceladas del día</span>
+                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+                    {citasCanceladasDia.length}
+                  </Badge>
+                </div>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                    citasCanceladasOpen && "rotate-180",
+                  )}
+                  aria-hidden
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="border-t pt-3 pb-4 space-y-2">
+                <p className="text-xs text-muted-foreground pb-1">
+                  {formatDate(selectedDate)} — sucursal actual. Horario original de cada cita.
+                </p>
+                <ul className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                  {citasCanceladasDia.map((c) => (
+                    <li
+                      key={c.id}
+                      className="rounded-lg border border-red-100 dark:border-red-950/60 bg-red-50/40 dark:bg-red-950/20 px-3 py-2 text-sm"
+                    >
+                      <div className="font-medium text-foreground truncate" title={c.clienteNombre}>
+                        {c.clienteNombre}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate mt-0.5" title={c.servicioNombre}>
+                        {c.servicioNombre}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                          <UserIcon className="h-3 w-3 shrink-0" />
+                          <span className="truncate max-w-[140px]" title={c.empleadoNombre}>
+                            {c.empleadoNombre}
+                          </span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 tabular-nums text-foreground/90">
+                          <Clock className="h-3 w-3 shrink-0" />
+                          {formatHora12(c.horaInicio.substring(0, 5))}–{formatHora12(c.horaFin.substring(0, 5))}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
+        </Card>
+      )}
 
       <Dialog open={isBloquesOpen} onOpenChange={setIsBloquesOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
