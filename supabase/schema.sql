@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS empleados (
   horario_fin TIME NOT NULL,
   dias_trabajo INTEGER[], -- Array de días de la semana (0=Domingo, 6=Sábado)
   comision DECIMAL(5,2) DEFAULT 0,
+  fecha_ingreso DATE,
+  fecha_contrato_hasta DATE,
   foto TEXT,
   activo BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

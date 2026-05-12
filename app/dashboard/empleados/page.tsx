@@ -75,6 +75,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
+function formatearFechaEmpleadoMX(iso: string | null | undefined) {
+  if (!iso) return ""
+  const part = iso.split("T")[0]
+  const [y, m, d] = part.split("-").map(Number)
+  if (!y || !m || !d) return part
+  return new Date(y, m - 1, d).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })
+}
+
 export default function EmpleadosPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
@@ -102,6 +114,8 @@ export default function EmpleadosPage() {
     horarioFin: "18:00",
     diasTrabajo: [1, 2, 3, 4, 5] as number[],
     comision: 30,
+    fechaIngreso: "",
+    fechaContratoHasta: "",
   })
 
   const hoyStr = () => {
@@ -333,6 +347,8 @@ export default function EmpleadosPage() {
         horario_fin: formNuevo.horarioFin,
         dias_trabajo: formNuevo.diasTrabajo,
         comision: formNuevo.comision,
+        fecha_ingreso: formNuevo.fechaIngreso.trim() || null,
+        fecha_contrato_hasta: formNuevo.fechaContratoHasta.trim() || null,
       })
       if (result.success) {
         toast.success("Empleado creado correctamente")
@@ -348,6 +364,8 @@ export default function EmpleadosPage() {
           horarioFin: "18:00",
           diasTrabajo: [1, 2, 3, 4, 5],
           comision: 30,
+          fechaIngreso: "",
+          fechaContratoHasta: "",
         })
         await loadEmpleados()
       } else {
@@ -477,6 +495,29 @@ export default function EmpleadosPage() {
                       Solo puedes agregar empleados a tu sucursal
                     </p>
                   )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fechaIngreso">Fecha de ingreso</Label>
+                  <Input
+                    id="fechaIngreso"
+                    type="date"
+                    value={formNuevo.fechaIngreso}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, fechaIngreso: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">Opcional — día en que comenzó a trabajar</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="fechaContratoHasta">Vigencia del contrato hasta</Label>
+                  <Input
+                    id="fechaContratoHasta"
+                    type="date"
+                    value={formNuevo.fechaContratoHasta}
+                    onChange={(e) => setFormNuevo({ ...formNuevo, fechaContratoHasta: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">Opcional — hasta cuándo está vigente el contrato</p>
                 </div>
               </div>
 
@@ -858,6 +899,16 @@ export default function EmpleadosPage() {
                             {empleado.nombre} {empleado.apellido}
                           </p>
                           <p className="text-xs text-muted-foreground">ID: {empleado.id}</p>
+                          {(empleado.fechaIngreso || empleado.fechaContratoHasta) && (
+                            <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                              {empleado.fechaIngreso ? (
+                                <p>Ingreso: {formatearFechaEmpleadoMX(empleado.fechaIngreso)}</p>
+                              ) : null}
+                              {empleado.fechaContratoHasta ? (
+                                <p>Contrato hasta: {formatearFechaEmpleadoMX(empleado.fechaContratoHasta)}</p>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </TableCell>
@@ -962,6 +1013,15 @@ export default function EmpleadosPage() {
                       {empleado.nombre} {empleado.apellido}
                     </p>
                     <p className="text-sm text-muted-foreground capitalize">{empleado.rol}</p>
+                    {(empleado.fechaIngreso || empleado.fechaContratoHasta) && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {empleado.fechaIngreso ? `Ingreso: ${formatearFechaEmpleadoMX(empleado.fechaIngreso)}` : null}
+                        {empleado.fechaIngreso && empleado.fechaContratoHasta ? " · " : null}
+                        {empleado.fechaContratoHasta
+                          ? `Contrato hasta: ${formatearFechaEmpleadoMX(empleado.fechaContratoHasta)}`
+                          : null}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2 max-w-md">
                     {empleado.especialidades && empleado.especialidades.length > 0 ? (
@@ -1052,6 +1112,8 @@ function EditarEmpleadoDialog({
     horarioInicio: empleado.horarioInicio,
     horarioFin: empleado.horarioFin,
     comision: empleado.comision,
+    fechaIngreso: empleado.fechaIngreso ?? "",
+    fechaContratoHasta: empleado.fechaContratoHasta ?? "",
   })
   const [diasTrabajo, setDiasTrabajo] = useState<number[]>(empleado.diasTrabajo || [])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -1073,6 +1135,8 @@ function EditarEmpleadoDialog({
         horario_fin: formData.horarioFin,
         comision: formData.comision,
         dias_trabajo: diasTrabajo,
+        fecha_ingreso: formData.fechaIngreso.trim() || null,
+        fecha_contrato_hasta: formData.fechaContratoHasta.trim() || null,
       })
 
       if (result.success) {
@@ -1179,6 +1243,29 @@ function EditarEmpleadoDialog({
               La sucursal base no se puede cambiar desde tu perfil
             </p>
           )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-fechaIngreso">Fecha de ingreso</Label>
+          <Input
+            id="edit-fechaIngreso"
+            type="date"
+            value={formData.fechaIngreso}
+            onChange={(e) => setFormData({ ...formData, fechaIngreso: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">Opcional</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-fechaContratoHasta">Vigencia del contrato hasta</Label>
+          <Input
+            id="edit-fechaContratoHasta"
+            type="date"
+            value={formData.fechaContratoHasta}
+            onChange={(e) => setFormData({ ...formData, fechaContratoHasta: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">Opcional</p>
         </div>
       </div>
 

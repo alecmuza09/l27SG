@@ -61,6 +61,8 @@ export type Database = {
           comida_inicio: string | null
           comida_fin: string | null
           comision: number
+          fecha_ingreso: string | null
+          fecha_contrato_hasta: string | null
           foto: string | null
           activo: boolean
           created_at: string
@@ -81,6 +83,8 @@ export type Database = {
           comida_inicio?: string | null
           comida_fin?: string | null
           comision?: number
+          fecha_ingreso?: string | null
+          fecha_contrato_hasta?: string | null
           foto?: string | null
           activo?: boolean
           created_at?: string
@@ -101,6 +105,8 @@ export type Database = {
           comida_inicio?: string | null
           comida_fin?: string | null
           comision?: number
+          fecha_ingreso?: string | null
+          fecha_contrato_hasta?: string | null
           foto?: string | null
           activo?: boolean
           created_at?: string

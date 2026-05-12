@@ -20,6 +20,10 @@ export interface Empleado {
   activo: boolean
   comision: number
   foto?: string
+  /** Fecha de ingreso (YYYY-MM-DD), opcional */
+  fechaIngreso?: string | null
+  /** Fin de vigencia del contrato (YYYY-MM-DD), opcional */
+  fechaContratoHasta?: string | null
 }
 
 export const MOCK_EMPLEADOS: Empleado[] = [
@@ -125,6 +129,11 @@ function normalizarHora(h: string | null | undefined): string | undefined {
   return s.length >= 4 ? s : undefined
 }
 
+function normalizarFechaDb(v: string | null | undefined): string | null {
+  if (v == null || String(v).trim() === "") return null
+  return String(v).split("T")[0]
+}
+
 export function transformEmpleado(empleado: EmpleadoRow): Empleado {
   return {
     id: empleado.id,
@@ -143,6 +152,8 @@ export function transformEmpleado(empleado: EmpleadoRow): Empleado {
     activo: empleado.activo,
     comision: Number(empleado.comision),
     foto: empleado.foto || undefined,
+    fechaIngreso: normalizarFechaDb(empleado.fecha_ingreso),
+    fechaContratoHasta: normalizarFechaDb(empleado.fecha_contrato_hasta),
   }
 }
 
@@ -281,6 +292,8 @@ export async function createEmpleado(datos: {
   dias_trabajo?: number[]
   comision?: number
   especialidades?: string[]
+  fecha_ingreso?: string | null
+  fecha_contrato_hasta?: string | null
 }): Promise<{ success: boolean; empleado?: EmpleadoRow; error?: string }> {
   try {
     const { data, error } = await supabase
@@ -297,6 +310,8 @@ export async function createEmpleado(datos: {
         dias_trabajo: datos.dias_trabajo ?? [1, 2, 3, 4, 5],
         comision: datos.comision ?? 30,
         especialidades: datos.especialidades ?? [],
+        fecha_ingreso: datos.fecha_ingreso?.trim() || null,
+        fecha_contrato_hasta: datos.fecha_contrato_hasta?.trim() || null,
       })
       .select()
       .single()
@@ -353,6 +368,8 @@ export async function updateEmpleado(
     comida_fin?: string | null
     comision?: number
     activo?: boolean
+    fecha_ingreso?: string | null
+    fecha_contrato_hasta?: string | null
   }
 ): Promise<{ success: boolean; empleado?: EmpleadoRow; error?: string }> {
   try {
@@ -374,6 +391,8 @@ export async function updateEmpleado(
     if (datos.comida_fin !== undefined) updateData.comida_fin = datos.comida_fin || null
     if (datos.comision !== undefined) updateData.comision = datos.comision
     if (datos.activo !== undefined) updateData.activo = datos.activo
+    if (datos.fecha_ingreso !== undefined) updateData.fecha_ingreso = datos.fecha_ingreso
+    if (datos.fecha_contrato_hasta !== undefined) updateData.fecha_contrato_hasta = datos.fecha_contrato_hasta
 
     const { data, error } = await supabase
       .from('empleados')
