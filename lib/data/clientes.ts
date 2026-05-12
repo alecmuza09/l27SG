@@ -51,6 +51,11 @@ function transformCliente(cliente: ClienteRow): Cliente {
   }
 }
 
+/** Mayúsculas completas al dar de alta (solo inserciones vía createCliente). */
+function normalizarNombreClienteNuevo(valor: string): string {
+  return valor.trim().toLocaleUpperCase('es')
+}
+
 // Obtener clientes con paginación
 export async function getClientesPaginated(
   page: number = 1,
@@ -394,8 +399,8 @@ export async function createCliente(clienteData: {
 }): Promise<{ success: boolean; cliente?: Cliente; error?: string }> {
   try {
     const insertData: any = {
-      nombre: clienteData.nombre,
-      apellido: clienteData.apellido,
+      nombre: normalizarNombreClienteNuevo(clienteData.nombre),
+      apellido: normalizarNombreClienteNuevo(clienteData.apellido),
       telefono: clienteData.telefono,
       email: clienteData.email || null,
       fecha_nacimiento: clienteData.fechaNacimiento || null,
