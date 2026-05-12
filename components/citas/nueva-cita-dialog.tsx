@@ -300,6 +300,16 @@ export function NuevaCitaDialog({
   }, 0)
   const allItemsValid = serviciosItems.every((it) => it.servicioId && it.empleadoId && it.horaInicio)
 
+  const nuevoClienteDatosListos =
+    nuevoCliente.nombre.trim().length > 0 &&
+    nuevoCliente.apellido.trim().length > 0 &&
+    nuevoCliente.telefono.trim().length > 0
+
+  const clienteListoParaCita =
+    clienteMode === "existing"
+      ? Boolean(selectedClienteId)
+      : nuevoClienteDatosListos
+
   const crearCitasEnServidor = async (clienteIdFinal: string) => {
     const user = getCurrentUser()
     const creadoPor = user ? (user.name || user.email || "Sistema") : "Sistema"
@@ -377,17 +387,39 @@ export function NuevaCitaDialog({
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    let clienteIdFinal = selectedClienteId
+
+    if (clienteMode === "new") {
+      const n = nuevoCliente.nombre.trim()
+      const a = nuevoCliente.apellido.trim()
+      const t = nuevoCliente.telefono.trim()
+      if (!n || !a) {
+        toast.error(
+          "Debes ingresar el nombre y el apellido. Ambos campos son obligatorios.",
+        )
+        return
+      }
+      if (!t) {
+        toast.error("El teléfono es obligatorio.")
+        return
+      }
+    } else if (!selectedClienteId) {
+      toast.error("Selecciona o crea un cliente")
+      return
+    }
+
+    for (const [i, item] of serviciosItems.entries()) {
+      if (!item.servicioId || !item.empleadoId || !item.horaInicio) {
+        toast.error(`Completa todos los campos del servicio ${i + 1}`)
+        return
+      }
+    }
+
     setIsSubmitting(true)
 
     try {
-      // 1) Resolver cliente
-      let clienteIdFinal = selectedClienteId
       if (clienteMode === "new") {
-        if (!nuevoCliente.nombre || !nuevoCliente.apellido || !nuevoCliente.telefono) {
-          toast.error("Completa los campos obligatorios del cliente")
-          setIsSubmitting(false)
-          return
-        }
         const res = await createCliente({
           nombre: nuevoCliente.nombre,
           apellido: nuevoCliente.apellido,
@@ -408,15 +440,6 @@ export function NuevaCitaDialog({
         toast.error("Selecciona o crea un cliente")
         setIsSubmitting(false)
         return
-      }
-
-      // 2) Validar servicios
-      for (const [i, item] of serviciosItems.entries()) {
-        if (!item.servicioId || !item.empleadoId || !item.horaInicio) {
-          toast.error(`Completa todos los campos del servicio ${i + 1}`)
-          setIsSubmitting(false)
-          return
-        }
       }
 
       const citasDia = await getCitasByDateAndSucursalFromDB(fechaGeneral, sucursalId)
@@ -870,7 +893,7 @@ export function NuevaCitaDialog({
               </section>
 
               {/* ── RESUMEN ───────────────────────────────────────────────────── */}
-              {allItemsValid && (selectedClienteId || clienteMode === "new") && (
+              {allItemsValid && clienteListoParaCita && (
                 <section className="rounded-lg border border-primary/25 bg-primary/5 p-4 space-y-3">
                   <p className="text-sm font-semibold">Resumen de la sesión</p>
 
@@ -936,7 +959,15 @@ export function NuevaCitaDialog({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={isSubmitting || isLoadingData}>
+              <Button
+                type="submit"
+                disabled={
+                  isSubmitting ||
+                  isLoadingData ||
+                  !allItemsValid ||
+                  !clienteListoParaCita
+                }
+              >
                 {isSubmitting ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</>
                 ) : (

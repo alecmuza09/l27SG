@@ -398,9 +398,19 @@ export async function createCliente(clienteData: {
   sucursalPreferida?: string
 }): Promise<{ success: boolean; cliente?: Cliente; error?: string }> {
   try {
+    const nombre = normalizarNombreClienteNuevo(clienteData.nombre)
+    const apellido = normalizarNombreClienteNuevo(clienteData.apellido)
+    if (!nombre || !apellido) {
+      return {
+        success: false,
+        error:
+          'Debes ingresar el nombre y el apellido. Ambos campos son obligatorios.',
+      }
+    }
+
     const insertData: any = {
-      nombre: normalizarNombreClienteNuevo(clienteData.nombre),
-      apellido: normalizarNombreClienteNuevo(clienteData.apellido),
+      nombre,
+      apellido,
       telefono: clienteData.telefono,
       email: clienteData.email || null,
       fecha_nacimiento: clienteData.fechaNacimiento || null,

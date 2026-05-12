@@ -166,16 +166,33 @@ export default function ClientesPage() {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  // Manejar submit del formulario
+  // Manejar submit del formulario (alta de clienta nueva)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    const nombre = formData.nombre.trim()
+    const apellido = formData.apellido.trim()
+    const telefono = formData.telefono.trim()
+
+    if (!nombre || !apellido) {
+      toast.error(
+        'Debes ingresar el nombre y el apellido. Ambos campos son obligatorios.',
+      )
+      return
+    }
+
+    if (!telefono) {
+      toast.error('El teléfono es obligatorio.')
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
       const clienteData: any = {
-        nombre: formData.nombre,
-        apellido: formData.apellido,
-        telefono: formData.telefono,
+        nombre,
+        apellido,
+        telefono,
       }
 
       // Agregar campos opcionales solo si tienen valor
@@ -438,7 +455,15 @@ export default function ClientesPage() {
                   <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Cancelar
                   </Button>
-                  <Button type="submit" disabled={isSubmitting}>
+                  <Button
+                    type="submit"
+                    disabled={
+                      isSubmitting ||
+                      !formData.nombre.trim() ||
+                      !formData.apellido.trim() ||
+                      !formData.telefono.trim()
+                    }
+                  >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
