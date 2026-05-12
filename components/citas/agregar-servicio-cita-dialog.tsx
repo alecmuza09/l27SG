@@ -9,6 +9,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -90,6 +100,7 @@ export function AgregarServicioCitaDialog({
   const [empleadoId, setEmpleadoId] = useState("")
   const [horaInicio, setHoraInicio] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [overlapHorarioOpen, setOverlapHorarioOpen] = useState(false)
   const [servicioPopoverOpen, setServicioPopoverOpen] = useState(false)
 
   useEffect(() => {
@@ -118,6 +129,10 @@ export function AgregarServicioCitaDialog({
     load()
   }, [open, citaBase, sucursalId, fecha])
 
+  useEffect(() => {
+    if (!open) setOverlapHorarioOpen(false)
+  }, [open])
+
   const servicioSel = servicios.find((s) => s.id === servicioId)
 
   const tieneConflicto = (): boolean => {
@@ -136,6 +151,39 @@ export function AgregarServicioCitaDialog({
     })
   }
 
+  const ejecutarGuardado = async () => {
+    if (!citaBase) return
+    if (!servicioSel) return
+    const user = getCurrentUser()
+    const creadoPor = user
+      ? user.name || user.email || "Sistema"
+      : "Sistema"
+    const notaExtra = `Servicio adicional (misma visita: ${citaBase.servicioNombre} ${citaBase.horaInicio.slice(0, 5)})`
+    const notas = [citaBase.notas, notaExtra].filter(Boolean).join("\n")
+
+    const res = await createCita({
+      cliente_id: citaBase.clienteId,
+      empleado_id: empleadoId,
+      servicio_id: servicioId,
+      sucursal_id: sucursalId,
+      fecha,
+      hora_inicio: horaInicio,
+      duracion: servicioSel.duracion,
+      precio: servicioSel.precio,
+      estado: "pendiente",
+      notas: notas.trim() ? notas.trim() : undefined,
+      creadoPor,
+    })
+
+    if (!res.success) {
+      toast.error(res.error ?? "No se pudo crear la cita")
+      return
+    }
+    toast.success("Servicio agregado — ya aparece en la agenda")
+    onOpenChange(false)
+    await onSuccess()
+  }
+
   const handleGuardar = async () => {
     if (!citaBase) return
     if (!servicioId || !empleadoId || !horaInicio) {
@@ -144,51 +192,45 @@ export function AgregarServicioCitaDialog({
     }
     if (!servicioSel) return
     if (tieneConflicto()) {
-      toast.error(
-        "Esa empleada ya tiene otra cita que se cruza con el horario elegido",
-      )
+      setOverlapHorarioOpen(true)
       return
     }
 
     setIsSaving(true)
     try {
-      const user = getCurrentUser()
-      const creadoPor = user
-        ? user.name || user.email || "Sistema"
-        : "Sistema"
-      const notaExtra = `Servicio adicional (misma visita: ${citaBase.servicioNombre} ${citaBase.horaInicio.slice(0, 5)})`
-      const notas = [citaBase.notas, notaExtra].filter(Boolean).join("\n")
-
-      const res = await createCita({
-        cliente_id: citaBase.clienteId,
-        empleado_id: empleadoId,
-        servicio_id: servicioId,
-        sucursal_id: sucursalId,
-        fecha,
-        hora_inicio: horaInicio,
-        duracion: servicioSel.duracion,
-        precio: servicioSel.precio,
-        estado: "pendiente",
-        notas: notas.trim() ? notas.trim() : undefined,
-        creadoPor,
-      })
-
-      if (!res.success) {
-        toast.error(res.error ?? "No se pudo crear la cita")
-        return
-      }
-      toast.success("Servicio agregado — ya aparece en la agenda")
-      onOpenChange(false)
-      await onSuccess()
+      await ejecutarGuardado()
     } finally {
       setIsSaving(false)
     }
   }
 
+  const handleOverlapContinue = () => {
+    if (!citaBase) return
+    if (!servicioId || !empleadoId || !horaInicio) {
+      toast.error("Selecciona servicio, empleada y hora")
+      setOverlapHorarioOpen(false)
+      return
+    }
+    if (!servicioSel) {
+      setOverlapHorarioOpen(false)
+      return
+    }
+    setOverlapHorarioOpen(false)
+    void (async () => {
+      setIsSaving(true)
+      try {
+        await ejecutarGuardado()
+      } finally {
+        setIsSaving(false)
+      }
+    })()
+  }
+
   const conflictoPreview = tieneConflicto()
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -326,8 +368,8 @@ export function AgregarServicioCitaDialog({
             </div>
 
             {conflictoPreview && (
-              <p className="text-xs text-destructive font-medium">
-                Hay conflicto de horario con otra cita de esta empleada.
+              <p className="text-xs text-amber-700 dark:text-amber-500 font-medium">
+                Este horario se cruza con otra cita de esta empleada. Podrás confirmar al guardar.
               </p>
             )}
           </div>
@@ -345,14 +387,7 @@ export function AgregarServicioCitaDialog({
           <Button
             type="button"
             onClick={() => void handleGuardar()}
-            disabled={
-              loadingCat ||
-              isSaving ||
-              !servicioId ||
-              !empleadoId ||
-              !horaInicio ||
-              conflictoPreview
-            }
+            disabled={loadingCat || isSaving || !servicioId || !empleadoId || !horaInicio}
           >
             {isSaving ? (
               <>
@@ -365,6 +400,23 @@ export function AgregarServicioCitaDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+      <AlertDialog open={overlapHorarioOpen} onOpenChange={setOverlapHorarioOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Horario ocupado</AlertDialogTitle>
+            <AlertDialogDescription>
+              Ya existe una cita en este horario para la empleada seleccionada. ¿Deseas continuar de todas formas?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction type="button" onClick={() => handleOverlapContinue()}>
+              Continuar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

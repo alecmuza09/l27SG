@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosParaAgendaPorSucursalYDia, type Empleado } from "@/lib/data/empleado-sucursal-dia"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCitasByDateAndSucursalFromDB, updateCita, type Cita } from "@/lib/data/citas"
+import { updateCita, type Cita } from "@/lib/data/citas"
 import { Loader2, ChevronsUpDown, UserRound } from "lucide-react"
 import { toast } from "sonner"
 import { getCurrentUser } from "@/lib/auth"
@@ -47,24 +47,6 @@ function getEstadoUI(cita: Cita): keyof typeof ESTADOS_DB {
   if (cita.estado === "completada") return cita.pagado ? "pagado" : "pendiente-por-pagar"
   const found = ESTADOS_EDITAR.find((e) => e.dbValue === cita.estado)
   return (found?.value ?? "pendiente") as keyof typeof ESTADOS_DB
-}
-
-function minsHora(hora: string): number {
-  const h = hora.slice(0, 5).split(":").map(Number)
-  return (h[0] ?? 0) * 60 + (h[1] ?? 0)
-}
-
-function horariosSeCruzan(
-  inicioA: string,
-  finA: string,
-  inicioB: string,
-  finB: string,
-): boolean {
-  const a1 = minsHora(inicioA)
-  const a2 = minsHora(finA)
-  const b1 = minsHora(inicioB)
-  const b2 = minsHora(finB)
-  return a1 < b2 && b1 < a2
 }
 
 interface EditarCitaDialogProps {
@@ -187,33 +169,6 @@ export function EditarCitaDialog({
 
       const pagado =
         estadoBD === "completada" ? citaForm.estadoUI === "pagado" : false
-
-      if (estadoBD !== "cancelada") {
-        const citasDia = await getCitasByDateAndSucursalFromDB(
-          citaForm.fecha,
-          citaForm.sucursalId,
-        )
-        let totalM = minsHora(horaNorm) + servicioSeleccionado.duracion
-        totalM = Math.min(Math.max(totalM, 0), 23 * 60 + 59)
-        const finNueva = `${String(Math.floor(totalM / 60)).padStart(2, "0")}:${String(totalM % 60).padStart(2, "0")}`
-
-        const ocupada = citasDia.some((otra) => {
-          if (otra.id === cita.id) return false
-          if (otra.estado === "cancelada") return false
-          if (otra.empleadoId !== citaForm.empleadoId) return false
-          const ni = otra.horaInicio.substring(0, 5)
-          const nf = (otra.horaFin || otra.horaInicio).substring(0, 5)
-          return horariosSeCruzan(horaNorm, finNueva, ni, nf)
-        })
-
-        if (ocupada) {
-          toast.error(
-            "Ese horario ya no está disponible para la empleada seleccionada. Elige otra hora u otra empleada antes de guardar.",
-          )
-          setIsSubmitting(false)
-          return
-        }
-      }
 
       const editor = getCurrentUser()
       const modificadoPor = editor ? (editor.name || editor.email || "Sistema") : "Sistema"

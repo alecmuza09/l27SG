@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,7 +16,11 @@ import { Separator } from "@/components/ui/separator"
 import { searchClientes, createCliente, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosParaAgendaPorSucursalYDia, type Empleado } from "@/lib/data/empleado-sucursal-dia"
-import { createCita } from "@/lib/data/citas"
+import {
+  createCita,
+  getCitasByDateAndSucursalFromDB,
+  type Cita,
+} from "@/lib/data/citas"
 import { getCurrentUser } from "@/lib/auth"
 import {
   Plus, Search, User, Loader2, ChevronsUpDown, Trash2,
@@ -24,6 +28,16 @@ import {
   UtensilsCrossed, BedDouble,
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { cn, formatHora12 } from "@/lib/utils"
 
@@ -67,6 +81,24 @@ function addMinutes(hora: string, mins: number): string {
   const [h, m] = hora.split(":").map(Number)
   const total = h * 60 + m + mins
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
+}
+
+function minsHora(hora: string): number {
+  const h = hora.slice(0, 5).split(":").map(Number)
+  return (h[0] ?? 0) * 60 + (h[1] ?? 0)
+}
+
+function horariosSeCruzan(
+  inicioA: string,
+  finA: string,
+  inicioB: string,
+  finB: string,
+): boolean {
+  const a1 = minsHora(inicioA)
+  const a2 = minsHora(finA)
+  const b1 = minsHora(inicioB)
+  const b2 = minsHora(finB)
+  return a1 < b2 && b1 < a2
 }
 
 /** Mismos slots que la agenda Kanban (9:00–20:00 cada 30 min). */
@@ -123,6 +155,8 @@ export function NuevaCitaDialog({
 
   // ── Estado: envío ──────────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [overlapDialogOpen, setOverlapDialogOpen] = useState(false)
+  const pendingClienteIdRef = useRef<string | null>(null)
 
   // ── Comida / descanso rápido en agenda (solo si hay callback) ─────────────
   const [bloqueTipo, setBloqueTipo] = useState<"comida" | "descanso">("comida")
@@ -147,6 +181,9 @@ export function NuevaCitaDialog({
       setClientesBusqueda([])
       setNuevoCliente({ nombre: "", apellido: "", email: "", telefono: "", notas: "" })
       setOpenPopovers({})
+    } else {
+      setOverlapDialogOpen(false)
+      pendingClienteIdRef.current = null
     }
   }, [open, selectedDate, selectedTime, selectedEmpleadoId])
 
@@ -263,6 +300,80 @@ export function NuevaCitaDialog({
   }, 0)
   const allItemsValid = serviciosItems.every((it) => it.servicioId && it.empleadoId && it.horaInicio)
 
+  const crearCitasEnServidor = async (clienteIdFinal: string) => {
+    const user = getCurrentUser()
+    const creadoPor = user ? (user.name || user.email || "Sistema") : "Sistema"
+    const results = await Promise.all(
+      serviciosItems.map((item) => {
+        const svc = servicios.find((s) => s.id === item.servicioId)!
+        return createCita({
+          cliente_id: clienteIdFinal,
+          empleado_id: item.empleadoId,
+          servicio_id: item.servicioId,
+          sucursal_id: sucursalId,
+          fecha: fechaGeneral,
+          hora_inicio: item.horaInicio,
+          duracion: svc.duracion,
+          precio: svc.precio,
+          estado: "pendiente",
+          notas: notasGenerales || undefined,
+          creadoPor,
+        })
+      }),
+    )
+
+    const failed = results.filter((r) => !r.success)
+    if (failed.length > 0) {
+      toast.error(`${failed.length} cita(s) no se pudieron crear`)
+    } else {
+      toast.success(
+        serviciosItems.length === 1
+          ? "Cita creada exitosamente"
+          : `${serviciosItems.length} citas creadas exitosamente`,
+      )
+      onCitaCreada?.()
+      onOpenChange(false)
+    }
+  }
+
+  function hayTraslapeServiciosItemsVsCitasDia(citasDia: Cita[]): boolean {
+    return serviciosItems.some((item) => {
+      const svc = servicios.find((s) => s.id === item.servicioId)
+      if (!svc) return false
+      const horaNorm = item.horaInicio.substring(0, 5)
+      let totalM = minsHora(horaNorm) + svc.duracion
+      totalM = Math.min(Math.max(totalM, 0), 23 * 60 + 59)
+      const finNueva = `${String(Math.floor(totalM / 60)).padStart(2, "0")}:${String(totalM % 60).padStart(2, "0")}`
+      return citasDia.some((otra) => {
+        if (otra.estado === "cancelada") return false
+        if (otra.empleadoId !== item.empleadoId) return false
+        const ni = otra.horaInicio.substring(0, 5)
+        const nf = (otra.horaFin || otra.horaInicio).substring(0, 5)
+        return horariosSeCruzan(horaNorm, finNueva, ni, nf)
+      })
+    })
+  }
+
+  const handleOverlapContinue = () => {
+    const id = pendingClienteIdRef.current
+    if (!id) {
+      setOverlapDialogOpen(false)
+      return
+    }
+    setOverlapDialogOpen(false)
+    void (async () => {
+      setIsSubmitting(true)
+      try {
+        await crearCitasEnServidor(id)
+      } catch {
+        toast.error("Error inesperado al crear las citas")
+      } finally {
+        setIsSubmitting(false)
+        pendingClienteIdRef.current = null
+      }
+    })()
+  }
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -308,41 +419,16 @@ export function NuevaCitaDialog({
         }
       }
 
-      // 3) Crear todas las citas en paralelo (incluye quién registró la cita)
-      const user = getCurrentUser()
-      const creadoPor = user ? (user.name || user.email || "Sistema") : "Sistema"
-      const results = await Promise.all(
-        serviciosItems.map((item) => {
-          const svc = servicios.find((s) => s.id === item.servicioId)!
-          return createCita({
-            cliente_id: clienteIdFinal,
-            empleado_id: item.empleadoId,
-            servicio_id: item.servicioId,
-            sucursal_id: sucursalId,
-            fecha: fechaGeneral,
-            hora_inicio: item.horaInicio,
-            duracion: svc.duracion,
-            precio: svc.precio,
-            estado: "pendiente",
-            notas: notasGenerales || undefined,
-            creadoPor,
-          })
-        })
-      )
-
-      const failed = results.filter((r) => !r.success)
-      if (failed.length > 0) {
-        toast.error(`${failed.length} cita(s) no se pudieron crear`)
-      } else {
-        toast.success(
-          serviciosItems.length === 1
-            ? "Cita creada exitosamente"
-            : `${serviciosItems.length} citas creadas exitosamente`
-        )
-        onCitaCreada?.()
-        onOpenChange(false)
+      const citasDia = await getCitasByDateAndSucursalFromDB(fechaGeneral, sucursalId)
+      if (hayTraslapeServiciosItemsVsCitasDia(citasDia)) {
+        pendingClienteIdRef.current = clienteIdFinal
+        setOverlapDialogOpen(true)
+        setIsSubmitting(false)
+        return
       }
-    } catch (err: any) {
+
+      await crearCitasEnServidor(clienteIdFinal)
+    } catch {
       toast.error("Error inesperado al crear las citas")
     } finally {
       setIsSubmitting(false)
@@ -864,31 +950,62 @@ export function NuevaCitaDialog({
         </form>
   )
 
+  const overlapHorarioAlert = (
+    <AlertDialog
+      open={overlapDialogOpen}
+      onOpenChange={(v) => {
+        setOverlapDialogOpen(v)
+        if (!v) pendingClienteIdRef.current = null
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Horario ocupado</AlertDialogTitle>
+          <AlertDialogDescription>
+            Ya existe una cita en este horario para la empleada seleccionada. ¿Deseas continuar de todas formas?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction type="button" onClick={() => handleOverlapContinue()}>
+            Continuar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+
   // ─── Render ────────────────────────────────────────────────────────────────
   if (asPanel) {
     if (!open) return null
     return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <div className="px-5 pt-5 pb-3 border-b flex-shrink-0 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Nueva Cita</h2>
-          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => onOpenChange(false)}>
-            <X className="h-4 w-4" />
-            <span className="sr-only">Cerrar</span>
-          </Button>
+      <>
+        <div className="flex flex-col h-full overflow-hidden">
+          <div className="px-5 pt-5 pb-3 border-b flex-shrink-0 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Nueva Cita</h2>
+            <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => onOpenChange(false)}>
+              <X className="h-4 w-4" />
+              <span className="sr-only">Cerrar</span>
+            </Button>
+          </div>
+          {formContent}
         </div>
-        {formContent}
-      </div>
+        {overlapHorarioAlert}
+      </>
     )
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:w-[520px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden h-full">
-        <SheetHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
-          <SheetTitle className="text-xl">Nueva Cita</SheetTitle>
-        </SheetHeader>
-        {formContent}
-      </SheetContent>
-    </Sheet>
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" className="w-full sm:w-[520px] sm:max-w-none p-0 flex flex-col gap-0 overflow-hidden h-full">
+          <SheetHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
+            <SheetTitle className="text-xl">Nueva Cita</SheetTitle>
+          </SheetHeader>
+          {formContent}
+        </SheetContent>
+      </Sheet>
+      {overlapHorarioAlert}
+    </>
   )
 }
