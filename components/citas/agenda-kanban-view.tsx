@@ -2116,26 +2116,41 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   {citasCanceladasDia.map((c) => (
                     <li
                       key={c.id}
-                      className="rounded-lg border border-red-100 dark:border-red-950/60 bg-red-50/40 dark:bg-red-950/20 px-3 py-2 text-sm"
+                      className="rounded-lg border border-red-100 dark:border-red-950/60 bg-red-50/40 dark:bg-red-950/20 px-3 py-2 text-sm flex gap-2 items-start"
                     >
-                      <div className="font-medium text-foreground truncate" title={c.clienteNombre}>
-                        {c.clienteNombre}
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate mt-0.5" title={c.servicioNombre}>
-                        {c.servicioNombre}
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 tabular-nums">
-                          <UserIcon className="h-3 w-3 shrink-0" />
-                          <span className="truncate max-w-[140px]" title={c.empleadoNombre}>
-                            {c.empleadoNombre}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground truncate" title={c.clienteNombre}>
+                          {c.clienteNombre}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate mt-0.5" title={c.servicioNombre}>
+                          {c.servicioNombre}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1 tabular-nums">
+                            <UserIcon className="h-3 w-3 shrink-0" />
+                            <span className="truncate max-w-[140px]" title={c.empleadoNombre}>
+                              {c.empleadoNombre}
+                            </span>
                           </span>
-                        </span>
-                        <span className="inline-flex items-center gap-1 tabular-nums text-foreground/90">
-                          <Clock className="h-3 w-3 shrink-0" />
-                          {formatHora12(c.horaInicio.substring(0, 5))}–{formatHora12(c.horaFin.substring(0, 5))}
-                        </span>
+                          <span className="inline-flex items-center gap-1 tabular-nums text-foreground/90">
+                            <Clock className="h-3 w-3 shrink-0" />
+                            {formatHora12(c.horaInicio.substring(0, 5))}–{formatHora12(c.horaFin.substring(0, 5))}
+                          </span>
+                        </div>
                       </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="shrink-0 h-8 text-xs"
+                        onClick={() => {
+                          setEditingCita(c)
+                          setIsEditDialogOpen(true)
+                        }}
+                      >
+                        <Edit className="h-3.5 w-3.5 mr-1" />
+                        Editar
+                      </Button>
                     </li>
                   ))}
                 </ul>

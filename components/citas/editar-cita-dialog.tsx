@@ -13,10 +13,59 @@ import { Textarea } from "@/components/ui/textarea"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getEmpleadosParaAgendaPorSucursalYDia, type Empleado } from "@/lib/data/empleado-sucursal-dia"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { updateCita, type Cita } from "@/lib/data/citas"
-import { Loader2, ChevronsUpDown } from "lucide-react"
+import { getCitasByDateAndSucursalFromDB, updateCita, type Cita } from "@/lib/data/citas"
+import { Loader2, ChevronsUpDown, UserRound } from "lucide-react"
 import { toast } from "sonner"
 import { getCurrentUser } from "@/lib/auth"
+
+/** Misma convención que la agenda Kanban (UI → BD). */
+const ESTADOS_DB = {
+  pendiente: "pendiente",
+  confirmado: "confirmada",
+  "en-espera": "en-progreso",
+  "en-atencion": "en-progreso",
+  "pendiente-por-pagar": "completada",
+  pagado: "completada",
+  cancelado: "cancelada",
+} as const
+
+const ESTADOS_EDITAR: { value: keyof typeof ESTADOS_DB; label: string; dbValue: string }[] = [
+  { value: "pendiente", label: "Pendiente", dbValue: "pendiente" },
+  { value: "confirmado", label: "Confirmado", dbValue: "confirmada" },
+  { value: "en-espera", label: "En Espera", dbValue: "en-progreso" },
+  { value: "en-atencion", label: "En Atención", dbValue: "en-progreso" },
+  { value: "pendiente-por-pagar", label: "Pendiente por Pagar", dbValue: "completada" },
+  { value: "pagado", label: "Pagado", dbValue: "completada" },
+  { value: "cancelado", label: "Cancelado", dbValue: "cancelada" },
+]
+
+function mapearEstadoABD(estadoUI: string): string {
+  return (ESTADOS_DB as Record<string, string>)[estadoUI] || estadoUI
+}
+
+function getEstadoUI(cita: Cita): keyof typeof ESTADOS_DB {
+  if (cita.estado === "completada") return cita.pagado ? "pagado" : "pendiente-por-pagar"
+  const found = ESTADOS_EDITAR.find((e) => e.dbValue === cita.estado)
+  return (found?.value ?? "pendiente") as keyof typeof ESTADOS_DB
+}
+
+function minsHora(hora: string): number {
+  const h = hora.slice(0, 5).split(":").map(Number)
+  return (h[0] ?? 0) * 60 + (h[1] ?? 0)
+}
+
+function horariosSeCruzan(
+  inicioA: string,
+  finA: string,
+  inicioB: string,
+  finB: string,
+): boolean {
+  const a1 = minsHora(inicioA)
+  const a2 = minsHora(finA)
+  const b1 = minsHora(inicioB)
+  const b2 = minsHora(finB)
+  return a1 < b2 && b1 < a2
+}
 
 interface EditarCitaDialogProps {
   open: boolean
@@ -48,6 +97,7 @@ export function EditarCitaDialog({
     fecha: "",
     horaInicio: "",
     notas: "",
+    estadoUI: "pendiente" as string,
   })
 
   useEffect(() => {
@@ -57,8 +107,9 @@ export function EditarCitaDialog({
         empleadoId: cita.empleadoId,
         sucursalId: cita.sucursalId || sucursalId,
         fecha: cita.fecha,
-        horaInicio: cita.horaInicio,
+        horaInicio: cita.horaInicio.substring(0, 5),
         notas: cita.notas || "",
+        estadoUI: getEstadoUI(cita),
       })
     }
   }, [cita, open, sucursalId])
@@ -125,6 +176,45 @@ export function EditarCitaDialog({
         return
       }
 
+      const horaNorm = citaForm.horaInicio.substring(0, 5)
+      const estadoBD = mapearEstadoABD(citaForm.estadoUI) as
+        | "pendiente"
+        | "confirmada"
+      | "en-progreso"
+      | "completada"
+      | "cancelada"
+      | "no-asistio"
+
+      const pagado =
+        estadoBD === "completada" ? citaForm.estadoUI === "pagado" : false
+
+      if (estadoBD !== "cancelada") {
+        const citasDia = await getCitasByDateAndSucursalFromDB(
+          citaForm.fecha,
+          citaForm.sucursalId,
+        )
+        let totalM = minsHora(horaNorm) + servicioSeleccionado.duracion
+        totalM = Math.min(Math.max(totalM, 0), 23 * 60 + 59)
+        const finNueva = `${String(Math.floor(totalM / 60)).padStart(2, "0")}:${String(totalM % 60).padStart(2, "0")}`
+
+        const ocupada = citasDia.some((otra) => {
+          if (otra.id === cita.id) return false
+          if (otra.estado === "cancelada") return false
+          if (otra.empleadoId !== citaForm.empleadoId) return false
+          const ni = otra.horaInicio.substring(0, 5)
+          const nf = (otra.horaFin || otra.horaInicio).substring(0, 5)
+          return horariosSeCruzan(horaNorm, finNueva, ni, nf)
+        })
+
+        if (ocupada) {
+          toast.error(
+            "Ese horario ya no está disponible para la empleada seleccionada. Elige otra hora u otra empleada antes de guardar.",
+          )
+          setIsSubmitting(false)
+          return
+        }
+      }
+
       const editor = getCurrentUser()
       const modificadoPor = editor ? (editor.name || editor.email || "Sistema") : "Sistema"
 
@@ -133,10 +223,12 @@ export function EditarCitaDialog({
         empleado_id: citaForm.empleadoId,
         sucursal_id: citaForm.sucursalId || undefined,
         fecha: citaForm.fecha,
-        hora_inicio: citaForm.horaInicio,
+        hora_inicio: horaNorm,
         duracion: servicioSeleccionado.duracion,
         precio: servicioSeleccionado.precio,
         notas: citaForm.notas || undefined,
+        estado: estadoBD,
+        pagado,
         creadoPor: cita.creadoPor,
         modificadoPor,
       })
@@ -172,6 +264,35 @@ export function EditarCitaDialog({
             <div className="space-y-6 pb-6">
               <div className="space-y-4">
                 <Label className="text-base font-semibold">Información de la Cita</Label>
+
+                <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2">
+                  <UserRound className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Clienta</p>
+                    <p className="text-sm font-medium truncate" title={cita.clienteNombre}>
+                      {cita.clienteNombre}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="estadoCita">Estado de la cita</Label>
+                  <Select
+                    value={citaForm.estadoUI}
+                    onValueChange={(value) => setCitaForm({ ...citaForm, estadoUI: value })}
+                  >
+                    <SelectTrigger id="estadoCita">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ESTADOS_EDITAR.map((e) => (
+                        <SelectItem key={e.value} value={e.value}>
+                          {e.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">

@@ -480,6 +480,7 @@ export async function updateCita(
     precio?: number
     notas?: string
     estado?: 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
+    pagado?: boolean
     // Auditoría: nombre del creador original (para preservarlo) y del editor actual
     creadoPor?: string
     modificadoPor?: string
@@ -503,6 +504,7 @@ export async function updateCita(
     if (datos.sucursal_id) updateData.sucursal_id = datos.sucursal_id
     if (datos.precio !== undefined) updateData.precio = datos.precio
     if (datos.estado) updateData.estado = datos.estado
+    if (datos.pagado !== undefined) updateData.pagado = datos.pagado
 
     // Reconstruir notas preservando la meta de auditoría (creadoPor original + modificadoPor nuevo)
     if (datos.notas !== undefined || datos.creadoPor !== undefined || datos.modificadoPor !== undefined) {
