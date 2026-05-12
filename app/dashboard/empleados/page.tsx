@@ -30,7 +30,14 @@ import {
   type HistorialEmpleadoSucursalDiaItem,
 } from "@/lib/data/empleado-sucursal-dia"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, userHasMultiBranchScope, type User } from "@/lib/auth"
+import {
+  getCurrentUser,
+  collectEffectiveSucursalIds,
+  effectivePrimarySucursalId,
+  userHasMultiBranchScope,
+  checkPermission,
+  type User,
+} from "@/lib/auth"
 import {
   Dialog,
   DialogContent,
@@ -134,6 +141,7 @@ export default function EmpleadosPage() {
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
+  const canEditEmpleados = checkPermission(currentUser, "manager")
   const userBranchIds = collectEffectiveSucursalIds(currentUser)
   const multiBranch = userHasMultiBranchScope(currentUser)
   const singleBranchId = userBranchIds.length === 1 ? userBranchIds[0] : undefined
@@ -887,27 +895,42 @@ export default function EmpleadosPage() {
                   filteredEmpleados.map((empleado) => (
                   <TableRow key={empleado.id}>
                     <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <div className="flex items-start gap-1">
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                           <span className="text-sm font-medium text-primary">
                             {empleado.nombre.charAt(0)}
                             {empleado.apellido.charAt(0)}
                           </span>
                         </div>
-                        <div>
-                          <p className="font-medium">
-                            {empleado.nombre} {empleado.apellido}
-                          </p>
-                          <p className="text-xs text-muted-foreground">ID: {empleado.id}</p>
-                          {(empleado.fechaIngreso || empleado.fechaContratoHasta) && (
-                            <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-                              {empleado.fechaIngreso ? (
-                                <p>Ingreso: {formatearFechaEmpleadoMX(empleado.fechaIngreso)}</p>
-                              ) : null}
-                              {empleado.fechaContratoHasta ? (
-                                <p>Contrato hasta: {formatearFechaEmpleadoMX(empleado.fechaContratoHasta)}</p>
-                              ) : null}
-                            </div>
+                        <div className="flex-1 min-w-0 flex items-start gap-1">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">
+                              {empleado.nombre} {empleado.apellido}
+                            </p>
+                            <p className="text-xs text-muted-foreground">ID: {empleado.id}</p>
+                            {(empleado.fechaIngreso || empleado.fechaContratoHasta) && (
+                              <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                                {empleado.fechaIngreso ? (
+                                  <p>Ingreso: {formatearFechaEmpleadoMX(empleado.fechaIngreso)}</p>
+                                ) : null}
+                                {empleado.fechaContratoHasta ? (
+                                  <p>Contrato hasta: {formatearFechaEmpleadoMX(empleado.fechaContratoHasta)}</p>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                          {canEditEmpleados && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0 h-8 w-8 text-muted-foreground hover:text-foreground"
+                              title="Editar datos"
+                              onClick={() => handleEdit(empleado)}
+                            >
+                              <Edit className="h-4 w-4" />
+                              <span className="sr-only">Editar datos del empleado</span>
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -957,25 +980,16 @@ export default function EmpleadosPage() {
                       {isAdmin && (
                         <div className="flex justify-end gap-2">
                           {activeTab === "activos" ? (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleEdit(empleado)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setEmpleadoToDelete(empleado)
-                                  setDeleteDialogOpen(true)
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setEmpleadoToDelete(empleado)
+                                setDeleteDialogOpen(true)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           ) : (
                             <Button
                               variant="ghost"
@@ -1007,11 +1021,25 @@ export default function EmpleadosPage() {
           <CardContent>
             <div className="space-y-4">
               {empleados.map((empleado) => (
-                <div key={empleado.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-                  <div>
-                    <p className="font-medium">
-                      {empleado.nombre} {empleado.apellido}
-                    </p>
+                <div key={empleado.id} className="flex items-center justify-between gap-4 p-4 rounded-lg bg-muted/50">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium">
+                        {empleado.nombre} {empleado.apellido}
+                      </p>
+                      {canEditEmpleados && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 shrink-0"
+                          onClick={() => handleEdit(empleado)}
+                        >
+                          <Edit className="h-3.5 w-3.5 mr-1" />
+                          Editar
+                        </Button>
+                      )}
+                    </div>
                     <p className="text-sm text-muted-foreground capitalize">{empleado.rol}</p>
                     {(empleado.fechaIngreso || empleado.fechaContratoHasta) && (
                       <p className="text-xs text-muted-foreground mt-1">
