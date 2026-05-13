@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import {
   CreditCard, Banknote, ArrowLeftRight, Plus, ShoppingBag,
   RefreshCw, Receipt, Search, Gift, Loader2, Wallet,
-  Eye, Pencil, X, Check, Star, ChevronDown, Trash2, AlertTriangle,
+  Eye, Pencil, X, Check, Star, ChevronDown, Trash2, AlertTriangle, MoreVertical,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
@@ -22,6 +22,10 @@ import {
   sincronizarPagosEmisionGiftCardsFaltantes,
   totalizarVentasSaldoGiftCards,
   esVentaSaldoGiftCard,
+  metodoPagoAParaEdicionUI,
+  normalizarMetodoYMontosPago,
+  sincronizarMontosDesgloseParaMetodoUI,
+  type MetodoPagoEdicionUI,
   type Pago, type ResumenCajaDiario,
 } from "@/lib/data/pagos"
 import { searchClientes, type Cliente } from "@/lib/data/clientes"
@@ -330,7 +334,7 @@ export default function PagosPage() {
     setEditPropina(String(pago.propina ?? 0))
     setEditNotas(pago.notas ?? "")
     setEditReferencia(pago.referencia ?? "")
-    setEditMetodoPago(pago.metodoPago ?? "efectivo")
+    setEditMetodoPago(metodoPagoAParaEdicionUI(pago))
     setEditMontoEfectivo(String(pago.montoEfectivo ?? 0))
     setEditMontoTarjeta(String(pago.montoTarjeta ?? 0))
     setEditMotivo("")
@@ -343,6 +347,28 @@ export default function PagosPage() {
     setEditClienteResultados([])
   }
 
+  // Mantiene monto_efectivo / monto_tarjeta alineados al total cuando el método no es mixto ni "otro" (GC).
+  useEffect(() => {
+    if (!editando || !pagoDetalle) return
+    if (editMetodoPago === "mixto" || editMetodoPago === "otro") return
+    const m = Number(editMonto) || 0
+    const { monto_efectivo, monto_tarjeta } = sincronizarMontosDesgloseParaMetodoUI(
+      m,
+      editMetodoPago as MetodoPagoEdicionUI,
+    )
+    setEditMontoEfectivo(String(monto_efectivo))
+    setEditMontoTarjeta(String(monto_tarjeta))
+  }, [editMonto, editMetodoPago, editando, pagoDetalle?.id])
+
+  const handleCambioMetodoEdicionPago = (valor: string) => {
+    const metodo = valor as MetodoPagoEdicionUI
+    setEditMetodoPago(metodo)
+    const m = Number(editMonto) || 0
+    const { monto_efectivo, monto_tarjeta } = sincronizarMontosDesgloseParaMetodoUI(m, metodo)
+    setEditMontoEfectivo(String(monto_efectivo))
+    setEditMontoTarjeta(String(monto_tarjeta))
+  }
+
   const handleGuardarEdicion = async () => {
     if (!pagoDetalle) return
     setIsSavingPago(true)
@@ -352,19 +378,28 @@ export default function PagosPage() {
     const auditSuffix = `[Corrección ${timestamp} — ${currentUser?.name}${editMotivo.trim() ? `: ${editMotivo.trim()}` : ""}]`
     const notaFinal = [editNotas.trim(), auditSuffix].filter(Boolean).join(" | ")
 
-    const efEd = Number(editMontoEfectivo) || 0
-    const tarEd = Number(editMontoTarjeta) || 0
-    const metodoPagoFinal = debePersistirMetodoMixtoEfectivoTarjeta(efEd, tarEd) ? "otro" : editMetodoPago
+    const montoNum = Number(editMonto) || pagoDetalle.monto
+    const norm = normalizarMetodoYMontosPago({
+      montoTotal: montoNum,
+      metodoUI: editMetodoPago as MetodoPagoEdicionUI,
+      montoEfectivoInput: Number(editMontoEfectivo) || 0,
+      montoTarjetaInput: Number(editMontoTarjeta) || 0,
+    })
+    if (!norm.ok) {
+      toast.error(norm.error)
+      setIsSavingPago(false)
+      return
+    }
 
     const res = await updatePago(pagoDetalle.id, {
-      monto:          Number(editMonto) || pagoDetalle.monto,
-      subtotal:       Number(editMonto) || pagoDetalle.monto,
+      monto:          montoNum,
+      subtotal:       montoNum,
       propina:        Number(editPropina) || 0,
       notas:          notaFinal || undefined,
       referencia:     editReferencia.trim() || undefined,
-      metodo_pago:    metodoPagoFinal,
-      monto_efectivo: efEd,
-      monto_tarjeta:  tarEd,
+      metodo_pago:    norm.metodo_pago,
+      monto_efectivo: norm.monto_efectivo,
+      monto_tarjeta:  norm.monto_tarjeta,
       fecha:          editFecha || pagoDetalle.fecha,
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
       cliente_id:     editClienteId || (pagoDetalle.clienteId ?? null),
@@ -372,21 +407,30 @@ export default function PagosPage() {
     setIsSavingPago(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
 
+    const metodoUiTrasGuardar = metodoPagoAParaEdicionUI({
+      metodoPago: norm.metodo_pago,
+      montoEfectivo: norm.monto_efectivo,
+      montoTarjeta: norm.monto_tarjeta,
+    })
+
     const updated = {
-      monto:          Number(editMonto) || pagoDetalle.monto,
+      monto:          montoNum,
       propina:        Number(editPropina) || 0,
       notas:          notaFinal || undefined,
       referencia:     editReferencia.trim() || undefined,
-      metodoPago:     metodoPagoFinal as Pago["metodoPago"],
-      montoEfectivo:  efEd,
-      montoTarjeta:   tarEd,
+      metodoPago:     norm.metodo_pago,
+      montoEfectivo:  norm.monto_efectivo,
+      montoTarjeta:   norm.monto_tarjeta,
       fecha:          editFecha || pagoDetalle.fecha,
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
       clienteId:      editClienteId || (pagoDetalle.clienteId ?? null),
       clienteNombre:  editClienteNombre || pagoDetalle.clienteNombre,
     }
     setPagos(prev => prev.map(p => p.id === pagoDetalle.id ? { ...p, ...updated } : p))
-    setPagoDetalle(prev => prev ? { ...prev, ...updated } : null)
+    setPagoDetalle(prev => (prev ? { ...prev, ...updated } : null))
+    setEditMetodoPago(metodoUiTrasGuardar)
+    setEditMontoEfectivo(String(norm.monto_efectivo))
+    setEditMontoTarjeta(String(norm.monto_tarjeta))
     setEditando(false)
   }
 
@@ -920,9 +964,40 @@ export default function PagosPage() {
                         </TableCell>
                         <TableCell className="text-right font-semibold text-sm">{fmtMXN(pago.monto)}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-violet-600" onClick={() => abrirDetallePago(pago)}>
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-violet-600"
+                                aria-label="Acciones del cobro"
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onClick={() => abrirDetallePago(pago)}
+                              >
+                                <Eye className="h-3.5 w-3.5 mr-2" />
+                                Ver detalle
+                              </DropdownMenuItem>
+                              {isAdmin && (
+                                <DropdownMenuItem
+                                  className="text-xs cursor-pointer"
+                                  onClick={() => {
+                                    abrirDetallePago(pago)
+                                    setEditando(true)
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5 mr-2" />
+                                  Editar
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1304,13 +1379,14 @@ export default function PagosPage() {
                   {editando ? (
                     <select
                       value={editMetodoPago}
-                      onChange={e => setEditMetodoPago(e.target.value)}
+                      onChange={e => handleCambioMetodoEdicionPago(e.target.value)}
                       className="mt-0.5 w-full h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                     >
-                      <option value="efectivo">💵 Efectivo</option>
-                      <option value="tarjeta">💳 Tarjeta</option>
-                      <option value="transferencia">🔄 Transferencia</option>
-                      <option value="otro">🔖 Otro</option>
+                      <option value="efectivo">Efectivo</option>
+                      <option value="tarjeta">Tarjeta</option>
+                      <option value="transferencia">Transferencia</option>
+                      <option value="mixto">Mixto (efectivo + tarjeta)</option>
+                      <option value="otro">Otro (gift card, etc.)</option>
                     </select>
                   ) : (
                     (() => {
@@ -1394,8 +1470,8 @@ export default function PagosPage() {
                 </div>
               </div>
 
-              {/* Desglose de métodos — solo visible en edición */}
-              {editando && (
+              {/* Desglose de métodos — solo en edición y método mixto */}
+              {editando && editMetodoPago === "mixto" && (
                 <div className="space-y-2 border border-amber-200 bg-amber-50/60 rounded-lg p-3">
                   <p className="text-[10px] uppercase text-amber-700 font-semibold tracking-wide">Desglose de cobro</p>
                   <div className="grid grid-cols-2 gap-2">
@@ -1435,8 +1511,8 @@ export default function PagosPage() {
                 </div>
               )}
 
-              {/* Referencia — editable */}
-              {(pagoDetalle.metodoPago === "transferencia" || editando) && (
+              {/* Referencia — transferencia */}
+              {(editMetodoPago === "transferencia" || (!editando && pagoDetalle.metodoPago === "transferencia")) && (
                 <div>
                   <Label className="text-[10px] uppercase text-muted-foreground font-semibold">Referencia</Label>
                   {editando ? (

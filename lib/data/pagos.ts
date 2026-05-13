@@ -97,6 +97,88 @@ export function debePersistirMetodoMixtoEfectivoTarjeta(montoEfectivo?: number, 
   return ef > 0.009 && tar > 0.009
 }
 
+/** Valores del selector al editar un cobro (mixto ≠ `otro` de BD: en BD el mixto se guarda como `metodo_pago = otro`). */
+export type MetodoPagoEdicionUI =
+  | 'efectivo'
+  | 'tarjeta'
+  | 'transferencia'
+  | 'mixto'
+  | 'otro'
+
+const ROUND2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+
+/** Valores iniciales de desglose al cambiar el método en el formulario (total = monto del cobro). */
+export function sincronizarMontosDesgloseParaMetodoUI(
+  montoTotal: number,
+  metodoUI: MetodoPagoEdicionUI,
+): { monto_efectivo: number; monto_tarjeta: number } {
+  const m = ROUND2(montoTotal)
+  switch (metodoUI) {
+    case 'efectivo':
+      return { monto_efectivo: m, monto_tarjeta: 0 }
+    case 'tarjeta':
+      return { monto_efectivo: 0, monto_tarjeta: m }
+    case 'transferencia':
+    case 'otro':
+      return { monto_efectivo: 0, monto_tarjeta: 0 }
+    case 'mixto':
+      return { monto_efectivo: m, monto_tarjeta: 0 }
+    default:
+      return { monto_efectivo: 0, monto_tarjeta: 0 }
+  }
+}
+
+/**
+ * Garantiza consistencia entre `metodo_pago`, `monto_efectivo` y `monto_tarjeta` antes de persistir en Supabase.
+ * Transferencia: montos en 0; el total del cobro sigue en `pagos.monto`. Mixto en BD → `otro` + dos montos.
+ */
+export function normalizarMetodoYMontosPago(params: {
+  montoTotal: number
+  metodoUI: MetodoPagoEdicionUI
+  montoEfectivoInput: number
+  montoTarjetaInput: number
+}):
+  | { ok: true; metodo_pago: Pago['metodoPago']; monto_efectivo: number; monto_tarjeta: number }
+  | { ok: false; error: string } {
+  const total = ROUND2(params.montoTotal)
+  const efIn = ROUND2(params.montoEfectivoInput)
+  const tarIn = ROUND2(params.montoTarjetaInput)
+  const tol = 0.02
+
+  switch (params.metodoUI) {
+    case 'efectivo':
+      return { ok: true, metodo_pago: 'efectivo', monto_efectivo: total, monto_tarjeta: 0 }
+    case 'tarjeta':
+      return { ok: true, metodo_pago: 'tarjeta', monto_efectivo: 0, monto_tarjeta: total }
+    case 'transferencia':
+      return { ok: true, metodo_pago: 'transferencia', monto_efectivo: 0, monto_tarjeta: 0 }
+    case 'mixto': {
+      if (Math.abs(efIn + tarIn - total) > tol) {
+        return {
+          ok: false,
+          error: `La suma de efectivo y tarjeta debe coincidir con el total (${total.toFixed(2)}).`,
+        }
+      }
+      if (efIn <= 0.009 || tarIn <= 0.009) {
+        return { ok: false, error: 'En pago mixto, ingresa monto mayor a cero en efectivo y en tarjeta.' }
+      }
+      return { ok: true, metodo_pago: 'otro', monto_efectivo: efIn, monto_tarjeta: tarIn }
+    }
+    case 'otro':
+      return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
+    default:
+      return { ok: false, error: 'Método de pago no válido' }
+  }
+}
+
+/** Mapea un pago cargado al valor del `<select>` de edición (mixto explícito si hay desglose efectivo+tarjeta). */
+export function metodoPagoAParaEdicionUI(p: Pick<Pago, 'metodoPago' | 'montoEfectivo' | 'montoTarjeta'>): MetodoPagoEdicionUI {
+  if (debePersistirMetodoMixtoEfectivoTarjeta(p.montoEfectivo, p.montoTarjeta)) return 'mixto'
+  const m = (p.metodoPago || 'efectivo') as MetodoPagoEdicionUI
+  if (m === 'efectivo' || m === 'tarjeta' || m === 'transferencia' || m === 'otro') return m
+  return 'otro'
+}
+
 // ─── Tipos auxiliares de Caja ───────────────────────────────────────────────
 
 export interface PromocionValidada {
@@ -1012,6 +1094,7 @@ export async function getResumenCajaAyerFromDB(
 }
 
 // ─── Actualizar un pago existente ──────────────────────────────────────────
+/** En operaciones que cambien el método de cobro, pasar siempre `metodo_pago`, `monto_efectivo` y `monto_tarjeta` juntos (coherente con reportes). */
 export async function updatePago(
   pagoId: string,
   datos: {
