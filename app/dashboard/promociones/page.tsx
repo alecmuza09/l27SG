@@ -35,13 +35,17 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react"
+import { toast } from "sonner"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
   getPromocionesFromDB,
   getGarantias,
   saveGarantias,
   isPromocionVigente,
-  type Promocion,
+  createPromocionInDB,
+  updatePromocionInDB,
+  deletePromocionFromDB,
+  setPromocionActivaInDB,
 } from "@/lib/data/promociones"
 import type { Promocion, Garantia } from "@/lib/types/promociones"
 
@@ -74,6 +78,7 @@ export default function PromocionesPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedPromo, setSelectedPromo] = useState<Promocion | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSavingPromo, setIsSavingPromo] = useState(false)
 
   // Form states
   const [formNombre, setFormNombre] = useState("")
@@ -133,13 +138,51 @@ export default function PromocionesPage() {
   }
 
   const handleCreatePromo = async () => {
-    if (!formNombre || !formValor || !formFechaInicio || !formFechaFin) return
+    if (!formNombre.trim() || !formValor || !formFechaInicio || !formFechaFin) {
+      toast.error("Completa nombre, valor y fechas de vigencia.")
+      return
+    }
+    if (formFechaFin < formFechaInicio) {
+      toast.error("La fecha fin debe ser igual o posterior a la fecha inicio.")
+      return
+    }
+    const valor = parseFloat(formValor)
+    if (Number.isNaN(valor) || valor <= 0) {
+      toast.error("El porcentaje o monto debe ser mayor a cero.")
+      return
+    }
+    let usosMaximos: number | null = null
+    if (formUsosMaximos.trim()) {
+      const u = parseInt(formUsosMaximos, 10)
+      if (Number.isNaN(u) || u < 1) {
+        toast.error("Usos máximos debe ser un número entero mayor a cero.")
+        return
+      }
+      usosMaximos = u
+    }
 
-    // TODO: Implementar creación de promoción en Supabase
-    // Por ahora recargamos desde BD
+    setIsSavingPromo(true)
+    const result = await createPromocionInDB({
+      nombre: formNombre,
+      descripcion: formDescripcion,
+      tipo: formTipo,
+      valor,
+      fechaInicio: formFechaInicio,
+      fechaFin: formFechaFin,
+      codigoPromo: formCodigoPromo.trim() || null,
+      usosMaximos,
+      activa: formActiva,
+    })
+    setIsSavingPromo(false)
+
+    if (!result.success) {
+      toast.error(result.error ?? "No se pudo crear la promoción.")
+      return
+    }
+
+    toast.success("Promoción guardada correctamente.")
     const updatedPromociones = await getPromocionesFromDB()
     setPromociones(updatedPromociones)
-    
     resetForm()
     setIsCreateDialogOpen(false)
   }
@@ -159,28 +202,87 @@ export default function PromocionesPage() {
   }
 
   const handleSaveEdit = async () => {
-    if (!selectedPromo || !formNombre || !formValor) return
+    if (!selectedPromo || !formNombre.trim() || !formValor || !formFechaInicio || !formFechaFin) {
+      toast.error("Completa nombre, valor y fechas de vigencia.")
+      return
+    }
+    if (formFechaFin < formFechaInicio) {
+      toast.error("La fecha fin debe ser igual o posterior a la fecha inicio.")
+      return
+    }
+    const valor = parseFloat(formValor)
+    if (Number.isNaN(valor) || valor <= 0) {
+      toast.error("El porcentaje o monto debe ser mayor a cero.")
+      return
+    }
+    let usosMaximos: number | null = null
+    if (formUsosMaximos.trim()) {
+      const u = parseInt(formUsosMaximos, 10)
+      if (Number.isNaN(u) || u < 1) {
+        toast.error("Usos máximos debe ser un número entero mayor a cero.")
+        return
+      }
+      usosMaximos = u
+    }
 
-    // TODO: Implementar actualización de promoción en Supabase
-    // Por ahora recargamos desde BD
+    setIsSavingPromo(true)
+    const result = await updatePromocionInDB(selectedPromo.id, {
+      nombre: formNombre,
+      descripcion: formDescripcion,
+      tipo: formTipo,
+      valor,
+      fechaInicio: formFechaInicio,
+      fechaFin: formFechaFin,
+      codigoPromo: formCodigoPromo.trim() || null,
+      usosMaximos,
+      activa: formActiva,
+    })
+    setIsSavingPromo(false)
+
+    if (!result.success) {
+      toast.error(result.error ?? "No se pudo actualizar la promoción.")
+      return
+    }
+
+    toast.success("Cambios guardados.")
     const updatedPromociones = await getPromocionesFromDB()
     setPromociones(updatedPromociones)
-    
     resetForm()
     setSelectedPromo(null)
     setIsEditDialogOpen(false)
   }
 
   const handleDeletePromo = async (promoId: string) => {
-    // TODO: Implementar eliminación de promoción en Supabase
-    // Por ahora recargamos desde BD
+    if (!window.confirm("¿Eliminar esta promoción? Esta acción no se puede deshacer.")) return
+
+    setIsSavingPromo(true)
+    const result = await deletePromocionFromDB(promoId)
+    setIsSavingPromo(false)
+
+    if (!result.success) {
+      toast.error(result.error ?? "No se pudo eliminar la promoción.")
+      return
+    }
+
+    toast.success("Promoción eliminada.")
     const updatedPromociones = await getPromocionesFromDB()
     setPromociones(updatedPromociones)
   }
 
   const handleToggleActiva = async (promoId: string) => {
-    // TODO: Implementar toggle de activa en Supabase
-    // Por ahora recargamos desde BD
+    const promo = promociones.find((p) => p.id === promoId)
+    if (!promo) return
+
+    setIsSavingPromo(true)
+    const result = await setPromocionActivaInDB(promoId, !promo.activa)
+    setIsSavingPromo(false)
+
+    if (!result.success) {
+      toast.error(result.error ?? "No se pudo cambiar el estado.")
+      return
+    }
+
+    toast.success(promo.activa ? "Promoción desactivada." : "Promoción activada.")
     const updatedPromociones = await getPromocionesFromDB()
     setPromociones(updatedPromociones)
   }
@@ -617,9 +719,20 @@ export default function PromocionesPage() {
             </Button>
             <Button
               onClick={isEditDialogOpen ? handleSaveEdit : handleCreatePromo}
-              disabled={!formNombre || !formValor || !formFechaInicio || !formFechaFin}
+              disabled={
+                isSavingPromo || !formNombre.trim() || !formValor || !formFechaInicio || !formFechaFin
+              }
             >
-              {isEditDialogOpen ? "Guardar Cambios" : "Crear Promoción"}
+              {isSavingPromo ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Guardando...
+                </>
+              ) : isEditDialogOpen ? (
+                "Guardar Cambios"
+              ) : (
+                "Crear Promoción"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

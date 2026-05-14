@@ -81,6 +81,8 @@ interface CajaDialogProps {
 const formatMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
 
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Componente principal
 // ═══════════════════════════════════════════════════════════════════════════
@@ -157,10 +159,11 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
       toast.error(res.error || "Cupón inválido")
       return
     }
-    const monto =
+    const monto = round2(
       res.promo.tipo === "porcentaje"
         ? (subtotal * res.promo.valor) / 100
-        : Math.min(res.promo.valor, subtotal)
+        : Math.min(res.promo.valor, subtotal),
+    )
     setDescuentoAplicado({
       tipo: "cupon",
       codigo: res.promo.codigo,
@@ -429,7 +432,7 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
                         onClick={handleAplicarCupon}
                         disabled={isValidandoCupon || !codigoCupon.trim()}
                       >
-                        {isValidandoCupon ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Aplicar"}
+                        {isValidandoCupon ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "OK"}
                       </Button>
                     </div>
                   </TabsContent>

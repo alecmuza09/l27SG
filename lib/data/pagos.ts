@@ -724,33 +724,97 @@ export async function validarCuponByCode(
   codigo: string
 ): Promise<{ valido: boolean; promo?: PromocionValidada; error?: string }> {
   try {
+    const codigoLimpio = codigo.trim()
+    if (!codigoLimpio) return { valido: false, error: 'Ingresa un código de cupón' }
+
     const hoy = new Date().toISOString().split('T')[0]
+
     const { data, error } = await supabase
       .from('promociones')
-      .select('id, nombre, tipo, valor, codigo_promo, fecha_fin, usos_maximos, usos_actuales, activa')
-      .eq('codigo_promo', codigo.toUpperCase().trim())
-      .single()
+      .select(
+        'id, nombre, tipo, valor, codigo_promo, fecha_inicio, fecha_fin, usos_maximos, usos_actuales, activa'
+      )
+      .ilike('codigo_promo', codigoLimpio)
+      .maybeSingle()
 
-    if (error || !data) return { valido: false, error: 'Código no encontrado' }
-    if (!data.activa) return { valido: false, error: 'Esta promoción ya no está activa' }
-    if (data.fecha_fin < hoy) return { valido: false, error: 'Esta promoción ya expiró' }
-    if (data.usos_maximos && data.usos_actuales >= data.usos_maximos)
+    if (error) {
+      console.error('validarCuponByCode:', error)
+      return { valido: false, error: 'Error al consultar el cupón' }
+    }
+    if (!data) return { valido: false, error: 'No existe una promoción con ese código' }
+
+    if (!data.codigo_promo || !String(data.codigo_promo).trim()) {
+      return { valido: false, error: 'Este descuento no tiene código de cupón asignado' }
+    }
+
+    if (!data.activa) return { valido: false, error: 'Esta promoción está desactivada' }
+
+    const ini = data.fecha_inicio as string
+    const fin = data.fecha_fin as string
+    if (ini && hoy < ini) return { valido: false, error: 'Esta promoción aún no está vigente' }
+    if (fin && hoy > fin) return { valido: false, error: 'Esta promoción ya expiró' }
+
+    const max = data.usos_maximos
+    const actuales = Number(data.usos_actuales) || 0
+    if (max != null && max > 0 && actuales >= max) {
       return { valido: false, error: 'Esta promoción alcanzó el límite de usos' }
+    }
 
-    const tipo = data.tipo === 'porcentaje' || data.tipo === 'descuento_porcentaje' ? 'porcentaje' : 'monto_fijo'
+    const tipoDb = String(data.tipo || '')
+    const esPorcentaje =
+      tipoDb === 'porcentaje' ||
+      tipoDb === 'descuento_porcentaje' ||
+      tipoDb === '2x1'
+    const tipo: 'porcentaje' | 'monto_fijo' = esPorcentaje ? 'porcentaje' : 'monto_fijo'
+    let valor = Number(data.valor) || 0
+    if (tipoDb === '2x1' && valor <= 0) valor = 50
+
+    const codigoReal = String(data.codigo_promo).trim()
+
     return {
       valido: true,
       promo: {
         id: data.id,
         nombre: data.nombre,
         tipo,
-        valor: Number(data.valor) || 0,
-        codigo: data.codigo_promo,
+        valor,
+        codigo: codigoReal.toUpperCase(),
       },
     }
   } catch (err) {
     return { valido: false, error: 'Error al consultar el cupón' }
   }
+}
+
+/** Suma 1 a `usos_actuales` tras cobrar con cupón. Intenta RPC atómica y hace fallback si no existe. */
+async function incrementPromoUsosPorCodigo(codigo: string): Promise<void> {
+  const c = codigo.trim()
+  if (!c) return
+
+  const { error: rpcErr } = await supabase.rpc('increment_promo_usos', { p_codigo: c })
+  if (!rpcErr) return
+
+  console.warn(
+    'increment_promo_usos RPC no disponible o falló; actualización directa:',
+    rpcErr.message
+  )
+
+  const { data: rows } = await supabase
+    .from('promociones')
+    .select('id, usos_actuales')
+    .ilike('codigo_promo', c)
+    .limit(1)
+
+  const row = Array.isArray(rows) ? rows[0] : null
+  if (!row?.id) return
+
+  await supabase
+    .from('promociones')
+    .update({
+      usos_actuales: (Number(row.usos_actuales) || 0) + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', row.id)
 }
 
 // ─── Validar gift card por código ──────────────────────────────────────────
@@ -869,7 +933,7 @@ export async function registrarPago(
 
     // 3. Incrementar usos del cupón (si aplica)
     if (params.descuentoTipo === 'cupon' && params.descuentoCodigo) {
-      await supabase.rpc('increment_promo_usos', { p_codigo: params.descuentoCodigo }).maybeSingle()
+      await incrementPromoUsosPorCodigo(params.descuentoCodigo)
     }
 
     // 4. Descontar saldo de gift card usada como descuento

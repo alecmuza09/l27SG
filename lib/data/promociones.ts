@@ -172,6 +172,15 @@ export function generarCodigoAutorizacion(): string {
   return Math.floor(1000 + Math.random() * 9000).toString()
 }
 
+/** Alinea valores CHECK de BD con el modelo de UI (porcentaje | monto_fijo | paquete). */
+export function normalizeTipoFromDb(raw: string): Promocion['tipo'] {
+  const t = raw.toLowerCase()
+  if (t === 'porcentaje' || t === 'descuento_porcentaje') return 'porcentaje'
+  if (t === 'monto_fijo' || t === 'descuento_fijo') return 'monto_fijo'
+  if (t === 'paquete') return 'paquete'
+  return 'monto_fijo'
+}
+
 // Obtener promociones desde Supabase
 export async function getPromocionesFromDB(): Promise<Promocion[]> {
   try {
@@ -191,19 +200,146 @@ export async function getPromocionesFromDB(): Promise<Promocion[]> {
       id: p.id,
       nombre: p.nombre,
       descripcion: p.descripcion || '',
-      tipo: p.tipo,
+      tipo: normalizeTipoFromDb(String(p.tipo || '')),
       valor: Number(p.valor) || 0,
       fechaInicio: p.fecha_inicio,
       fechaFin: p.fecha_fin,
       serviciosAplicables: p.servicios_aplicables || [],
       sucursalesAplicables: p.sucursales_aplicables || [],
       activa: p.activa ?? true,
-      usosMaximos: p.usos_maximos || null,
-      usosActuales: p.usos_actuales || 0,
-      codigoPromo: p.codigo_promo || null,
+      usosMaximos: p.usos_maximos ?? null,
+      usosActuales: p.usos_actuales ?? 0,
+      codigoPromo: p.codigo_promo?.trim() ? String(p.codigo_promo).trim().toUpperCase() : null,
     }))
   } catch (error) {
     console.error('Error inesperado obteniendo promociones:', error)
     return []
+  }
+}
+
+export type PromocionUpsertInput = {
+  nombre: string
+  descripcion: string
+  tipo: Promocion['tipo']
+  valor: number
+  fechaInicio: string
+  fechaFin: string
+  codigoPromo: string | null
+  usosMaximos: number | null
+  activa: boolean
+}
+
+export async function createPromocionInDB(
+  input: PromocionUpsertInput,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const codigoNorm =
+      input.codigoPromo && input.codigoPromo.trim()
+        ? input.codigoPromo.trim().toUpperCase()
+        : null
+
+    const row = {
+      nombre: input.nombre.trim(),
+      descripcion: input.descripcion.trim() || null,
+      tipo: input.tipo,
+      valor: input.valor,
+      fecha_inicio: input.fechaInicio,
+      fecha_fin: input.fechaFin,
+      codigo_promo: codigoNorm,
+      usos_maximos: input.usosMaximos,
+      usos_actuales: 0,
+      activa: input.activa,
+      servicios_aplicables: [] as string[],
+      sucursales_aplicables: [] as string[],
+    }
+
+    const { error } = await supabase.from('promociones').insert(row)
+
+    if (error) {
+      console.error('Error insertando promoción:', error)
+      if (error.code === '23505') {
+        return { success: false, error: 'Ya existe una promoción con ese código.' }
+      }
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (e: unknown) {
+    console.error('createPromocionInDB:', e)
+    return { success: false, error: 'No se pudo crear la promoción.' }
+  }
+}
+
+export async function updatePromocionInDB(
+  id: string,
+  input: PromocionUpsertInput,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const codigoNorm =
+      input.codigoPromo && input.codigoPromo.trim()
+        ? input.codigoPromo.trim().toUpperCase()
+        : null
+
+    const row = {
+      nombre: input.nombre.trim(),
+      descripcion: input.descripcion.trim() || null,
+      tipo: input.tipo,
+      valor: input.valor,
+      fecha_inicio: input.fechaInicio,
+      fecha_fin: input.fechaFin,
+      codigo_promo: codigoNorm,
+      usos_maximos: input.usosMaximos,
+      activa: input.activa,
+      updated_at: new Date().toISOString(),
+    }
+
+    const { error } = await supabase.from('promociones').update(row).eq('id', id)
+
+    if (error) {
+      console.error('Error actualizando promoción:', error)
+      if (error.code === '23505') {
+        return { success: false, error: 'Ya existe una promoción con ese código.' }
+      }
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (e: unknown) {
+    console.error('updatePromocionInDB:', e)
+    return { success: false, error: 'No se pudo actualizar la promoción.' }
+  }
+}
+
+export async function deletePromocionFromDB(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('promociones').delete().eq('id', id)
+    if (error) {
+      console.error('Error eliminando promoción:', error)
+      return { success: false, error: error.message }
+    }
+    return { success: true }
+  } catch (e: unknown) {
+    console.error('deletePromocionFromDB:', e)
+    return { success: false, error: 'No se pudo eliminar la promoción.' }
+  }
+}
+
+export async function setPromocionActivaInDB(
+  id: string,
+  activa: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('promociones')
+      .update({ activa, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) {
+      console.error('Error cambiando estado de promoción:', error)
+      return { success: false, error: error.message }
+    }
+    return { success: true }
+  } catch (e: unknown) {
+    console.error('setPromocionActivaInDB:', e)
+    return { success: false, error: 'No se pudo actualizar el estado.' }
   }
 }
