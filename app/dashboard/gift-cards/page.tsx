@@ -186,6 +186,19 @@ export default function GiftCardsPage() {
   const [newMetodoPago,      setNewMetodoPago]      = useState("")
   const [newMetodoPagoOtro,  setNewMetodoPagoOtro]  = useState("")
 
+  // ── Validación de folio (modal Crear) ─────────────────────────────────
+  const [createFolioStatus, setCreateFolioStatus] = useState<
+    null | "checking" | "en_agenda" | "lovable_valid" | "lovable_redeemed" | "lovable_error" | "not_found"
+  >(null)
+  const [createFolioData, setCreateFolioData] = useState<{
+    clienteNombre?: string | null
+    sucursalNombre?: string
+    fechaActivacion?: string | null
+    packageName?: string
+    amount?: number
+    redeemedAt?: string | null
+  } | null>(null)
+
   // ── Selector de cliente (modal Crear) ──────────────────────────────────
   const [clienteMode,        setClienteMode]        = useState<"existing" | "new">("existing")
   const [clienteSearchQuery, setClienteSearchQuery] = useState("")
@@ -326,9 +339,6 @@ export default function GiftCardsPage() {
   // Los filtros son server-side; la tabla muestra la página actual tal cual
   const filtered = giftCards
 
-  /** Autocompletado folio tienda en línea (modal crear). */
-  const tiendaDetectadaForm = detectarFolioTiendaCompleto(newCodigo)
-
   const abrirRegistroTiendaPreview = () => {
     if (!consultaTiendaPreview) return
     setNewCodigo(consultaTiendaPreview.codigoNormalizado)
@@ -351,6 +361,71 @@ export default function GiftCardsPage() {
     setNewMetodoPago(""); setNewMetodoPagoOtro("")
     setClienteMode("existing"); setClienteSearchQuery(""); setClientesBusqueda([])
     setSelectedCliente(null); setNuevoClienteData({ nombre: "", apellido: "", telefono: "", email: "" })
+    setCreateFolioStatus(null); setCreateFolioData(null)
+  }
+
+  /**
+   * Valida el folio en tres pasos:
+   * 1. BD local (si existe → bloquea creación)
+   * 2. API Lovable (solo para LUNA/GIFT) → prellenar monto
+   * 3. No encontrado → tarjeta física, monto editable
+   */
+  const validarFolioCreate = async () => {
+    const folio = newCodigo.trim()
+    if (!folio) {
+      setCreateFolioStatus(null)
+      setCreateFolioData(null)
+      return
+    }
+
+    const esCandidatoTienda = intentandoFormatoTiendaEnLinea(folio) || /^GIFT/i.test(folio)
+
+    setCreateFolioStatus("checking")
+    setCreateFolioData(null)
+    setNewMonto("")
+
+    // ── PASO 1: buscar en BD local ────────────────────────────────────────
+    const dbCard = await getGiftCardByCodigoFromDB(folio)
+    if (dbCard) {
+      setCreateFolioStatus("en_agenda")
+      setCreateFolioData({
+        clienteNombre: dbCard.clienteNombre,
+        sucursalNombre: dbCard.sucursalNombre,
+        fechaActivacion: dbCard.fechaActivacion,
+      })
+      return
+    }
+
+    // ── PASO 2: consultar API Lovable (solo códigos tienda / GIFT) ────────
+    if (esCandidatoTienda) {
+      try {
+        const res = await fetch(
+          `https://luna27.mx/api/public/verify-code?code=${encodeURIComponent(folio)}`,
+          { headers: { "x-api-key": "luna-cursor-2026" } },
+        )
+        if (res.status === 404) {
+          // No encontrado en Lovable → continúa a PASO 3
+        } else if (!res.ok) {
+          setCreateFolioStatus("lovable_error")
+          return
+        } else {
+          const data = await res.json()
+          if (data.valid && data.giftcard) {
+            const gc = data.giftcard
+            setCreateFolioStatus(gc.redeemed ? "lovable_redeemed" : "lovable_valid")
+            setCreateFolioData({ packageName: gc.package_name, amount: gc.amount, redeemedAt: gc.redeemed_at ?? null })
+            setNewMonto(String(gc.amount))
+            return
+          }
+        }
+      } catch {
+        setCreateFolioStatus("lovable_error")
+        return
+      }
+    }
+
+    // ── PASO 3: no encontrado en ningún lado → tarjeta física ────────────
+    setCreateFolioStatus("not_found")
   }
 
   const handleCreate = async () => {
@@ -421,8 +496,23 @@ export default function GiftCardsPage() {
     if (res.advertenciaPago) {
       toast.warning(`Gift card guardada, pero hubo un problema al registrar el cobro en caja: ${res.advertenciaPago}`)
     }
+
+    // Si el folio era de Lovable y NO estaba canjeado, notificar el canje (fire-and-forget)
+    const wasLovableValid  = createFolioStatus === "lovable_valid"
+    const folioLovable     = newCodigo.trim()
+    const sucursalLovable  = sucursales.find((s) => s.id === newSucursalId)?.nombre ?? "Luna27"
+
     resetCreateForm()
     setIsCreateOpen(false)
+
+    if (wasLovableValid) {
+      fetch("https://luna27.mx/api/public/verify-code", {
+        method: "POST",
+        headers: { "x-api-key": "luna-cursor-2026", "Content-Type": "application/json" },
+        body: JSON.stringify({ code: folioLovable, redeemed_by: sucursalLovable }),
+      }).catch((err) => console.error("[Lovable] Error al notificar canje al crear:", err))
+    }
+
     await reload()
   }
 
@@ -1077,11 +1167,11 @@ export default function GiftCardsPage() {
                   placeholder="Ej. GC-… o folio tienda LUNA1m + 4 caracteres"
                   value={newCodigo}
                   onChange={(e) => {
-                    const v = e.target.value
-                    setNewCodigo(v)
-                    const det = detectarFolioTiendaCompleto(v)
-                    if (det) setNewMonto(String(det.valor))
+                    setNewCodigo(e.target.value)
+                    setCreateFolioStatus(null)
+                    setCreateFolioData(null)
                   }}
+                  onBlur={validarFolioCreate}
                   className="font-mono"
                 />
                 <Button
@@ -1097,10 +1187,47 @@ export default function GiftCardsPage() {
               <p className="text-xs text-muted-foreground">
                 Folios LUNA1m, LUNA2m, LUNA3m o LUNA4m (10 caracteres en total): se reconoce el servicio y el monto; la tarjeta queda activa al crear.
               </p>
-              {tiendaDetectadaForm && (
+              {createFolioStatus === "checking" && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Verificando folio…
+                </div>
+              )}
+              {createFolioStatus === "en_agenda" && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900 space-y-0.5">
+                  <p className="font-semibold flex items-center gap-1">
+                    <XCircle className="h-3.5 w-3.5" /> Este folio ya está activo en la agenda
+                  </p>
+                  {createFolioData?.clienteNombre && <p>Cliente: {createFolioData.clienteNombre}</p>}
+                  {createFolioData?.sucursalNombre && <p>Sucursal: {createFolioData.sucursalNombre}</p>}
+                  {createFolioData?.fechaActivacion && <p>Fecha de activación: {fmtDate(createFolioData.fechaActivacion)}</p>}
+                </div>
+              )}
+              {createFolioStatus === "lovable_valid" && (
                 <div className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
-                  <span className="font-semibold">Tienda en línea:</span> {tiendaDetectadaForm.servicio} —{" "}
-                  {fmtMXN(tiendaDetectadaForm.valor)}
+                  <p className="font-semibold flex items-center gap-1">
+                    <CheckCircle className="h-3.5 w-3.5" /> Tienda en línea: {createFolioData?.packageName} — {fmtMXN(createFolioData?.amount ?? 0)}
+                  </p>
+                </div>
+              )}
+              {createFolioStatus === "lovable_redeemed" && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-0.5">
+                  <p className="font-semibold flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5" /> Este folio ya fue procesado en tienda en línea pero no está registrado en la agenda.
+                  </p>
+                  <p>Puedes continuar para registrarlo.</p>
+                </div>
+              )}
+              {createFolioStatus === "lovable_error" && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-0.5">
+                  <p className="font-semibold flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5" /> No se pudo verificar con tienda en línea.
+                  </p>
+                  <p>Puedes continuar como tarjeta física.</p>
+                </div>
+              )}
+              {createFolioStatus === "not_found" && (
+                <div className="rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-800">
+                  <p>Folio no encontrado en tienda en línea. Puedes registrarlo como tarjeta física.</p>
                 </div>
               )}
             </div>
@@ -1116,11 +1243,11 @@ export default function GiftCardsPage() {
                   placeholder="500.00"
                   value={newMonto}
                   onChange={(e) => setNewMonto(e.target.value)}
-                  readOnly={!!tiendaDetectadaForm}
-                  className={cn("pl-7", tiendaDetectadaForm && "bg-muted/60 cursor-not-allowed")}
+                  readOnly={createFolioStatus === "lovable_valid" || createFolioStatus === "lovable_redeemed"}
+                  className={cn("pl-7", (createFolioStatus === "lovable_valid" || createFolioStatus === "lovable_redeemed") && "bg-muted/60 cursor-not-allowed")}
                 />
               </div>
-              {tiendaDetectadaForm && (
+              {(createFolioStatus === "lovable_valid" || createFolioStatus === "lovable_redeemed") && (
                 <p className="text-xs text-muted-foreground">El monto lo fija el folio de la tienda en línea.</p>
               )}
             </div>
@@ -1336,7 +1463,7 @@ export default function GiftCardsPage() {
             <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || !newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim())}>
+            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || !newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()) || createFolioStatus === "checking" || createFolioStatus === "en_agenda"}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
             </Button>
           </DialogFooter>
