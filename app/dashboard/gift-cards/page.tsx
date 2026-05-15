@@ -348,6 +348,26 @@ export default function GiftCardsPage() {
     setIsCreateOpen(true)
   }
 
+  /** Abre el modal Nueva Gift Card prellenado con los datos del folio de Lovable. */
+  const abrirActivarGiftCard = () => {
+    if (!lovableResult?.giftcard) return
+    const gc = lovableResult.giftcard
+    setNewCodigo(gc.folio)
+    setNewMonto(String(gc.amount))
+    setCreateFolioStatus("lovable_valid")
+    setCreateFolioData({ packageName: gc.package_name, amount: gc.amount })
+    setIsCreateOpen(true)
+  }
+
+  /** Abre el modal Nueva Gift Card prellenado con el código buscado como tarjeta física. */
+  const abrirCrearTarjetaFisica = () => {
+    setNewCodigo(consultaCodigo.trim())
+    setNewMonto("")
+    setCreateFolioStatus("not_found")
+    setCreateFolioData(null)
+    setIsCreateOpen(true)
+  }
+
   // ── KPIs (desde query COUNT rápida) ───────────────────────────────────
   const { totalEmitidas, totalActivas, totalPendientes, saldoTotal } = kpis
 
@@ -610,66 +630,42 @@ export default function GiftCardsPage() {
     setConsultaTiendaPreview(null)
     setLovableResult(null)
 
-    // Códigos de tienda en línea (LUNA1m–LUNA4m) o prefijo GIFT → API de Lovable
-    if (intentandoFormatoTiendaEnLinea(raw) || /^GIFT/i.test(raw)) {
-      try {
-        const res = await fetch(
-          `https://luna27.mx/api/public/verify-code?code=${encodeURIComponent(raw)}`,
-          { headers: { "x-api-key": "luna-cursor-2026" } },
-        )
-        if (res.status === 404) {
-          setLovableResult({ valid: false, errorKind: "not_found" })
-        } else if (!res.ok) {
-          setLovableResult({ valid: false, errorKind: "server_error" })
-        } else {
-          const data = await res.json()
-          setLovableResult(data)
-          // Si es válido y no ha sido canjeado, construir GiftCard para reutilizar el bloque interno
-          if (data.valid && data.giftcard && !data.giftcard.redeemed) {
-            const gc = data.giftcard
-            const dbCard = await getGiftCardByCodigoFromDB(gc.folio)
-            if (dbCard) {
-              setConsultaCard(dbCard)
-            } else {
-              setConsultaCard({
-                id: "",
-                codigo: gc.folio,
-                saldoInicial: gc.amount,
-                saldoActual: gc.amount,
-                estado: "activa" as const,
-                fechaEmision: gc.purchased_at,
-                fechaActivacion: gc.purchased_at,
-                fechaExpiracion: null,
-                clienteId: null,
-                clienteNombre: null,
-                sucursalId: giftCardsSucursalScope ?? "",
-                sucursalNombre: sucursales.find((s) => s.id === giftCardsSucursalScope)?.nombre ?? "",
-                empleadoEmisorId: "",
-                empleadoEmisorNombre: "",
-              })
-            }
-          }
-        }
-      } catch {
-        setLovableResult({ valid: false, errorKind: "connection_error" })
-      }
+    // ── PASO 1: buscar en BD local (para todos los códigos) ───────────────
+    const codigo = raw.toUpperCase()
+    const local = giftCards.find((c) => c.codigo.toUpperCase() === codigo)
+    const dbCard = local ?? await getGiftCardByCodigoFromDB(codigo)
+    if (dbCard) {
+      setConsultaCard(dbCard)
       setIsSearching(false)
       return
     }
 
-    // Resto de códigos: búsqueda en base de datos local
-    const codigo = raw.toUpperCase()
-    const local = giftCards.find((c) => c.codigo.toUpperCase() === codigo)
-    if (local) {
-      setConsultaCard(local)
-    } else {
-      const found = await getGiftCardByCodigoFromDB(codigo)
-      if (found) {
-        setConsultaCard(found)
+    // ── PASO 2: consultar API de Lovable ──────────────────────────────────
+    try {
+      const res = await fetch(
+        `https://luna27.mx/api/public/verify-code?code=${encodeURIComponent(raw)}`,
+        { headers: { "x-api-key": "luna-cursor-2026" } },
+      )
+      if (res.status === 404) {
+        // No encontrado en Lovable → continúa a PASO 3
+      } else if (!res.ok) {
+        setLovableResult({ valid: false, errorKind: "server_error" })
+        setIsSearching(false)
+        return
       } else {
-        setConsultaError("No se encontró una gift card con ese código")
+        const data = await res.json()
+        setLovableResult(data)
+        setIsSearching(false)
+        return
       }
+    } catch {
+      setLovableResult({ valid: false, errorKind: "connection_error" })
+      setIsSearching(false)
+      return
     }
+
+    // ── PASO 3: no encontrado en ningún lado ──────────────────────────────
+    setLovableResult({ valid: false, errorKind: "not_found" })
     setIsSearching(false)
   }
 
@@ -762,11 +758,22 @@ export default function GiftCardsPage() {
           {lovableResult && (() => {
             if (lovableResult.errorKind === "not_found") {
               return (
-                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4">
-                  <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
-                    <XCircle className="h-4 w-4" /> Código no encontrado
+                <div className="mt-3 rounded-lg border border-border bg-muted/30 p-4 flex flex-col gap-3">
+                  <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <XCircle className="h-4 w-4 text-muted-foreground" /> Folio no encontrado
                   </p>
-                  <p className="text-sm text-red-600 mt-1">Verifica que el código esté escrito correctamente.</p>
+                  <p className="text-sm text-muted-foreground -mt-1">
+                    Este código no existe en el sistema ni en la tienda en línea.
+                  </p>
+                  <p className="text-xs text-muted-foreground">¿Es una tarjeta física? Puedes registrarla aquí.</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full sm:w-auto"
+                    onClick={abrirCrearTarjetaFisica}
+                  >
+                    <Plus className="h-4 w-4 mr-2" /> Crear como tarjeta física
+                  </Button>
                 </div>
               )
             }
@@ -785,12 +792,43 @@ export default function GiftCardsPage() {
             }
             if (!lovableResult.giftcard) return null
             const gc = lovableResult.giftcard
-            // Código válido y no canjeado → consultaCard lo renderiza con el bloque interno
-            if (!gc.redeemed) return null
+            const nombreServicio = gc.type === "gift" ? "Dinero electrónico" : gc.package_name
+
+            if (!gc.redeemed) {
+              return (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 flex flex-col gap-3">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+                    <CheckCircle className="h-4 w-4" /> Folio de tienda en línea — pendiente de activar
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm border-t border-emerald-100 pt-3">
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Servicio</p>
+                      <p className="font-medium">{nombreServicio}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Monto</p>
+                      <p className="font-bold text-lg leading-tight text-emerald-600">{fmtMXN(gc.amount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Cliente que compró</p>
+                      <p className="font-medium">{gc.customer_name}</p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={abrirActivarGiftCard}
+                  >
+                    <Plus className="h-4 w-4 mr-2" /> Activar Gift Card
+                  </Button>
+                </div>
+              )
+            }
+
             return (
               <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4 flex flex-col gap-2">
                 <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
-                  <XCircle className="h-4 w-4" /> Este código ya fue utilizado
+                  <XCircle className="h-4 w-4" /> Este folio ya fue canjeado
                 </p>
                 <p className="text-sm text-red-600">
                   Canjeado el: {fmtDate(gc.redeemed_at)}
