@@ -457,7 +457,6 @@ export async function crearGiftCard(datos: {
         }
         if (a.tipo === "valido") {
           codigo = a.codigoNormalizado
-          montoInicialFinal = a.valor
           servicioTiendaLinea = a.servicio
         } else {
           codigo = customRaw.toUpperCase()

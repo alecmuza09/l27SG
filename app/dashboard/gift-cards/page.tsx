@@ -105,8 +105,16 @@ const tipoTransaccionConfig: Record<string, { label: string; signo: string; colo
 const fmtMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
 
-const fmtDate = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" }) : "—"
+const fmtDate = (d: string | null) => {
+  if (!d) return "—"
+  // Strings YYYY-MM-DD se interpretan como UTC midnight por el estándar ISO 8601.
+  // Parseando por partes se fuerza la hora local y se evita el desfase de un día.
+  if (d.length === 10) {
+    const [y, m, day] = d.split("-").map(Number)
+    return new Date(y, m - 1, day).toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" })
+  }
+  return new Date(d).toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" })
+}
 
 /** Una sola sucursal explícita para KPI/tablas; si hay varias o sólo RLS, undefined. */
 function narrowGiftCardScopeSucursalId(user: User | null): string | undefined {
