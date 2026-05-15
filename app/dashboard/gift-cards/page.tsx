@@ -50,6 +50,7 @@ import {
   RotateCcw,
   Calendar,
   BadgeCheck,
+  AlertTriangle,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
@@ -214,6 +215,23 @@ export default function GiftCardsPage() {
     valor: number
   } | null>(null)
   const [isSearching,    setIsSearching]    = useState(false)
+  const [lovableResult,  setLovableResult]  = useState<{
+    valid: boolean
+    giftcard?: {
+      folio: string
+      type: string
+      package_name: string
+      package_option: number
+      amount: number
+      customer_name: string
+      purchased_at: string
+      redeemed: boolean
+      redeemed_at: string | null
+      redeemed_by: string | null
+    }
+    errorKind?: "not_found" | "server_error" | "connection_error"
+  } | null>(null)
+  const [isRedeeming,    setIsRedeeming]    = useState(false)
 
   // ── Cargar datos ───────────────────────────────────────────────────────
   const loadGiftCards = async (page: number, search: string, estado: string) => {
@@ -497,36 +515,31 @@ export default function GiftCardsPage() {
     setConsultaError("")
     setConsultaCard(null)
     setConsultaTiendaPreview(null)
+    setLovableResult(null)
 
-    if (intentandoFormatoTiendaEnLinea(raw)) {
-      const a = analizarFolioTiendaEnLinea(raw)
-      if (a.tipo === "error") {
-        setConsultaError(a.mensaje)
-        setIsSearching(false)
-        return
-      }
-      if (a.tipo === "valido") {
-        const local = giftCards.find(
-          (c) => c.codigo.toLowerCase() === a.codigoNormalizado.toLowerCase(),
+    // Códigos de tienda en línea (LUNA1m–LUNA4m) o prefijo GIFT → API de Lovable
+    if (intentandoFormatoTiendaEnLinea(raw) || /^GIFT/i.test(raw)) {
+      try {
+        const res = await fetch(
+          `https://luna27.mx/api/public/verify-code?code=${encodeURIComponent(raw)}`,
+          { headers: { "x-api-key": "luna-cursor-2026" } },
         )
-        if (local) {
-          setConsultaCard(local)
+        if (res.status === 404) {
+          setLovableResult({ valid: false, errorKind: "not_found" })
+        } else if (!res.ok) {
+          setLovableResult({ valid: false, errorKind: "server_error" })
         } else {
-          const found = await getGiftCardByCodigoFromDB(a.codigoNormalizado)
-          if (found) setConsultaCard(found)
-          else {
-            setConsultaTiendaPreview({
-              codigoNormalizado: a.codigoNormalizado,
-              servicio: a.servicio,
-              valor: a.valor,
-            })
-          }
+          const data = await res.json()
+          setLovableResult(data)
         }
-        setIsSearching(false)
-        return
+      } catch {
+        setLovableResult({ valid: false, errorKind: "connection_error" })
       }
+      setIsSearching(false)
+      return
     }
 
+    // Resto de códigos: búsqueda en base de datos local
     const codigo = raw.toUpperCase()
     const local = giftCards.find((c) => c.codigo.toUpperCase() === codigo)
     if (local) {
@@ -540,6 +553,45 @@ export default function GiftCardsPage() {
       }
     }
     setIsSearching(false)
+  }
+
+  const handleConfirmarCanje = async () => {
+    if (!lovableResult?.giftcard) return
+    const sucursal = sucursales.find((s) => s.id === giftCardsSucursalScope)
+    const redeemedBy = sucursal?.nombre ?? "Luna27"
+    setIsRedeeming(true)
+    try {
+      const res = await fetch("https://luna27.mx/api/public/verify-code", {
+        method: "POST",
+        headers: {
+          "x-api-key": "luna-cursor-2026",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code: lovableResult.giftcard.folio, redeemed_by: redeemedBy }),
+      })
+      if (res.ok) {
+        toast.success("Código canjeado exitosamente")
+        setLovableResult((prev) =>
+          prev?.giftcard
+            ? {
+                ...prev,
+                giftcard: {
+                  ...prev.giftcard,
+                  redeemed: true,
+                  redeemed_at: new Date().toISOString(),
+                  redeemed_by: redeemedBy,
+                },
+              }
+            : prev,
+        )
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast.error((err as { message?: string }).message ?? "Error al canjear el código")
+      }
+    } catch {
+      toast.error("No se pudo conectar con el servidor")
+    }
+    setIsRedeeming(false)
   }
 
   const handleVerDetalles = async (card: GiftCard) => {
@@ -597,6 +649,7 @@ export default function GiftCardsPage() {
                 setConsultaCard(null)
                 setConsultaError("")
                 setConsultaTiendaPreview(null)
+                setLovableResult(null)
               }}
               onKeyDown={(e) => e.key === "Enter" && handleConsultarCodigo()}
               className="font-mono bg-white"
@@ -613,6 +666,90 @@ export default function GiftCardsPage() {
               <XCircle className="h-4 w-4" /> {consultaError}
             </p>
           )}
+
+          {/* Resultado de API Lovable (códigos tienda en línea / GIFT) */}
+          {lovableResult && (() => {
+            if (lovableResult.errorKind === "not_found") {
+              return (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4">
+                  <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+                    <XCircle className="h-4 w-4" /> Código no encontrado
+                  </p>
+                  <p className="text-sm text-red-600 mt-1">Verifica que el código esté escrito correctamente.</p>
+                </div>
+              )
+            }
+            if (lovableResult.errorKind === "connection_error" || lovableResult.errorKind === "server_error") {
+              return (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-700 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4" />
+                    {lovableResult.errorKind === "connection_error"
+                      ? "No se pudo conectar con el servidor"
+                      : "Error al verificar el código"}
+                  </p>
+                  <p className="text-sm text-amber-600 mt-1">Intenta de nuevo o contacta a soporte.</p>
+                </div>
+              )
+            }
+            if (!lovableResult.giftcard) return null
+            const gc = lovableResult.giftcard
+            const nombre = gc.type === "gift" ? "Dinero electrónico" : gc.package_name
+            return (
+              <div className={cn(
+                "mt-3 rounded-lg border p-4 flex flex-col gap-3",
+                gc.redeemed ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200",
+              )}>
+                <div className="flex items-center gap-2">
+                  {gc.redeemed ? (
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-700">
+                      <XCircle className="h-4 w-4" /> Este código ya fue utilizado
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+                      <CheckCircle className="h-4 w-4" /> Código válido
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm border-t border-current/10 pt-3">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Servicio</p>
+                    <p className="font-medium">{nombre}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Monto</p>
+                    <p className="font-bold text-lg leading-tight">{fmtMXN(gc.amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Cliente</p>
+                    <p className="font-medium">{gc.customer_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Código</p>
+                    <p className="font-mono font-semibold">{gc.folio}</p>
+                  </div>
+                </div>
+                {gc.redeemed ? (
+                  <p className="text-sm text-red-600">
+                    Canjeado el: {fmtDate(gc.redeemed_at)}
+                    {gc.redeemed_by ? ` — ${gc.redeemed_by}` : ""}
+                  </p>
+                ) : (
+                  <Button
+                    type="button"
+                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
+                    disabled={isRedeeming}
+                    onClick={handleConfirmarCanje}
+                  >
+                    {isRedeeming
+                      ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    Confirmar canje
+                  </Button>
+                )}
+              </div>
+            )
+          })()}
 
           {consultaTiendaPreview && !consultaCard && (
             <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
