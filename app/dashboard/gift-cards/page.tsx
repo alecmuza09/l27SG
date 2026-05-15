@@ -1296,8 +1296,11 @@ export default function GiftCardsPage() {
                 </div>
               )}
               {createFolioStatus === "not_found" && (
-                <div className="rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-800">
-                  <p>Folio no encontrado en tienda en línea. Puedes registrarlo como tarjeta física.</p>
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                  {newMonto
+                    ? `✓ Gift card encontrada — saldo: ${fmtMXN(Number(newMonto))}. Puedes asignarle un cliente a continuación.`
+                    : "Folio no encontrado en tienda en línea. Puedes registrarlo como tarjeta física."
+                  }
                 </div>
               )}
             </div>
