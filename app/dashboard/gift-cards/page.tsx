@@ -231,7 +231,6 @@ export default function GiftCardsPage() {
     }
     errorKind?: "not_found" | "server_error" | "connection_error"
   } | null>(null)
-  const [isRedeeming,    setIsRedeeming]    = useState(false)
 
   // ── Cargar datos ───────────────────────────────────────────────────────
   const loadGiftCards = async (page: number, search: string, estado: string) => {
@@ -462,10 +461,12 @@ export default function GiftCardsPage() {
     if (monto <= 0 || monto > selectedCard.saldoActual) return
     setIsSubmitting(true)
     const cardId = selectedCard.id
+    const cardCodigo = selectedCard.codigo
     const res = await canjearGiftCard(cardId, monto, redeemNotas || undefined)
     setIsSubmitting(false)
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
     toast.success(`Canjeados ${fmtMXN(monto)}. Saldo restante: ${fmtMXN(res.saldoNuevo ?? 0)}`)
+    if (lovableResult?.giftcard?.folio === cardCodigo) notificarCanjeALovable(cardCodigo)
     setRedeemMonto(""); setRedeemNotas(""); setIsRedeemOpen(false)
     await reload()
     await abrirHistorial(cardId)
@@ -477,10 +478,12 @@ export default function GiftCardsPage() {
     if (monto <= 0) return
     setIsSubmitting(true)
     const cardId = selectedCard.id
+    const cardCodigo = selectedCard.codigo
     const res = await recargarGiftCard(cardId, monto, rechargeNotas || undefined)
     setIsSubmitting(false)
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
     toast.success(`Recargados ${fmtMXN(monto)}. Nuevo saldo: ${fmtMXN(res.saldoNuevo ?? 0)}`)
+    if (lovableResult?.giftcard?.folio === cardCodigo) notificarCanjeALovable(cardCodigo)
     setRechargeMonto(""); setRechargeNotas(""); setIsRechargeOpen(false)
     await reload()
     await abrirHistorial(cardId)
@@ -531,6 +534,31 @@ export default function GiftCardsPage() {
         } else {
           const data = await res.json()
           setLovableResult(data)
+          // Si es válido y no ha sido canjeado, construir GiftCard para reutilizar el bloque interno
+          if (data.valid && data.giftcard && !data.giftcard.redeemed) {
+            const gc = data.giftcard
+            const dbCard = await getGiftCardByCodigoFromDB(gc.folio)
+            if (dbCard) {
+              setConsultaCard(dbCard)
+            } else {
+              setConsultaCard({
+                id: "",
+                codigo: gc.folio,
+                saldoInicial: gc.amount,
+                saldoActual: gc.amount,
+                estado: "activa" as const,
+                fechaEmision: gc.purchased_at,
+                fechaActivacion: gc.purchased_at,
+                fechaExpiracion: null,
+                clienteId: null,
+                clienteNombre: null,
+                sucursalId: giftCardsSucursalScope ?? "",
+                sucursalNombre: sucursales.find((s) => s.id === giftCardsSucursalScope)?.nombre ?? "",
+                empleadoEmisorId: "",
+                empleadoEmisorNombre: "",
+              })
+            }
+          }
         }
       } catch {
         setLovableResult({ valid: false, errorKind: "connection_error" })
@@ -555,43 +583,16 @@ export default function GiftCardsPage() {
     setIsSearching(false)
   }
 
-  const handleConfirmarCanje = async () => {
-    if (!lovableResult?.giftcard) return
+
+  /** Notifica a la API de Lovable que un código fue canjeado (fire-and-forget). */
+  const notificarCanjeALovable = (folio: string) => {
     const sucursal = sucursales.find((s) => s.id === giftCardsSucursalScope)
     const redeemedBy = sucursal?.nombre ?? "Luna27"
-    setIsRedeeming(true)
-    try {
-      const res = await fetch("https://luna27.mx/api/public/verify-code", {
-        method: "POST",
-        headers: {
-          "x-api-key": "luna-cursor-2026",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ code: lovableResult.giftcard.folio, redeemed_by: redeemedBy }),
-      })
-      if (res.ok) {
-        toast.success("Código canjeado exitosamente")
-        setLovableResult((prev) =>
-          prev?.giftcard
-            ? {
-                ...prev,
-                giftcard: {
-                  ...prev.giftcard,
-                  redeemed: true,
-                  redeemed_at: new Date().toISOString(),
-                  redeemed_by: redeemedBy,
-                },
-              }
-            : prev,
-        )
-      } else {
-        const err = await res.json().catch(() => ({}))
-        toast.error((err as { message?: string }).message ?? "Error al canjear el código")
-      }
-    } catch {
-      toast.error("No se pudo conectar con el servidor")
-    }
-    setIsRedeeming(false)
+    fetch("https://luna27.mx/api/public/verify-code", {
+      method: "POST",
+      headers: { "x-api-key": "luna-cursor-2026", "Content-Type": "application/json" },
+      body: JSON.stringify({ code: folio, redeemed_by: redeemedBy }),
+    }).catch((err) => console.error("[Lovable] Error al notificar canje:", err))
   }
 
   const handleVerDetalles = async (card: GiftCard) => {
@@ -694,59 +695,17 @@ export default function GiftCardsPage() {
             }
             if (!lovableResult.giftcard) return null
             const gc = lovableResult.giftcard
-            const nombre = gc.type === "gift" ? "Dinero electrónico" : gc.package_name
+            // Código válido y no canjeado → consultaCard lo renderiza con el bloque interno
+            if (!gc.redeemed) return null
             return (
-              <div className={cn(
-                "mt-3 rounded-lg border p-4 flex flex-col gap-3",
-                gc.redeemed ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200",
-              )}>
-                <div className="flex items-center gap-2">
-                  {gc.redeemed ? (
-                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-700">
-                      <XCircle className="h-4 w-4" /> Este código ya fue utilizado
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
-                      <CheckCircle className="h-4 w-4" /> Código válido
-                    </span>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm border-t border-current/10 pt-3">
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Servicio</p>
-                    <p className="font-medium">{nombre}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Monto</p>
-                    <p className="font-bold text-lg leading-tight">{fmtMXN(gc.amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Cliente</p>
-                    <p className="font-medium">{gc.customer_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-medium">Código</p>
-                    <p className="font-mono font-semibold">{gc.folio}</p>
-                  </div>
-                </div>
-                {gc.redeemed ? (
-                  <p className="text-sm text-red-600">
-                    Canjeado el: {fmtDate(gc.redeemed_at)}
-                    {gc.redeemed_by ? ` — ${gc.redeemed_by}` : ""}
-                  </p>
-                ) : (
-                  <Button
-                    type="button"
-                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
-                    disabled={isRedeeming}
-                    onClick={handleConfirmarCanje}
-                  >
-                    {isRedeeming
-                      ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                    Confirmar canje
-                  </Button>
-                )}
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4 flex flex-col gap-2">
+                <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+                  <XCircle className="h-4 w-4" /> Este código ya fue utilizado
+                </p>
+                <p className="text-sm text-red-600">
+                  Canjeado el: {fmtDate(gc.redeemed_at)}
+                  {gc.redeemed_by ? ` — ${gc.redeemed_by}` : ""}
+                </p>
               </div>
             )
           })()}
