@@ -425,10 +425,21 @@ export default function GiftCardsPage() {
         })
         return
       } else {
+        // Tarjeta existe sin cliente — verificar que tenga saldo disponible
+        if (dbCard.estado === "agotada" || dbCard.estado === "cancelada" || dbCard.estado === "expirada") {
+          setCreateFolioStatus("en_agenda")
+          setCreateFolioData({
+            clienteNombre: null,
+            sucursalNombre: dbCard.sucursalNombre,
+            fechaActivacion: dbCard.fechaActivacion,
+          })
+          return
+        }
         setCreateFolioStatus("not_found")
         setCreateFolioData(null)
         setNewMonto(String(dbCard.saldoActual || dbCard.saldoInicial || ""))
         setNewSucursalId(dbCard.sucursalId || "")
+        return
       }
     }
 
@@ -1265,7 +1276,11 @@ export default function GiftCardsPage() {
               {createFolioStatus === "en_agenda" && (
                 <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900 space-y-0.5">
                   <p className="font-semibold flex items-center gap-1">
-                    <XCircle className="h-3.5 w-3.5" /> Este folio ya está activo en la agenda
+                    <XCircle className="h-3.5 w-3.5" />
+                    {createFolioData?.clienteNombre === null
+                      ? "Esta gift card ya fue utilizada o está cancelada y no puede reasignarse."
+                      : "Este folio ya está activo en la agenda"
+                    }
                   </p>
                   {createFolioData?.clienteNombre && <p>Cliente: {createFolioData.clienteNombre}</p>}
                   {createFolioData?.sucursalNombre && <p>Sucursal: {createFolioData.sucursalNombre}</p>}
