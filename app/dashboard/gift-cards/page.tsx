@@ -415,13 +415,18 @@ export default function GiftCardsPage() {
     // ── PASO 1: buscar en BD local ────────────────────────────────────────
     const dbCard = await getGiftCardByCodigoFromDB(folio)
     if (dbCard) {
-      setCreateFolioStatus("en_agenda")
-      setCreateFolioData({
-        clienteNombre: dbCard.clienteNombre,
-        sucursalNombre: dbCard.sucursalNombre,
-        fechaActivacion: dbCard.fechaActivacion,
-      })
-      return
+      if (dbCard.clienteId) {
+        setCreateFolioStatus("en_agenda")
+        setCreateFolioData({
+          clienteNombre: dbCard.clienteNombre,
+          sucursalNombre: dbCard.sucursalNombre,
+          fechaActivacion: dbCard.fechaActivacion,
+        })
+        return
+      } else {
+        setCreateFolioStatus("not_found")
+        setCreateFolioData(null)
+      }
     }
 
     // ── PASO 2: consultar API Lovable (solo códigos tienda / GIFT) ────────
