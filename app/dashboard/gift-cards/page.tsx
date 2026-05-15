@@ -78,6 +78,7 @@ import {
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
+import { supabase } from "@/lib/supabase/client"
 
 // ─── Configuración de estados ─────────────────────────────────────────────
 
@@ -426,6 +427,8 @@ export default function GiftCardsPage() {
       } else {
         setCreateFolioStatus("not_found")
         setCreateFolioData(null)
+        setNewMonto(String(dbCard.saldoActual || dbCard.saldoInicial || ""))
+        setNewSucursalId(dbCard.sucursalId || "")
       }
     }
 
@@ -511,6 +514,22 @@ export default function GiftCardsPage() {
     }
 
     const metodoPagoFinal = newMetodoPago === "otro" ? newMetodoPagoOtro.trim() : newMetodoPago
+
+    const existente = await getGiftCardByCodigoFromDB(newCodigo.trim())
+    if (existente && !existente.clienteId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any)
+        .from('gift_cards')
+        .update({ cliente_id: clienteIdFinal })
+        .eq('id', existente.id)
+      if (error) { toast.error(`Error al asignar cliente: ${error.message}`); setIsSubmitting(false); return }
+      toast.success(`Cliente asignado correctamente a la gift card ${existente.codigo}`)
+      resetCreateForm()
+      setIsCreateOpen(false)
+      await reload()
+      setIsSubmitting(false)
+      return
+    }
 
     const res = await crearGiftCard({
       montoInicial: parseFloat(newMonto),
