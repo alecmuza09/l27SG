@@ -28,6 +28,7 @@ import {
   type HistorialCliente, type GiftCardValidada,
 } from "@/lib/data/pagos"
 import { updateCitaEstado } from "@/lib/data/citas"
+import { supabase } from "@/lib/supabase/client"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 
 // ─── Tipos internos ────────────────────────────────────────────────────────
@@ -346,7 +347,27 @@ export function CajaDialog({
   const handleAplicarGC = useCallback(async () => {
     if (!codigoGC.trim()) return
     setIsValidandoGC(true)
-    const res = await validarGiftCard(codigoGC)
+    let res = await validarGiftCard(codigoGC)
+
+    // Si está pendiente, intentar activarla directamente
+    if (!res.valida && res.error === 'Gift card pendiente de activación') {
+      const { data: rows } = await (supabase as any)
+        .from('gift_cards')
+        .select('id, codigo, saldo_actual, estado')
+        .ilike('codigo', codigoGC.trim())
+        .limit(1)
+      const gcRow = Array.isArray(rows) ? rows[0] : null
+      if (gcRow && Number(gcRow.saldo_actual) > 0) {
+        const hoyISO = new Date().toISOString().split('T')[0]
+        await (supabase as any)
+          .from('gift_cards')
+          .update({ estado: 'activa', fecha_activacion: hoyISO })
+          .eq('id', gcRow.id)
+        toast.success('Gift card activada y lista para usar')
+        res = await validarGiftCard(codigoGC)
+      }
+    }
+
     setIsValidandoGC(false)
     if (!res.valida || !res.gc) { toast.error(res.error || "Gift card inválida"); return }
     const monto = Math.min(res.gc.saldoActual, totalSinPropina)
@@ -376,7 +397,27 @@ export function CajaDialog({
   const handleBuscarGCPago = async () => {
     if (!gcPagoCodigo.trim()) return
     setGcPagoBuscando(true)
-    const res = await validarGiftCard(gcPagoCodigo)
+    let res = await validarGiftCard(gcPagoCodigo)
+
+    // Si está pendiente, intentar activarla directamente
+    if (!res.valida && res.error === 'Gift card pendiente de activación') {
+      const { data: rows } = await (supabase as any)
+        .from('gift_cards')
+        .select('id, codigo, saldo_actual, estado')
+        .ilike('codigo', gcPagoCodigo.trim())
+        .limit(1)
+      const gcRow = Array.isArray(rows) ? rows[0] : null
+      if (gcRow && Number(gcRow.saldo_actual) > 0) {
+        const hoyISO = new Date().toISOString().split('T')[0]
+        await (supabase as any)
+          .from('gift_cards')
+          .update({ estado: 'activa', fecha_activacion: hoyISO })
+          .eq('id', gcRow.id)
+        toast.success('Gift card activada y lista para usar')
+        res = await validarGiftCard(gcPagoCodigo)
+      }
+    }
+
     setGcPagoBuscando(false)
     if (!res.valida || !res.gc) { toast.error(res.error || "Gift card inválida"); return }
     setGcPagoId(res.gc.id)
