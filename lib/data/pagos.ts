@@ -841,7 +841,17 @@ export async function validarGiftCard(
     const row = Array.isArray(data) ? data[0] : null
     if (!row) return { valida: false, error: 'Gift card no encontrada' }
 
-    if (row.estado === 'pendiente') return { valida: false, error: 'Gift card pendiente de activación' }
+    if (row.estado === 'pendiente') {
+      if (Number(row.saldo_actual) > 0) {
+        await supabase
+          .from('gift_cards')
+          .update({ estado: 'activa', fecha_activacion: new Date().toISOString().split('T')[0] })
+          .eq('id', row.id)
+        row.estado = 'activa'
+      } else {
+        return { valida: false, error: 'Gift card pendiente de activación sin saldo' }
+      }
+    }
     if (row.estado === 'cancelada') return { valida: false, error: 'Gift card cancelada' }
     if (row.estado === 'expirada')  return { valida: false, error: 'Gift card expirada' }
     if (row.estado === 'agotada')   return { valida: false, error: 'Gift card sin saldo disponible' }
