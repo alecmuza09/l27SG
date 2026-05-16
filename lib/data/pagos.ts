@@ -823,6 +823,7 @@ export async function validarGiftCard(
 ): Promise<{ valida: boolean; gc?: GiftCardValidada; error?: string }> {
   try {
     const codigoLimpio = codigo.trim()
+    console.log('validarGiftCard ejecutada:', codigoLimpio)
     if (!codigoLimpio) return { valida: false, error: 'Ingresa un código de gift card' }
 
     // ilike = búsqueda case-insensitive; evita que códigos con minúsculas fallen
