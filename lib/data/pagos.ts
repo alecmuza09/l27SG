@@ -844,10 +844,14 @@ export async function validarGiftCard(
     if (row.estado === 'pendiente') {
       if (Number(row.saldo_actual) > 0) {
         const hoyISO = new Date().toISOString().split('T')[0]
-        await supabase
+        const { error: updateError } = await supabase
           .from('gift_cards')
           .update({ estado: 'activa', fecha_activacion: hoyISO })
           .eq('id', row.id)
+        if (updateError) {
+          console.error('Error activando gift card:', updateError)
+          return { valida: false, error: `Error al activar gift card: ${updateError.message}` }
+        }
         row.estado = 'activa'
       } else {
         return { valida: false, error: 'Gift card pendiente de activación sin saldo' }
