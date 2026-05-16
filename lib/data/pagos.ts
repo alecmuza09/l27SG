@@ -843,9 +843,10 @@ export async function validarGiftCard(
 
     if (row.estado === 'pendiente') {
       if (Number(row.saldo_actual) > 0) {
+        const hoyISO = new Date().toISOString().split('T')[0]
         await supabase
           .from('gift_cards')
-          .update({ estado: 'activa', fecha_activacion: new Date().toISOString().split('T')[0] })
+          .update({ estado: 'activa', fecha_activacion: hoyISO })
           .eq('id', row.id)
         row.estado = 'activa'
       } else {
