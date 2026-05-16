@@ -283,6 +283,18 @@ export function CajaDialog({
   const cambio      = Math.max(0, efNum - (total - tarNum - trfNum - gcNum - vipNum))
   const faltante    = Math.max(0, total - totalPagado)
 
+  const errEfectivo = total > 0 && efNum > total + 0.009
+    ? `El monto en efectivo no puede ser mayor al total del cobro (${fmtMXN(total)})`
+    : null
+  const errTarjeta = total > 0 && tarNum > total + 0.009
+    ? `El monto en tarjeta no puede ser mayor al total del cobro (${fmtMXN(total)})`
+    : null
+  const soloEfTar = efNum > 0.009 && tarNum > 0.009 && trfNum < 0.009 && gcNum < 0.009 && vipNum < 0.009
+  const errMixto = soloEfTar && Math.abs(efNum + tarNum - total) > 0.02
+    ? `La suma de efectivo (${fmtMXN(efNum)}) y tarjeta (${fmtMXN(tarNum)}) debe ser igual al total (${fmtMXN(total)})`
+    : null
+  const hayErrorMontos = !!errEfectivo || !!errTarjeta || !!errMixto
+
   // ── Categorías de servicios en carrito para sugerencias ───────────────
   const categoriasEnCarrito = [...new Set(
     cart.filter(i => i.tipo === "servicio").map(i => i.categoriaServicio || "default")
@@ -1091,9 +1103,12 @@ export function CajaDialog({
                   <span className="text-xs w-20 flex-shrink-0">Efectivo</span>
                   <div className="relative flex-1">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
-                    <Input type="number" min="0" step="any" value={pagoEfectivo} onChange={e => setPagoEfectivo(e.target.value)} placeholder="0" className="h-7 text-xs pl-5" />
+                    <Input type="number" min="0" step="any" value={pagoEfectivo} onChange={e => setPagoEfectivo(e.target.value)} placeholder="0" className={cn("h-7 text-xs pl-5", errEfectivo && "border-red-400 focus-visible:ring-red-400")} />
                   </div>
                 </div>
+                {errEfectivo && (
+                  <p className="text-[10px] text-red-600 font-medium ml-8">{errEfectivo}</p>
+                )}
 
                 {/* Tarjeta */}
                 <div className="flex items-center gap-1.5">
@@ -1103,9 +1118,15 @@ export function CajaDialog({
                   <span className="text-xs w-20 flex-shrink-0">Tarjeta</span>
                   <div className="relative flex-1">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
-                    <Input type="number" min="0" step="any" value={pagoTarjeta} onChange={e => setPagoTarjeta(e.target.value)} placeholder="0" className="h-7 text-xs pl-5" />
+                    <Input type="number" min="0" step="any" value={pagoTarjeta} onChange={e => setPagoTarjeta(e.target.value)} placeholder="0" className={cn("h-7 text-xs pl-5", (errTarjeta || errMixto) && "border-red-400 focus-visible:ring-red-400")} />
                   </div>
                 </div>
+                {errTarjeta && (
+                  <p className="text-[10px] text-red-600 font-medium ml-8">{errTarjeta}</p>
+                )}
+                {errMixto && !errTarjeta && (
+                  <p className="text-[10px] text-red-600 font-medium ml-8">{errMixto}</p>
+                )}
 
                 {/* Transferencia + referencia */}
                 <div className="flex items-center gap-1.5">
@@ -1223,7 +1244,7 @@ export function CajaDialog({
                   <Button
                     className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
                     onClick={handleCobrar}
-                    disabled={isCobrandо || cart.length === 0 || faltante > 0.01}
+                    disabled={isCobrandо || cart.length === 0 || faltante > 0.01 || hayErrorMontos}
                   >
                     {isCobrandо ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                     {isCobrandо ? "Registrando…" : "Cobrar"}

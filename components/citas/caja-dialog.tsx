@@ -148,6 +148,12 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
       ? Math.max(0, total - (parseFloat(montoEfectivoMixto) || 0))
       : 0
 
+  const efMixtoNum = parseFloat(montoEfectivoMixto) || 0
+  const errEfectivoMixto =
+    metodoPago === "mixto" && total > 0 && efMixtoNum > total
+      ? `El monto en efectivo no puede ser mayor al total del cobro (${formatMXN(total)})`
+      : null
+
   // ─── Aplicar cupón ─────────────────────────────────────────────────────
 
   const handleAplicarCupon = useCallback(async () => {
@@ -612,28 +618,33 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
 
               {/* Mixto: efectivo + tarjeta */}
               {metodoPago === "mixto" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Monto en efectivo</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        placeholder="0.00"
-                        value={montoEfectivoMixto}
-                        onChange={(e) => setMontoEfectivoMixto(e.target.value)}
-                        className="pl-7 text-sm"
-                      />
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Monto en efectivo</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="0.00"
+                          value={montoEfectivoMixto}
+                          onChange={(e) => setMontoEfectivoMixto(e.target.value)}
+                          className={cn("pl-7 text-sm", errEfectivoMixto && "border-red-400 focus-visible:ring-red-400")}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Monto en tarjeta</Label>
+                      <div className="h-9 flex items-center px-3 rounded-md border text-sm font-semibold bg-muted text-foreground">
+                        {formatMXN(montoTarjetaMixto)}
+                      </div>
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Monto en tarjeta</Label>
-                    <div className="h-9 flex items-center px-3 rounded-md border text-sm font-semibold bg-muted text-foreground">
-                      {formatMXN(montoTarjetaMixto)}
-                    </div>
-                  </div>
+                  {errEfectivoMixto && (
+                    <p className="text-xs text-red-600 font-medium">{errEfectivoMixto}</p>
+                  )}
                 </div>
               )}
 
@@ -707,7 +718,7 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
             <Button
               className="flex-2 flex-grow-[2] bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
               onClick={handleCobrar}
-              disabled={isCobrando}
+              disabled={isCobrando || !!errEfectivoMixto}
             >
               {isCobrando ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Registrando...</>

@@ -875,8 +875,8 @@ export async function registrarPago(
     const fecha = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
     const hora = now.toTimeString().slice(0, 8)
 
-    const efGuardar = Math.round((Number(params.montoEfectivo) || 0) * 100) / 100
-    const tarGuardar = Math.round((Number(params.montoTarjeta) || 0) * 100) / 100
+    const efGuardar = Math.min(Math.round((Number(params.montoEfectivo) || 0) * 100) / 100, params.total)
+    const tarGuardar = Math.min(Math.round((Number(params.montoTarjeta) || 0) * 100) / 100, params.total)
     /** No usar solo el método “mayor”: efectivo + tarjeta en la misma transacción → siempre `otro` + montos. */
     const metodoPagoGuardar: RegistrarPagoParams["metodoPago"] =
       debePersistirMetodoMixtoEfectivoTarjeta(efGuardar, tarGuardar)
