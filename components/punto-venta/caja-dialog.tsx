@@ -886,7 +886,7 @@ export function CajaDialog({
 
                     <TabsContent value="gc" className="mt-1.5">
                       <div className="flex gap-1">
-                        <Input placeholder="Código gift card" value={codigoGC} onChange={e => setCodigoGC(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && handleAplicarGC()} className="h-7 text-xs uppercase" />
+                        <Input placeholder="Código gift card" value={codigoGC} onChange={e => setCodigoGC(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAplicarGC()} className="h-7 text-xs" />
                         <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={handleAplicarGC} disabled={isValidandoGC || !codigoGC}>
                           {isValidandoGC ? <Loader2 className="h-3 w-3 animate-spin" /> : "OK"}
                         </Button>
