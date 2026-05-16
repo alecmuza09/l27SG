@@ -1156,7 +1156,7 @@ export function CajaDialog({
                 </div>
                 {!gcPagoId && (
                   <div className="flex gap-1 ml-8">
-                    <Input placeholder="Código GC" value={gcPagoCodigo} onChange={e => setGcPagoCodigo(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && handleBuscarGCPago()} className="h-6 text-[10px] uppercase flex-1" />
+                    <Input placeholder="Código GC" value={gcPagoCodigo} onChange={e => setGcPagoCodigo(e.target.value)} onKeyDown={e => e.key === "Enter" && handleBuscarGCPago()} className="h-6 text-[10px] flex-1" />
                     <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" onClick={handleBuscarGCPago} disabled={gcPagoBuscando || !gcPagoCodigo}>
                       {gcPagoBuscando ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : "Buscar"}
                     </Button>
