@@ -407,7 +407,11 @@ export default function GiftCardsPage() {
       return
     }
 
-    const esCandidatoTienda = intentandoFormatoTiendaEnLinea(folio) || /^GIFT/i.test(folio)
+    const esCandidatoTienda = intentandoFormatoTiendaEnLinea(folio)
+      || /^GIFT/i.test(folio)
+      || /^LUNAc\d/i.test(folio)
+      || /^LUNAr\d/i.test(folio)
+      || /^LUNAt/i.test(folio)
 
     setCreateFolioStatus("checking")
     setCreateFolioData(null)
