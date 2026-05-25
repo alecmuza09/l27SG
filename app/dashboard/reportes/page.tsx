@@ -37,6 +37,7 @@ import * as XLSX from "xlsx"
 interface VentaDia        { etiqueta: string; fecha: string; ventas: number; ventasAnt: number }
 interface ServicioRow     { name: string; cantidad: number; ingresos: number; pctTotal: number }
 interface EmpleadoRow     { nombre: string; apellido: string; sucursal: string; servicios: number; ingresos: number; comision: number; ocupacion: number }
+interface PropinaEmpleadaRow { empleadoId: string; nombre: string; totalPropinas: number; cobros: number; promedio: number }
 interface ClienteTopRow   { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }
 interface KpiStats        { ingresosTotales: number; totalServicios: number; ticketPromedio: number }
 interface CitasResumen    { completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }
@@ -70,6 +71,30 @@ function calcularPeriodo(periodo: Periodo): { fechaDesde: string; fechaHasta: st
       return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Este Año" }
     }
   }
+}
+
+function calcularPropinasPorEmpleada(pagos: Pago[]): PropinaEmpleadaRow[] {
+  const map = new Map<string, { nombre: string; totalPropinas: number; cobros: number }>()
+
+  pagos
+    .filter(p => p.estado === "completado" && p.propina > 0 && p.empleadoId)
+    .forEach(p => {
+      const key = p.empleadoId!
+      const prev = map.get(key) ?? { nombre: p.empleadoNombre || "Sin empleado", totalPropinas: 0, cobros: 0 }
+      prev.totalPropinas += p.propina
+      prev.cobros += 1
+      map.set(key, prev)
+    })
+
+  return Array.from(map.entries())
+    .map(([empleadoId, v]) => ({
+      empleadoId,
+      nombre: v.nombre,
+      totalPropinas: v.totalPropinas,
+      cobros: v.cobros,
+      promedio: v.cobros > 0 ? Math.round(v.totalPropinas / v.cobros) : 0,
+    }))
+    .sort((a, b) => b.totalPropinas - a.totalPropinas)
 }
 
 function calcularPeriodoAnterior(periodo: Periodo): { fechaDesde: string; fechaHasta: string } {
@@ -221,6 +246,7 @@ export default function ReportesPage() {
   const [citasResumen,         setCitasResumen]         = useState<CitasResumen>({ completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 })
   const [serviciosMasVendidos, setServiciosMasVendidos] = useState<ServicioRow[]>([])
   const [empleadosTop,         setEmpleadosTop]         = useState<EmpleadoRow[]>([])
+  const [propinasEmpleadas,    setPropinasEmpleadas]    = useState<PropinaEmpleadaRow[]>([])
   const [clientesStats,        setClientesStats]        = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
   const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
   const [metodosPago,          setMetodosPago]          = useState<Array<{ metodo: string; monto: number; count: number }>>([])
@@ -310,6 +336,7 @@ export default function ReportesPage() {
         comision: Math.round(e.ingresos * 0.3),
         ocupacion: e.ocupacion,
       })))
+      setPropinasEmpleadas(calcularPropinasPorEmpleada(pagos))
     } catch (err) {
       console.error("Error cargando reportes:", err)
     } finally {
@@ -867,6 +894,48 @@ export default function ReportesPage() {
                               <Badge variant={e.ocupacion >= 70 ? "default" : e.ocupacion >= 40 ? "secondary" : "outline"} className="text-xs">
                                 {e.ocupacion}%
                               </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Gift className="h-5 w-5" />
+                  Propinas por Empleada
+                </CardTitle>
+                <CardDescription>{periodoLabel}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {propinasEmpleadas.length === 0 ? (
+                  <p className="text-center py-8 text-sm text-muted-foreground">Sin propinas registradas en este período</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Empleada</TableHead>
+                          <TableHead className="text-right">Total propinas</TableHead>
+                          <TableHead className="text-right">Cobros con propina</TableHead>
+                          <TableHead className="text-right">Propina promedio</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {propinasEmpleadas.map(e => (
+                          <TableRow key={e.empleadoId}>
+                            <TableCell className="font-medium">{e.nombre}</TableCell>
+                            <TableCell className="text-right tabular-nums font-semibold text-green-600">
+                              {fmtMXN(e.totalPropinas)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{e.cobros}</TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {fmtMXN(e.promedio)}
                             </TableCell>
                           </TableRow>
                         ))}

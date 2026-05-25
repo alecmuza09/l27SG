@@ -111,7 +111,7 @@ export interface ServicioPopular {
 // Obtener estadísticas del dashboard
 export async function getDashboardStats(sucursalId?: string): Promise<DashboardStats> {
   try {
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = localFmt(new Date())
     
     // Citas de hoy
     let citasQuery = supabase
@@ -125,20 +125,19 @@ export async function getDashboardStats(sucursalId?: string): Promise<DashboardS
     
     const { count: citasCount } = await citasQuery
     
-    // Ingresos de hoy (de citas completadas y pagadas)
+    // Ingresos de hoy: Σ monto de pagos completados (sin propina)
     let ingresosQuery = supabase
-      .from('citas')
-      .select('precio')
+      .from('pagos')
+      .select('monto')
       .eq('fecha', hoy)
-      .eq('estado', 'completada')
-      .eq('pagado', true)
+      .eq('estado', 'completado')
     
     if (sucursalId && sucursalId !== 'all') {
       ingresosQuery = ingresosQuery.eq('sucursal_id', sucursalId)
     }
     
     const { data: ingresosData } = await ingresosQuery
-    const ingresosHoy = ingresosData?.reduce((sum, c: CitaRow) => sum + Number(c.precio || 0), 0) || 0
+    const ingresosHoy = (ingresosData ?? []).reduce((sum, p) => sum + (Number(p.monto) || 0), 0)
     
     // Clientes activos
     const { count: clientesCount } = await supabase
