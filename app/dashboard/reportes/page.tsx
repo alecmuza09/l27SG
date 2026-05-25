@@ -45,10 +45,12 @@ interface PropinaEmpleadaRow { empleadoId: string; nombre: string; totalPropinas
 interface RendimientoEmpleadaPdfRow { nombre: string; servicios: number; ingresos: number; propinas: number; ticketPromedio: number }
 interface GiftCardVentaPdfRow { codigo: string; cliente: string; monto: number; metodo: string; fecha: string; sucursal: string }
 interface GiftCardDetallePdfRow {
+  id: string
   codigo: string
   cliente: string
   fechaEmision: string
   montoInicial: number
+  saldoActual: number
   metodoPago: string
   saldoUsado: number
   saldoDisponible: number
@@ -309,68 +311,67 @@ async function fetchGiftCardsParaPdf(
 
   return rows.map((gc: any) => {
     const montoInicial = Number(gc.monto_inicial) || 0
-    const saldoDisponible = Number(gc.saldo_actual) || 0
+    const saldoActual = Number(gc.saldo_actual) || 0
     return {
+      id: gc.id as string,
       codigo: gc.codigo,
       cliente: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : "Sin cliente",
       fechaEmision: normalizarFechaGc(gc.fecha_emision || gc.created_at),
       montoInicial,
+      saldoActual,
       metodoPago: labelMetodoPagoGc(gc.metodo_pago),
-      saldoUsado: Math.max(0, montoInicial - saldoDisponible),
-      saldoDisponible,
+      saldoUsado: Math.max(0, montoInicial - saldoActual),
+      saldoDisponible: saldoActual,
       estado: labelEstadoGc(gc.estado),
       sucursal: gc.sucursal?.nombre || gc.sucursal_id || "—",
     }
   })
 }
 
-async function fetchCanjesParaPdf(
-  fechaDesde: string,
-  fechaHasta: string,
-  sucursalId?: string,
-  sucursalPorDefecto?: string,
-): Promise<CanjeGcPdfRow[]> {
-  const PAGE = 1000
+async function fetchCanjesParaPdf(giftCardsEmitidas: GiftCardDetallePdfRow[]): Promise<CanjeGcPdfRow[]> {
+  const idsGC = giftCardsEmitidas.map(gc => gc.id)
+  if (idsGC.length === 0) return []
+
+  const gcMap = new Map(giftCardsEmitidas.map(gc => [gc.id, gc]))
+  const CHUNK = 200
   const rows: Record<string, unknown>[] = []
-  let offset = 0
 
-  for (;;) {
-    const { data, error } = await (supabase as any)
-      .from("gift_card_transacciones")
-      .select(`
-        monto, fecha, created_at, tipo,
-        empleado:empleados(nombre, apellido),
-        gift_card:gift_cards(
-          codigo, sucursal_id,
-          cliente:clientes(nombre, apellido),
-          sucursal:sucursales(nombre)
-        )
-      `)
-      .eq("tipo", "canje")
-      .gte("fecha", fechaDesde)
-      .lte("fecha", fechaHasta)
-      .order("fecha", { ascending: true })
-      .range(offset, offset + PAGE - 1)
+  for (let i = 0; i < idsGC.length; i += CHUNK) {
+    const chunk = idsGC.slice(i, i + CHUNK)
+    let offset = 0
+    const PAGE = 1000
 
-    if (error) throw new Error(error.message)
-    if (!data?.length) break
-    rows.push(...data)
-    if (data.length < PAGE) break
-    offset += PAGE
+    for (;;) {
+      const { data, error } = await (supabase as any)
+        .from("gift_card_transacciones")
+        .select(`
+          monto, fecha, created_at, tipo, gift_card_id,
+          empleado:empleados(nombre, apellido)
+        `)
+        .in("gift_card_id", chunk)
+        .in("tipo", ["canje", "uso"])
+        .order("created_at", { ascending: false })
+        .range(offset, offset + PAGE - 1)
+
+      if (error) throw new Error(error.message)
+      if (!data?.length) break
+      rows.push(...data)
+      if (data.length < PAGE) break
+      offset += PAGE
+    }
   }
 
   return rows
     .map((t: any): CanjeGcPdfRow | null => {
-      const gc = t.gift_card
+      const gc = gcMap.get(t.gift_card_id as string)
       if (!gc) return null
-      if (sucursalId && gc.sucursal_id !== sucursalId) return null
       return {
         fecha: normalizarFechaGc(t.fecha || t.created_at),
         codigo: gc.codigo,
-        cliente: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : "Sin cliente",
+        cliente: gc.cliente,
         monto: Number(t.monto) || 0,
         empleada: t.empleado ? `${t.empleado.nombre} ${t.empleado.apellido}` : "—",
-        sucursal: gc.sucursal?.nombre ?? sucursalPorDefecto ?? gc.sucursal_id ?? "—",
+        sucursal: gc.sucursal,
       }
     })
     .filter((r): r is CanjeGcPdfRow => r !== null)
@@ -530,8 +531,11 @@ async function generarGiftCardsPdf(opts: {
 
   const totalEmitidas = opts.cards.length
   const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
-  const totalCanjes = opts.canjes.reduce((s, c) => s + c.monto, 0)
-  const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoDisponible, 0)
+  const totalSaldoUsado = opts.cards.reduce(
+    (sum, gc) => sum + Math.max(0, gc.montoInicial - gc.saldoActual),
+    0,
+  )
+  const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoActual, 0)
 
   pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
   autoTable(doc, {
@@ -541,7 +545,7 @@ async function generarGiftCardsPdf(opts: {
     body: [
       ["Gift cards emitidas en el período", String(totalEmitidas)],
       ["Total vendido en el período", fmtPdfMXN(totalVendido)],
-      ["Total de saldo usado (canjes)", fmtPdfMXN(totalCanjes)],
+      ["Total de saldo usado (canjes)", fmtPdfMXN(totalSaldoUsado)],
       ["Total de saldo disponible restante", fmtPdfMXN(totalSaldoRestante)],
     ],
   })
@@ -1043,15 +1047,8 @@ export default function ReportesPage() {
           ? (sucursalFilter === "all" ? undefined : sucursalFilter)
           : sucursalFija
 
-      const [cards, canjes] = await Promise.all([
-        fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId),
-        fetchCanjesParaPdf(
-          fechaDesde,
-          fechaHasta,
-          sucId,
-          sucursalFilter !== "all" ? sucNombre : undefined,
-        ),
-      ])
+      const cards = await fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId)
+      const canjes = await fetchCanjesParaPdf(cards)
 
       await generarGiftCardsPdf({
         sucursal: sucNombre,
