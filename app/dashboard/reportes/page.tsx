@@ -60,7 +60,10 @@ function calcularPeriodo(periodo: Periodo): { fechaDesde: string; fechaHasta: st
   const hoyStr = localFmt(hoy)
   switch (periodo) {
     case "semana": {
-      const i = new Date(hoy); i.setDate(hoy.getDate() - 6)
+      const i = new Date(hoy)
+      const diaSemana = hoy.getDay() // 0=domingo, 1=lunes, ..., 6=sábado
+      const diasDesdeElLunes = diaSemana === 0 ? 6 : diaSemana - 1
+      i.setDate(hoy.getDate() - diasDesdeElLunes)
       return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Esta Semana" }
     }
     case "mes": {
@@ -106,9 +109,15 @@ function calcularPeriodoAnterior(periodo: Periodo): { fechaDesde: string; fechaH
   const hoy = new Date()
   switch (periodo) {
     case "semana": {
-      const fin   = new Date(hoy); fin.setDate(hoy.getDate() - 7)
-      const ini   = new Date(fin); ini.setDate(fin.getDate() - 6)
-      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+      const diaSemana = hoy.getDay()
+      const diasDesdeElLunes = diaSemana === 0 ? 6 : diaSemana - 1
+      const lunesEstaSemana = new Date(hoy)
+      lunesEstaSemana.setDate(hoy.getDate() - diasDesdeElLunes)
+      const domingo = new Date(lunesEstaSemana)
+      domingo.setDate(lunesEstaSemana.getDate() - 1)
+      const lunesAnterior = new Date(domingo)
+      lunesAnterior.setDate(domingo.getDate() - 6)
+      return { fechaDesde: localFmt(lunesAnterior), fechaHasta: localFmt(domingo) }
     }
     case "mes": {
       const fin   = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
