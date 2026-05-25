@@ -19,7 +19,10 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { getPagosFromDB, distribuirMontoPago, totalizarVentasSaldoGiftCards, type Pago } from "@/lib/data/pagos"
+import {
+  getPagosFromDB, distribuirMontoPago, totalizarVentasSaldoGiftCards,
+  esVentaSaldoGiftCard, etiquetaMetodosPago, type Pago,
+} from "@/lib/data/pagos"
 import {
   getServiciosPopulares,
   getTopEmpleadosFromDB,
@@ -38,6 +41,8 @@ interface VentaDia        { etiqueta: string; fecha: string; ventas: number; ven
 interface ServicioRow     { name: string; cantidad: number; ingresos: number; pctTotal: number }
 interface EmpleadoRow     { nombre: string; apellido: string; sucursal: string; servicios: number; ingresos: number; comision: number; ocupacion: number }
 interface PropinaEmpleadaRow { empleadoId: string; nombre: string; totalPropinas: number; cobros: number; promedio: number }
+interface RendimientoEmpleadaPdfRow { nombre: string; servicios: number; ingresos: number; propinas: number; ticketPromedio: number }
+interface GiftCardVentaPdfRow { codigo: string; cliente: string; monto: number; metodo: string; fecha: string; sucursal: string }
 interface ClienteTopRow   { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }
 interface KpiStats        { ingresosTotales: number; totalServicios: number; ticketPromedio: number }
 interface CitasResumen    { completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }
@@ -191,6 +196,292 @@ function buildVentasPorPeriodo(
 const fmtMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(n)
 
+const fmtPdfMXN = (n: number) =>
+  new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 2 }).format(n)
+
+function slugPdf(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "general"
+}
+
+function extraerCodigoGiftCardPago(p: Pago): string {
+  const serv = p.servicios?.[0] ?? ""
+  const segmentos = serv.split("·").map(s => s.trim()).filter(Boolean)
+  if (segmentos.length >= 2) {
+    const ultimo = segmentos[segmentos.length - 1]
+    if (ultimo && !/venta saldo gift card/i.test(ultimo)) return ultimo
+  }
+  const match = p.notas?.match(/·\s*([^\s·]+)\s*·/)
+  if (match?.[1]) return match[1]
+  return "—"
+}
+
+function calcularRendimientoEmpleadasPdf(pagos: Pago[]): RendimientoEmpleadaPdfRow[] {
+  const map = new Map<string, RendimientoEmpleadaPdfRow>()
+  pagos
+    .filter(p => p.estado === "completado")
+    .forEach(p => {
+      const key = p.empleadoId ?? `nombre:${p.empleadoNombre}`
+      const prev = map.get(key) ?? {
+        nombre: p.empleadoNombre || "Sin empleado",
+        servicios: 0,
+        ingresos: 0,
+        propinas: 0,
+        ticketPromedio: 0,
+      }
+      prev.servicios += 1
+      prev.ingresos += p.monto
+      prev.propinas += p.propina ?? 0
+      map.set(key, prev)
+    })
+  return Array.from(map.values())
+    .map(r => ({ ...r, ticketPromedio: r.servicios > 0 ? Math.round(r.ingresos / r.servicios) : 0 }))
+    .sort((a, b) => b.ingresos - a.ingresos)
+}
+
+function calcularVentasGiftCardsPdf(
+  pagos: Pago[],
+  sucursales: Sucursal[],
+  sucursalPorDefecto?: string,
+): GiftCardVentaPdfRow[] {
+  const sucMap = new Map(sucursales.map(s => [s.id, s.nombre]))
+  return pagos
+    .filter(esVentaSaldoGiftCard)
+    .map(p => ({
+      codigo: extraerCodigoGiftCardPago(p),
+      cliente: p.clienteNombre || "Sin cliente",
+      monto: p.monto,
+      metodo: etiquetaMetodosPago(p),
+      fecha: p.fecha,
+      sucursal: sucMap.get(p.sucursalId) ?? sucursalPorDefecto ?? p.sucursalId,
+    }))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.monto - a.monto)
+}
+
+function calcularDesgloseMetodosPdf(pagos: Pago[]) {
+  const totales = { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 }
+  pagos
+    .filter(p => p.estado === "completado")
+    .forEach(p => {
+      const d = distribuirMontoPago(p)
+      totales.efectivo += d.efectivo
+      totales.tarjeta += d.tarjeta
+      totales.transferencia += d.transferencia
+      totales.otro += d.otro
+    })
+  return totales
+}
+
+type JsPDFDoc = import("jspdf").jsPDF
+
+function pdfEncabezado(doc: JsPDFDoc, opts: { sucursal: string; periodo: string; seccion: string }) {
+  const w = doc.internal.pageSize.getWidth()
+  doc.setFillColor(88, 28, 135)
+  doc.rect(0, 0, w, 22, "F")
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(16)
+  doc.text("Luna27", 14, 14)
+  doc.setFontSize(9)
+  doc.text("Reporte de Resultados", w - 14, 14, { align: "right" })
+
+  doc.setTextColor(40, 40, 40)
+  doc.setFontSize(10)
+  doc.text(`Sucursal: ${opts.sucursal}`, 14, 30)
+  doc.text(`Período: ${opts.periodo}`, 14, 36)
+  doc.text(
+    `Generado: ${new Date().toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}`,
+    14,
+    42,
+  )
+  doc.setFontSize(13)
+  doc.setTextColor(0, 0, 0)
+  doc.text(opts.seccion, 14, 52)
+}
+
+function pdfPiePagina(doc: JsPDFDoc) {
+  const total = doc.getNumberOfPages()
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i)
+    doc.setFontSize(8)
+    doc.setTextColor(130, 130, 130)
+    doc.text(
+      `Página ${i} de ${total}`,
+      doc.internal.pageSize.getWidth() - 14,
+      doc.internal.pageSize.getHeight() - 8,
+      { align: "right" },
+    )
+  }
+}
+
+async function generarReportePdf(opts: {
+  sucursal: string
+  periodoLabel: string
+  periodoSlug: string
+  sucSlug: string
+  statsActual: KpiStats
+  ventasSaldoGc: { monto: number; transacciones: number }
+  citasResumen: CitasResumen
+  clientesNuevos: number
+  pagos: Pago[]
+  propinasEmpleadas: PropinaEmpleadaRow[]
+  sucursales: Sucursal[]
+  sucursalPorDefecto?: string
+}) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ])
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
+  const pagosComp = opts.pagos.filter(p => p.estado === "completado")
+  const totalPropinas = pagosComp.reduce((s, p) => s + (p.propina ?? 0), 0)
+  const subtotalServicios = pagosComp.reduce((s, p) => s + p.monto - (p.propina ?? 0), 0)
+  const totalGeneral = subtotalServicios + totalPropinas
+  const metodos = calcularDesgloseMetodosPdf(opts.pagos)
+  const rendimiento = calcularRendimientoEmpleadasPdf(opts.pagos)
+  const ventasGc = calcularVentasGiftCardsPdf(opts.pagos, opts.sucursales, opts.sucursalPorDefecto)
+
+  const tableOpts = {
+    theme: "grid" as const,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [88, 28, 135] as [number, number, number], textColor: 255, fontStyle: "bold" as const },
+    margin: { left: 14, right: 14 },
+  }
+
+  // ── Página 1: Resumen General ──
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen General" })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Indicador", "Valor"]],
+    body: [
+      ["Ingresos Totales", fmtPdfMXN(opts.statsActual.ingresosTotales)],
+      ["Total Servicios", String(opts.statsActual.totalServicios)],
+      ["Ticket Promedio", fmtPdfMXN(opts.statsActual.ticketPromedio)],
+      ["Ventas Gift Cards", `${fmtPdfMXN(opts.ventasSaldoGc.monto)} (${opts.ventasSaldoGc.transacciones} ventas)`],
+      ["Citas Completadas", String(opts.citasResumen.completadas)],
+      ["Tasa Cancelación", `${opts.citasResumen.tasaCancelacion}%`],
+      ["Nuevos Clientes", String(opts.clientesNuevos)],
+    ],
+  })
+
+  // ── Página 2: Desglose por Método de Pago ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Desglose de Ventas por Método de Pago" })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Método de Pago", "Monto"]],
+    body: [
+      ["Efectivo", fmtPdfMXN(metodos.efectivo)],
+      ["Tarjeta", fmtPdfMXN(metodos.tarjeta)],
+      ["Transferencia", fmtPdfMXN(metodos.transferencia)],
+      ["Otros", fmtPdfMXN(metodos.otro)],
+      ["Subtotal servicios (sin propinas)", fmtPdfMXN(subtotalServicios)],
+      ["Total propinas", fmtPdfMXN(totalPropinas)],
+      ["Total general", fmtPdfMXN(totalGeneral)],
+    ],
+    didParseCell: (data) => {
+      if (data.section === "body" && data.row.index >= 4) {
+        data.cell.styles.fontStyle = "bold"
+        if (data.row.index === 6) {
+          data.cell.styles.fillColor = [245, 245, 250]
+        }
+      }
+    },
+  })
+
+  // ── Página 3: Detalle de Cobros ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" })
+  const cobrosOrdenados = [...pagosComp].sort((a, b) =>
+    a.fecha.localeCompare(b.fecha) || (a.hora || "").localeCompare(b.hora || ""),
+  )
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Fecha", "Hora", "Cliente", "Empleada", "Servicios", "Método", "Propina", "Total"]],
+    body: cobrosOrdenados.length > 0
+      ? cobrosOrdenados.map(p => [
+          p.fecha,
+          p.hora || "—",
+          p.clienteNombre || "—",
+          p.empleadoNombre || "—",
+          (p.servicios?.length ? p.servicios.join(" · ") : "—").slice(0, 80),
+          etiquetaMetodosPago(p),
+          (p.propina ?? 0) > 0 ? fmtPdfMXN(p.propina!) : "—",
+          fmtPdfMXN(p.monto),
+        ])
+      : [["Sin cobros en este período", "—", "—", "—", "—", "—", "—", "—"]],
+    columnStyles: {
+      0: { cellWidth: 18 },
+      1: { cellWidth: 14 },
+      4: { cellWidth: 38 },
+    },
+  })
+
+  // ── Página 4: Rendimiento por Empleada ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Nombre", "Servicios", "Ingresos", "Propinas", "Ticket prom."]],
+    body: rendimiento.length > 0
+      ? rendimiento.map(r => [
+          r.nombre,
+          String(r.servicios),
+          fmtPdfMXN(r.ingresos),
+          fmtPdfMXN(r.propinas),
+          fmtPdfMXN(r.ticketPromedio),
+        ])
+      : [["Sin datos en este período", "—", "—", "—", "—"]],
+  })
+
+  // ── Página 5: Propinas por Empleada ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Nombre", "Total propinas", "Cobros con propina", "Propina promedio"]],
+    body: opts.propinasEmpleadas.length > 0
+      ? opts.propinasEmpleadas.map(p => [
+          p.nombre,
+          fmtPdfMXN(p.totalPropinas),
+          String(p.cobros),
+          fmtPdfMXN(p.promedio),
+        ])
+      : [["Sin propinas en este período", "—", "—", "—"]],
+  })
+
+  // ── Página 6: Ventas de Gift Cards ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Código", "Cliente", "Monto", "Método de pago", "Fecha emisión", "Sucursal"]],
+    body: ventasGc.length > 0
+      ? ventasGc.map(v => [
+          v.codigo,
+          v.cliente,
+          fmtPdfMXN(v.monto),
+          v.metodo,
+          v.fecha,
+          v.sucursal,
+        ])
+      : [["Sin ventas de gift cards en este período", "—", "—", "—", "—", "—"]],
+  })
+
+  pdfPiePagina(doc)
+  doc.save(`reporte-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.pdf`)
+}
+
 function Tendencia({ actual, anterior }: { actual: number; anterior: number }) {
   if (anterior === 0) return null
   const pct = Math.round(((actual - anterior) / anterior) * 100)
@@ -251,6 +542,7 @@ export default function ReportesPage() {
   const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
   const [metodosPago,          setMetodosPago]          = useState<Array<{ metodo: string; monto: number; count: number }>>([])
   const [metricasSucursales,   setMetricasSucursales]   = useState<MetricaSucursal[]>([])
+  const [isExportingPdf,       setIsExportingPdf]       = useState(false)
 
   // ── Carga inicial de sucursales ──────────────────────────────────────────
   useEffect(() => {
@@ -425,7 +717,39 @@ export default function ReportesPage() {
   }
 
   // ── Exportar PDF ──────────────────────────────────────────────────────────
-  const handleExportPDF = () => { window.print() }
+  const handleExportPDF = async () => {
+    setIsExportingPdf(true)
+    try {
+      const { label } = calcularPeriodo(periodo)
+      const sucNombre = sucursalFilter === "all"
+        ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
+        : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
+      const periodoSlug =
+        periodo === "semana" ? "esta-semana"
+        : periodo === "mes" ? "este-mes"
+        : periodo === "trimestre" ? "trimestre"
+        : "este-anio"
+
+      await generarReportePdf({
+        sucursal: sucNombre,
+        periodoLabel: label,
+        periodoSlug,
+        sucSlug: slugPdf(sucNombre),
+        statsActual,
+        ventasSaldoGc: ventasSaldoGcActual,
+        citasResumen,
+        clientesNuevos: clientesStats.nuevos,
+        pagos: pagosBrutos,
+        propinasEmpleadas,
+        sucursales,
+        sucursalPorDefecto: sucursalFilter !== "all" ? sucNombre : undefined,
+      })
+    } catch (err) {
+      console.error("Error generando PDF:", err)
+    } finally {
+      setIsExportingPdf(false)
+    }
+  }
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const maxVentas   = Math.max(...ventasPeriodo.map(d => Math.max(d.ventas, d.ventasAnt)), 1)
@@ -449,15 +773,6 @@ export default function ReportesPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      <style>{`
-        @media print {
-          body > * { visibility: hidden !important; }
-          #reporte-contenido, #reporte-contenido * { visibility: visible !important; }
-          #reporte-contenido { position: fixed; top: 0; left: 0; width: 100%; padding: 24px; }
-          .no-print { display: none !important; }
-        }
-      `}</style>
-
       <div id="reporte-contenido" className="space-y-6">
 
         {/* ── Cabecera ── */}
@@ -505,8 +820,11 @@ export default function ReportesPage() {
 
             {!isManager && (
               <>
-                <Button variant="outline" onClick={handleExportPDF}>
-                  <Download className="mr-2 h-4 w-4" />PDF
+                <Button variant="outline" onClick={handleExportPDF} disabled={isExportingPdf}>
+                  {isExportingPdf
+                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    : <Download className="mr-2 h-4 w-4" />}
+                  PDF
                 </Button>
                 <Button variant="outline" onClick={handleExportExcel}>
                   <FileSpreadsheet className="mr-2 h-4 w-4" />Excel
