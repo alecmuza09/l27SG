@@ -7,6 +7,52 @@ import { getEmpleadosFromDB } from './empleados'
 
 type CitaRow = Database['public']['Tables']['citas']['Row']
 
+/** Formato YYYY-MM-DD en zona local (igual que Reportes → localFmt). */
+function localFmt(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Rango «Este Mes» y mes anterior (alineado con Reportes → calcularPeriodo / calcularPeriodoAnterior). */
+function rangosMesReportes(): {
+  fechaDesde: string
+  fechaHasta: string
+  mesAnteriorDesde: string
+  mesAnteriorHasta: string
+} {
+  const hoy = new Date()
+  const fechaDesde = localFmt(new Date(hoy.getFullYear(), hoy.getMonth(), 1))
+  const fechaHasta = localFmt(hoy)
+  const mesAnteriorFin = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
+  const mesAnteriorInicio = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
+  return {
+    fechaDesde,
+    fechaHasta,
+    mesAnteriorDesde: localFmt(mesAnteriorInicio),
+    mesAnteriorHasta: localFmt(mesAnteriorFin),
+  }
+}
+
+/** Ingresos por sucursal = Σ pagos completados (incl. ventas gift card), igual que getPagosFromDB + calcStats en Reportes. */
+async function getIngresosPagosSucursal(
+  sucursalId: string,
+  fechaDesde: string,
+  fechaHasta: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from('pagos')
+    .select('monto')
+    .eq('sucursal_id', sucursalId)
+    .eq('estado', 'completado')
+    .gte('fecha', fechaDesde)
+    .lte('fecha', fechaHasta)
+
+  if (error) {
+    console.error('Error obteniendo ingresos de pagos:', error)
+    return 0
+  }
+  return (data ?? []).reduce((sum, p) => sum + (Number(p.monto) || 0), 0)
+}
+
 export interface ProductividadSucursal {
   sucursalId: string
   nombre: string
@@ -282,36 +328,21 @@ export async function getResumenSucursales(sucursalId?: string): Promise<Array<{
       const sucursal = sucursales.find(s => s.id === sucursalId)
       if (!sucursal) return []
       
-      const hoy = new Date()
-      const mesActual = hoy.toISOString().slice(0, 7)
-      const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toISOString().slice(0, 7)
+      const { fechaDesde, fechaHasta, mesAnteriorDesde, mesAnteriorHasta } = rangosMesReportes()
       
-      // Citas y ingresos del mes actual
-      const { data: citasMesActual } = await supabase
-        .from('citas')
-        .select('precio')
-        .eq('sucursal_id', sucursalId)
-        .eq('estado', 'completada')
-        .gte('fecha', `${mesActual}-01`)
+      const [ingresosActual, ingresosAnterior] = await Promise.all([
+        getIngresosPagosSucursal(sucursalId, fechaDesde, fechaHasta),
+        getIngresosPagosSucursal(sucursalId, mesAnteriorDesde, mesAnteriorHasta),
+      ])
       
       const { count: citasCountActual } = await supabase
         .from('citas')
         .select('*', { count: 'exact', head: true })
         .eq('sucursal_id', sucursalId)
         .eq('estado', 'completada')
-        .gte('fecha', `${mesActual}-01`)
+        .gte('fecha', fechaDesde)
+        .lte('fecha', fechaHasta)
       
-      // Citas y ingresos del mes anterior
-      const { data: citasMesAnterior } = await supabase
-        .from('citas')
-        .select('precio')
-        .eq('sucursal_id', sucursalId)
-        .eq('estado', 'completada')
-        .gte('fecha', `${mesAnterior}-01`)
-        .lt('fecha', `${mesActual}-01`)
-      
-      const ingresosActual = citasMesActual?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
-      const ingresosAnterior = citasMesAnterior?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
       const citasActual = citasCountActual || 0
       
       const tendencia = ingresosAnterior > 0
@@ -329,34 +360,21 @@ export async function getResumenSucursales(sucursalId?: string): Promise<Array<{
     // Todas las sucursales
     const resumen = await Promise.all(
       sucursales.slice(0, 4).map(async (sucursal) => {
-        const hoy = new Date()
-        const mesActual = hoy.toISOString().slice(0, 7)
-        const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toISOString().slice(0, 7)
+        const { fechaDesde, fechaHasta, mesAnteriorDesde, mesAnteriorHasta } = rangosMesReportes()
         
-        const { data: citasMesActual } = await supabase
-          .from('citas')
-          .select('precio')
-          .eq('sucursal_id', sucursal.id)
-          .eq('estado', 'completada')
-          .gte('fecha', `${mesActual}-01`)
+        const [ingresosActual, ingresosAnterior] = await Promise.all([
+          getIngresosPagosSucursal(sucursal.id, fechaDesde, fechaHasta),
+          getIngresosPagosSucursal(sucursal.id, mesAnteriorDesde, mesAnteriorHasta),
+        ])
         
         const { count: citasCountActual } = await supabase
           .from('citas')
           .select('*', { count: 'exact', head: true })
           .eq('sucursal_id', sucursal.id)
           .eq('estado', 'completada')
-          .gte('fecha', `${mesActual}-01`)
+          .gte('fecha', fechaDesde)
+          .lte('fecha', fechaHasta)
         
-        const { data: citasMesAnterior } = await supabase
-          .from('citas')
-          .select('precio')
-          .eq('sucursal_id', sucursal.id)
-          .eq('estado', 'completada')
-          .gte('fecha', `${mesAnterior}-01`)
-          .lt('fecha', `${mesActual}-01`)
-        
-        const ingresosActual = citasMesActual?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
-        const ingresosAnterior = citasMesAnterior?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
         const citasActual = citasCountActual || 0
         
         const tendencia = ingresosAnterior > 0
@@ -386,32 +404,24 @@ export async function getProductividadSucursalesFromDB(sucursalId?: string): Pro
     const sucursales = sucursalId
       ? todasSucursales.filter(s => s.id === sucursalId)
       : todasSucursales
-    const hoy = new Date()
-    const mesActual = hoy.toISOString().slice(0, 7)
-    const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toISOString().slice(0, 7)
+    const { fechaDesde, fechaHasta, mesAnteriorDesde, mesAnteriorHasta } = rangosMesReportes()
     
     const productividad = await Promise.all(
       sucursales.map(async (sucursal) => {
-        // Citas del mes actual
-        const { data: citasMes, count: citasCount } = await supabase
-          .from('citas')
-          .select('precio, cliente_id', { count: 'exact' })
-          .eq('sucursal_id', sucursal.id)
-          .eq('estado', 'completada')
-          .gte('fecha', `${mesActual}-01`)
+        const [ingresos, ingresosAnterior, citasMesR] = await Promise.all([
+          getIngresosPagosSucursal(sucursal.id, fechaDesde, fechaHasta),
+          getIngresosPagosSucursal(sucursal.id, mesAnteriorDesde, mesAnteriorHasta),
+          supabase
+            .from('citas')
+            .select('cliente_id', { count: 'exact' })
+            .eq('sucursal_id', sucursal.id)
+            .eq('estado', 'completada')
+            .gte('fecha', fechaDesde)
+            .lte('fecha', fechaHasta),
+        ])
         
-        // Citas del mes anterior
-        const { data: citasMesAnterior } = await supabase
-          .from('citas')
-          .select('precio')
-          .eq('sucursal_id', sucursal.id)
-          .eq('estado', 'completada')
-          .gte('fecha', `${mesAnterior}-01`)
-          .lt('fecha', `${mesActual}-01`)
-        
-        const ingresos = citasMes?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
-        const ingresosAnterior = citasMesAnterior?.reduce((sum, c: Pick<CitaRow, 'precio'>) => sum + Number(c.precio || 0), 0) || 0
-        const citas = citasCount || 0
+        const citasMes = citasMesR.data
+        const citas = citasMesR.count || 0
         
         // Clientes únicos atendidos
         const clientesUnicos = new Set(citasMes?.map((c: any) => c.cliente_id) || []).size
@@ -580,14 +590,8 @@ export async function getMetricasSucursales(
 
     const resultados = await Promise.all(
       sucursales.map(async (s) => {
-        const [pagosR, citasR, serviciosR] = await Promise.all([
-          (supabase as any)
-            .from('pagos')
-            .select('monto')
-            .eq('sucursal_id', s.id)
-            .eq('estado', 'completado')
-            .gte('fecha', fechaDesde)
-            .lte('fecha', fechaHasta),
+        const [ingresos, citasR, serviciosR] = await Promise.all([
+          getIngresosPagosSucursal(s.id, fechaDesde, fechaHasta),
           (supabase as any)
             .from('citas')
             .select('*', { count: 'exact', head: true })
@@ -605,7 +609,6 @@ export async function getMetricasSucursales(
             .not('servicio_id', 'is', null),
         ])
 
-        const ingresos      = (pagosR.data as any[] ?? []).reduce((sum: number, p: any) => sum + (Number(p.monto) || 0), 0)
         const totalCitas    = citasR.count || 0
         const ticketPromedio = totalCitas > 0 ? Math.round(ingresos / totalCitas) : 0
 
