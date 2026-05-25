@@ -33,6 +33,7 @@ import {
 import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
+import { supabase } from "@/lib/supabase/client"
 import * as XLSX from "xlsx"
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -43,6 +44,25 @@ interface EmpleadoRow     { nombre: string; apellido: string; sucursal: string; 
 interface PropinaEmpleadaRow { empleadoId: string; nombre: string; totalPropinas: number; cobros: number; promedio: number }
 interface RendimientoEmpleadaPdfRow { nombre: string; servicios: number; ingresos: number; propinas: number; ticketPromedio: number }
 interface GiftCardVentaPdfRow { codigo: string; cliente: string; monto: number; metodo: string; fecha: string; sucursal: string }
+interface GiftCardDetallePdfRow {
+  codigo: string
+  cliente: string
+  fechaEmision: string
+  montoInicial: number
+  metodoPago: string
+  saldoUsado: number
+  saldoDisponible: number
+  estado: string
+  sucursal: string
+}
+interface CanjeGcPdfRow {
+  fecha: string
+  codigo: string
+  cliente: string
+  monto: number
+  empleada: string
+  sucursal: string
+}
 interface ClienteTopRow   { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }
 interface KpiStats        { ingresosTotales: number; totalServicios: number; ticketPromedio: number }
 interface CitasResumen    { completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }
@@ -217,6 +237,145 @@ function slugPdf(texto: string): string {
     .replace(/^-|-$/g, "") || "general"
 }
 
+function periodoSlugFrom(periodo: Periodo): string {
+  return periodo === "semana" ? "esta-semana"
+    : periodo === "mes" ? "este-mes"
+    : periodo === "trimestre" ? "trimestre"
+    : "este-anio"
+}
+
+function normalizarFechaGc(raw?: string | null): string {
+  if (!raw) return "—"
+  return raw.slice(0, 10)
+}
+
+function labelEstadoGc(estado: string): string {
+  const map: Record<string, string> = {
+    activa: "Activa",
+    agotada: "Agotada",
+    cancelada: "Cancelada",
+    pendiente: "Pendiente",
+    expirada: "Expirada",
+  }
+  return map[estado] ?? estado
+}
+
+function labelMetodoPagoGc(raw?: string | null): string {
+  if (!raw?.trim()) return "—"
+  const n = raw.trim().toLowerCase()
+  const map: Record<string, string> = {
+    efectivo: "Efectivo",
+    tarjeta: "Tarjeta",
+    transferencia: "Transferencia",
+    cortesia: "Cortesía",
+    otro: "Otro",
+  }
+  return map[n] ?? raw.trim()
+}
+
+const GC_SELECT_PDF = `
+  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, created_at, metodo_pago, sucursal_id,
+  cliente:clientes(nombre, apellido),
+  sucursal:sucursales(nombre)
+`
+
+async function fetchGiftCardsParaPdf(
+  fechaDesde: string,
+  fechaHasta: string,
+  sucursalId?: string,
+): Promise<GiftCardDetallePdfRow[]> {
+  const PAGE = 1000
+  const rows: Record<string, unknown>[] = []
+  let offset = 0
+
+  for (;;) {
+    let query = (supabase as any)
+      .from("gift_cards")
+      .select(GC_SELECT_PDF)
+      .gte("fecha_emision", fechaDesde)
+      .lte("fecha_emision", fechaHasta)
+      .order("fecha_emision", { ascending: true })
+      .range(offset, offset + PAGE - 1)
+
+    if (sucursalId) query = query.eq("sucursal_id", sucursalId)
+
+    const { data, error } = await query
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+
+  return rows.map((gc: any) => {
+    const montoInicial = Number(gc.monto_inicial) || 0
+    const saldoDisponible = Number(gc.saldo_actual) || 0
+    return {
+      codigo: gc.codigo,
+      cliente: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : "Sin cliente",
+      fechaEmision: normalizarFechaGc(gc.fecha_emision || gc.created_at),
+      montoInicial,
+      metodoPago: labelMetodoPagoGc(gc.metodo_pago),
+      saldoUsado: Math.max(0, montoInicial - saldoDisponible),
+      saldoDisponible,
+      estado: labelEstadoGc(gc.estado),
+      sucursal: gc.sucursal?.nombre || gc.sucursal_id || "—",
+    }
+  })
+}
+
+async function fetchCanjesParaPdf(
+  fechaDesde: string,
+  fechaHasta: string,
+  sucursalId?: string,
+  sucursalPorDefecto?: string,
+): Promise<CanjeGcPdfRow[]> {
+  const PAGE = 1000
+  const rows: Record<string, unknown>[] = []
+  let offset = 0
+
+  for (;;) {
+    const { data, error } = await (supabase as any)
+      .from("gift_card_transacciones")
+      .select(`
+        monto, fecha, created_at, tipo,
+        empleado:empleados(nombre, apellido),
+        gift_card:gift_cards(
+          codigo, sucursal_id,
+          cliente:clientes(nombre, apellido),
+          sucursal:sucursales(nombre)
+        )
+      `)
+      .eq("tipo", "canje")
+      .gte("fecha", fechaDesde)
+      .lte("fecha", fechaHasta)
+      .order("fecha", { ascending: true })
+      .range(offset, offset + PAGE - 1)
+
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+
+  return rows
+    .map((t: any): CanjeGcPdfRow | null => {
+      const gc = t.gift_card
+      if (!gc) return null
+      if (sucursalId && gc.sucursal_id !== sucursalId) return null
+      return {
+        fecha: normalizarFechaGc(t.fecha || t.created_at),
+        codigo: gc.codigo,
+        cliente: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : "Sin cliente",
+        monto: Number(t.monto) || 0,
+        empleada: t.empleado ? `${t.empleado.nombre} ${t.empleado.apellido}` : "—",
+        sucursal: gc.sucursal?.nombre ?? sucursalPorDefecto ?? gc.sucursal_id ?? "—",
+      }
+    })
+    .filter((r): r is CanjeGcPdfRow => r !== null)
+}
+
 function extraerCodigoGiftCardPago(p: Pago): string {
   const serv = p.servicios?.[0] ?? ""
   const segmentos = serv.split("·").map(s => s.trim()).filter(Boolean)
@@ -324,6 +483,121 @@ function pdfPiePagina(doc: JsPDFDoc) {
       { align: "right" },
     )
   }
+}
+
+function pdfEncabezadoGiftCards(doc: JsPDFDoc, opts: { sucursal: string; periodo: string; seccion: string }) {
+  const w = doc.internal.pageSize.getWidth()
+  doc.setFillColor(88, 28, 135)
+  doc.rect(0, 0, w, 22, "F")
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(13)
+  doc.text("Reporte de Gift Cards — Luna27", 14, 14)
+
+  doc.setTextColor(40, 40, 40)
+  doc.setFontSize(10)
+  doc.text(`Sucursal: ${opts.sucursal}`, 14, 30)
+  doc.text(`Período: ${opts.periodo}`, 14, 36)
+  doc.text(
+    `Generado: ${new Date().toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}`,
+    14,
+    42,
+  )
+  doc.setFontSize(13)
+  doc.setTextColor(0, 0, 0)
+  doc.text(opts.seccion, 14, 52)
+}
+
+async function generarGiftCardsPdf(opts: {
+  sucursal: string
+  periodoLabel: string
+  periodoSlug: string
+  sucSlug: string
+  cards: GiftCardDetallePdfRow[]
+  canjes: CanjeGcPdfRow[]
+}) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ])
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
+  const tableOpts = {
+    theme: "grid" as const,
+    styles: { fontSize: 7, cellPadding: 1.5 },
+    headStyles: { fillColor: [88, 28, 135] as [number, number, number], textColor: 255, fontStyle: "bold" as const },
+    margin: { left: 14, right: 14 },
+  }
+
+  const totalEmitidas = opts.cards.length
+  const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
+  const totalCanjes = opts.canjes.reduce((s, c) => s + c.monto, 0)
+  const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoDisponible, 0)
+
+  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Indicador", "Valor"]],
+    body: [
+      ["Gift cards emitidas en el período", String(totalEmitidas)],
+      ["Total vendido en el período", fmtPdfMXN(totalVendido)],
+      ["Total de saldo usado (canjes)", fmtPdfMXN(totalCanjes)],
+      ["Total de saldo disponible restante", fmtPdfMXN(totalSaldoRestante)],
+    ],
+  })
+
+  doc.addPage()
+  pdfEncabezadoGiftCards(doc, {
+    sucursal: opts.sucursal,
+    periodo: opts.periodoLabel,
+    seccion: "Detalle de Gift Cards emitidas en el período",
+  })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [[
+      "Código", "Cliente", "Emisión", "Monto inicial", "Método",
+      "Saldo usado", "Saldo disp.", "Estado", "Sucursal",
+    ]],
+    body: opts.cards.length > 0
+      ? opts.cards.map(c => [
+          c.codigo,
+          c.cliente,
+          c.fechaEmision,
+          fmtPdfMXN(c.montoInicial),
+          c.metodoPago,
+          fmtPdfMXN(c.saldoUsado),
+          fmtPdfMXN(c.saldoDisponible),
+          c.estado,
+          c.sucursal,
+        ])
+      : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—", "—", "—"]],
+  })
+
+  doc.addPage()
+  pdfEncabezadoGiftCards(doc, {
+    sucursal: opts.sucursal,
+    periodo: opts.periodoLabel,
+    seccion: "Movimientos / Canjes del período",
+  })
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["Fecha", "Código GC", "Cliente", "Monto canjeado", "Empleada", "Sucursal"]],
+    body: opts.canjes.length > 0
+      ? opts.canjes.map(c => [
+          c.fecha,
+          c.codigo,
+          c.cliente,
+          fmtPdfMXN(c.monto),
+          c.empleada,
+          c.sucursal,
+        ])
+      : [["Sin canjes en este período", "—", "—", "—", "—", "—"]],
+  })
+
+  pdfPiePagina(doc)
+  doc.save(`gift-cards-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.pdf`)
 }
 
 async function generarReportePdf(opts: {
@@ -552,6 +826,7 @@ export default function ReportesPage() {
   const [metodosPago,          setMetodosPago]          = useState<Array<{ metodo: string; monto: number; count: number }>>([])
   const [metricasSucursales,   setMetricasSucursales]   = useState<MetricaSucursal[]>([])
   const [isExportingPdf,       setIsExportingPdf]       = useState(false)
+  const [isExportingGcPdf,     setIsExportingGcPdf]     = useState(false)
 
   // ── Carga inicial de sucursales ──────────────────────────────────────────
   useEffect(() => {
@@ -733,11 +1008,7 @@ export default function ReportesPage() {
       const sucNombre = sucursalFilter === "all"
         ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
         : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
-      const periodoSlug =
-        periodo === "semana" ? "esta-semana"
-        : periodo === "mes" ? "este-mes"
-        : periodo === "trimestre" ? "trimestre"
-        : "este-anio"
+      const periodoSlug = periodoSlugFrom(periodo)
 
       await generarReportePdf({
         sucursal: sucNombre,
@@ -757,6 +1028,43 @@ export default function ReportesPage() {
       console.error("Error generando PDF:", err)
     } finally {
       setIsExportingPdf(false)
+    }
+  }
+
+  const handleExportGiftCardsPDF = async () => {
+    setIsExportingGcPdf(true)
+    try {
+      const { fechaDesde, fechaHasta, label } = calcularPeriodo(periodo)
+      const sucNombre = sucursalFilter === "all"
+        ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
+        : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
+      const sucId =
+        isAdmin || multiBranch
+          ? (sucursalFilter === "all" ? undefined : sucursalFilter)
+          : sucursalFija
+
+      const [cards, canjes] = await Promise.all([
+        fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId),
+        fetchCanjesParaPdf(
+          fechaDesde,
+          fechaHasta,
+          sucId,
+          sucursalFilter !== "all" ? sucNombre : undefined,
+        ),
+      ])
+
+      await generarGiftCardsPdf({
+        sucursal: sucNombre,
+        periodoLabel: label,
+        periodoSlug: periodoSlugFrom(periodo),
+        sucSlug: slugPdf(sucNombre),
+        cards,
+        canjes,
+      })
+    } catch (err) {
+      console.error("Error generando PDF de gift cards:", err)
+    } finally {
+      setIsExportingGcPdf(false)
     }
   }
 
@@ -905,12 +1213,29 @@ export default function ReportesPage() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                <Gift className="h-4 w-4" />Ventas saldo gift cards
-              </CardTitle>
-              <CardDescription className="text-xs leading-snug">
-                Monto cobrado por saldo inicial vendido al emitir tarjetas (Pagos → Cobros).
-              </CardDescription>
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Gift className="h-4 w-4" />Ventas saldo gift cards
+                  </CardTitle>
+                  <CardDescription className="text-xs leading-snug">
+                    Monto cobrado por saldo inicial vendido al emitir tarjetas (Pagos → Cobros).
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                  onClick={handleExportGiftCardsPDF}
+                  disabled={isExportingGcPdf}
+                  title="Descargar reporte PDF de gift cards"
+                >
+                  {isExportingGcPdf
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Download className="h-3.5 w-3.5" />}
+                  <span className="ml-1 hidden sm:inline">↓ PDF GC</span>
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{fmtMXN(ventasSaldoGcActual.monto)}</div>
