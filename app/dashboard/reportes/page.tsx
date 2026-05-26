@@ -458,21 +458,12 @@ type JsPDFDoc = import("jspdf").jsPDF
 const PDF_HEADER_BLACK: [number, number, number] = [10, 10, 10]
 const PDF_CREAM: [number, number, number] = [245, 240, 232]
 const PDF_TEXT_SOFT: [number, number, number] = [26, 26, 26]
-const PDF_TABLE_START_Y = 64
+const PDF_TABLE_START_Y = 58
 
-function blobToBase64Data(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const result = reader.result as string
-      resolve(result.split(",")[1] ?? "")
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
-}
-
-function convertImageBlobToPngBase64(blob: Blob): Promise<string> {
+function prepararLogoPdfBase64(
+  blob: Blob,
+  opts: { fondo: [number, number, number]; invertir?: boolean },
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob)
     const img = new Image()
@@ -483,10 +474,15 @@ function convertImageBlobToPngBase64(blob: Blob): Promise<string> {
       const ctx = canvas.getContext("2d")
       if (!ctx) {
         URL.revokeObjectURL(url)
-        reject(new Error("No se pudo convertir el logo"))
+        reject(new Error("No se pudo preparar el logo"))
         return
       }
+      const [r, g, b] = opts.fondo
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      if (opts.invertir) ctx.filter = "invert(1)"
       ctx.drawImage(img, 0, 0)
+      ctx.filter = "none"
       URL.revokeObjectURL(url)
       resolve(canvas.toDataURL("image/png").split(",")[1] ?? "")
     }
@@ -503,10 +499,8 @@ async function cargarLogoPdfBase64(): Promise<string | null> {
     const logoRes = await fetch("/luna27-logo.png")
     if (!logoRes.ok) return null
     const logoBlob = await logoRes.blob()
-    if (logoBlob.type === "image/webp") {
-      return await convertImageBlobToPngBase64(logoBlob)
-    }
-    return await blobToBase64Data(logoBlob)
+    // jsPDF no respeta alpha en PNG: componer sobre fondo sólido e invertir a blanco para el header negro
+    return await prepararLogoPdfBase64(logoBlob, { fondo: PDF_HEADER_BLACK, invertir: true })
   } catch {
     return null
   }
@@ -555,20 +549,20 @@ function pdfEncabezadoBase(
   doc.text(tituloHeader, w - 14, 14, { align: "right" })
 
   if (logoBase64) {
-    doc.addImage(logoBase64, "PNG", 14, 24, 35, 10)
+    doc.addImage(logoBase64, "PNG", 14, 5, 38, 12)
   }
 
   doc.setTextColor(...PDF_TEXT_SOFT)
   doc.setFontSize(10)
-  doc.text(`Sucursal: ${opts.sucursal}`, 14, 38)
-  doc.text(`Período: ${opts.periodo}`, 14, 44)
+  doc.text(`Sucursal: ${opts.sucursal}`, 14, 30)
+  doc.text(`Período: ${opts.periodo}`, 14, 36)
   doc.text(
     `Generado: ${new Date().toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}`,
     14,
-    50,
+    42,
   )
   doc.setFontSize(13)
-  doc.text(opts.seccion, 14, 58)
+  doc.text(opts.seccion, 14, 52)
 }
 
 function pdfEncabezado(
