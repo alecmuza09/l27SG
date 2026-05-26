@@ -460,112 +460,25 @@ const PDF_CREAM: [number, number, number] = [245, 240, 232]
 const PDF_TEXT_SOFT: [number, number, number] = [26, 26, 26]
 const PDF_TABLE_START_Y = 58
 
-function prepararLogoPdfBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    img.onload = () => {
-      const src = document.createElement("canvas")
-      src.width = img.naturalWidth
-      src.height = img.naturalHeight
-      const sctx = src.getContext("2d")
-      if (!sctx) {
-        URL.revokeObjectURL(url)
-        reject(new Error("No se pudo preparar el logo"))
-        return
-      }
-      sctx.drawImage(img, 0, 0)
-      const { data, width, height } = sctx.getImageData(0, 0, src.width, src.height)
-
-      const esTintaLogo = (i: number) => {
-        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-        return lum < 200
-      }
-
-      let minX = width
-      let minY = height
-      let maxX = 0
-      let maxY = 0
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          if (esTintaLogo((y * width + x) * 4)) {
-            minX = Math.min(minX, x)
-            minY = Math.min(minY, y)
-            maxX = Math.max(maxX, x)
-            maxY = Math.max(maxY, y)
-          }
-        }
-      }
-
-      if (maxX < minX || maxY < minY) {
-        URL.revokeObjectURL(url)
-        reject(new Error("Logo sin contenido visible"))
-        return
-      }
-
-      const pad = 2
-      minX = Math.max(0, minX - pad)
-      minY = Math.max(0, minY - pad)
-      maxX = Math.min(width - 1, maxX + pad)
-      maxY = Math.min(height - 1, maxY + pad)
-
-      const outW = maxX - minX + 1
-      const outH = maxY - minY + 1
-      const canvas = document.createElement("canvas")
-      canvas.width = outW
-      canvas.height = outH
-      const ctx = canvas.getContext("2d")
-      if (!ctx) {
-        URL.revokeObjectURL(url)
-        reject(new Error("No se pudo preparar el logo"))
-        return
-      }
-
-      const out = ctx.createImageData(outW, outH)
-      const [br, bg, bb] = PDF_HEADER_BLACK
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          const si = (y * width + x) * 4
-          const oi = ((y - minY) * outW + (x - minX)) * 4
-          if (esTintaLogo(si)) {
-            out.data[oi] = 255
-            out.data[oi + 1] = 255
-            out.data[oi + 2] = 255
-            out.data[oi + 3] = 255
-          } else {
-            out.data[oi] = br
-            out.data[oi + 1] = bg
-            out.data[oi + 2] = bb
-            out.data[oi + 3] = 255
-          }
-        }
-      }
-      ctx.putImageData(out, 0, 0)
-      URL.revokeObjectURL(url)
-      resolve(canvas.toDataURL("image/png").split(",")[1] ?? "")
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error("No se pudo cargar el logo"))
-    }
-    img.src = url
-  })
-}
-
-async function cargarLogoPdfBase64(): Promise<{ base64: string; aspect: number } | null> {
+async function cargarLogoPdf(): Promise<{ dataUrl: string; aspect: number } | null> {
   try {
-    const logoRes = await fetch("/luna27-logo.png")
-    if (!logoRes.ok) return null
-    const logoBlob = await logoRes.blob()
-    const base64 = await prepararLogoPdfBase64(logoBlob)
-    return new Promise((resolve) => {
+    const res = await fetch("/luna27-logo-header.png")
+    if (!res.ok) return null
+    const blob = await res.blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") resolve(reader.result)
+        else reject(new Error("No se pudo leer el logo"))
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+    return await new Promise((resolve) => {
       const img = new Image()
-      img.onload = () => resolve({
-        base64,
-        aspect: img.naturalWidth / img.naturalHeight,
-      })
-      img.onerror = () => resolve({ base64, aspect: 8 })
-      img.src = `data:image/png;base64,${base64}`
+      img.onload = () => resolve({ dataUrl, aspect: img.naturalWidth / img.naturalHeight })
+      img.onerror = () => resolve({ dataUrl, aspect: 972 / 129 })
+      img.src = dataUrl
     })
   } catch {
     return null
@@ -602,7 +515,7 @@ function pdfEncabezadoBase(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
   tituloHeader: string,
-  logo: { base64: string; aspect: number } | null,
+  logo: { dataUrl: string; aspect: number } | null,
 ) {
   const w = doc.internal.pageSize.getWidth()
 
@@ -617,7 +530,10 @@ function pdfEncabezadoBase(
   if (logo) {
     const logoH = 10
     const logoW = Math.min(42, logoH * logo.aspect)
-    doc.addImage(logo.base64, "PNG", 14, 6, logoW, logoH)
+    doc.addImage(logo.dataUrl, "PNG", 14, 6, logoW, logoH)
+  } else {
+    doc.setFontSize(14)
+    doc.text("Luna·27", 14, 14)
   }
 
   doc.setTextColor(...PDF_TEXT_SOFT)
@@ -636,7 +552,7 @@ function pdfEncabezadoBase(
 function pdfEncabezado(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
-  logo: { base64: string; aspect: number } | null,
+  logo: { dataUrl: string; aspect: number } | null,
 ) {
   pdfEncabezadoBase(doc, opts, "Reporte de Resultados", logo)
 }
@@ -659,7 +575,7 @@ function pdfPiePagina(doc: JsPDFDoc) {
 function pdfEncabezadoGiftCards(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
-  logo: { base64: string; aspect: number } | null,
+  logo: { dataUrl: string; aspect: number } | null,
 ) {
   pdfEncabezadoBase(doc, opts, "Reporte de Gift Cards", logo)
 }
@@ -676,7 +592,7 @@ async function generarGiftCardsPdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
-  const logo = await cargarLogoPdfBase64()
+  const logo = await cargarLogoPdf()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const tableOpts = pdfTableOpts(7)
@@ -771,7 +687,7 @@ async function generarReportePdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
-  const logo = await cargarLogoPdfBase64()
+  const logo = await cargarLogoPdf()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const pagosComp = opts.pagos.filter(p => p.estado === "completado")
