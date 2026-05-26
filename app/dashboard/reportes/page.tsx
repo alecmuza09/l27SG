@@ -785,9 +785,12 @@ function Tendencia({ actual, anterior }: { actual: number; anterior: number }) {
   )
 }
 
+const BARRA_AZUL_GRADIENT = "bg-gradient-to-r from-[#1a73e8] to-[#0ea5e9]"
+const BARRA_AZUL_SOLIDA = "bg-[#1a73e8]"
+
 function BarraHorizontal({
   valor, max,
-  colorClass = "bg-violet-600",
+  colorClass = BARRA_AZUL_SOLIDA,
   gradientClass,
   heightClass = "h-2",
 }: {
@@ -809,21 +812,21 @@ function BarraHorizontal({
 }
 
 const SUCURSAL_ACCENT_BORDERS = [
-  "border-l-violet-600",
-  "border-l-indigo-500",
-  "border-l-purple-500",
-  "border-l-fuchsia-500",
-  "border-l-blue-500",
-  "border-l-teal-500",
+  "border-l-[#1a73e8]",
+  "border-l-[#0ea5e9]",
+  "border-l-slate-400",
+  "border-l-blue-400",
+  "border-l-sky-400",
+  "border-l-cyan-500",
 ]
 
 const SUCURSAL_GRADIENTS = [
-  "bg-gradient-to-r from-violet-600 to-purple-400",
-  "bg-gradient-to-r from-indigo-600 to-violet-400",
-  "bg-gradient-to-r from-purple-600 to-fuchsia-400",
-  "bg-gradient-to-r from-blue-600 to-indigo-400",
-  "bg-gradient-to-r from-fuchsia-600 to-pink-400",
-  "bg-gradient-to-r from-teal-600 to-cyan-400",
+  BARRA_AZUL_GRADIENT,
+  "bg-gradient-to-r from-[#1e40af] to-[#38bdf8]",
+  "bg-gradient-to-r from-[#2563eb] to-[#7dd3fc]",
+  "bg-gradient-to-r from-[#1a73e8] to-[#93c5fd]",
+  "bg-gradient-to-r from-slate-500 to-slate-300",
+  "bg-gradient-to-r from-cyan-600 to-sky-400",
 ]
 
 function KpiCard({
@@ -846,22 +849,25 @@ function KpiCard({
   className?: string
 }) {
   return (
-    <Card className={cn("h-[152px] flex flex-col", className)}>
-      <CardHeader className="pb-2 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", iconBg)}>
-            <Icon className={cn("h-5 w-5", iconColor)} />
+    <Card className={cn(
+      "min-h-[140px] h-[140px] items-start gap-2 border border-solid border-slate-200 py-3 shadow-sm",
+      className,
+    )}>
+      <CardHeader className="px-3 pb-0 pt-0 w-full">
+        <div className="flex items-start gap-2">
+          <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", iconBg)}>
+            <Icon className={cn("h-4 w-4", iconColor)} />
           </div>
-          <CardTitle className="text-sm font-medium text-muted-foreground leading-tight">{title}</CardTitle>
+          <CardTitle className="text-xs font-medium text-muted-foreground leading-snug line-clamp-2">{title}</CardTitle>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col justify-end pt-0 gap-1">
-        <div className="text-3xl font-bold tracking-tight">{value}</div>
+      <CardContent className="px-3 pt-1 pb-0 flex flex-col items-start justify-start gap-1 flex-1 min-h-0 overflow-hidden">
+        <div className="text-xl font-bold tracking-tight leading-none">{value}</div>
         {subtitle}
         {tendencia && (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap mt-auto">
             <Tendencia actual={tendencia.actual} anterior={tendencia.anterior} />
-            <span className="text-xs text-muted-foreground">vs período anterior</span>
+            <span className="text-[10px] text-muted-foreground leading-tight">vs ant.</span>
           </div>
         )}
       </CardContent>
@@ -892,9 +898,9 @@ function DonutDistribucionClientes({
   total: number
 }) {
   const segments = [
-    { label: "VIP", value: vip, color: "#7c3aed" },
-    { label: "Activos", value: activos, color: "#6366f1" },
-    { label: "Nuevos (30 días)", value: nuevos, color: "#c4b5fd" },
+    { label: "VIP", value: vip, color: "#1a73e8" },
+    { label: "Activos", value: activos, color: "#0ea5e9" },
+    { label: "Nuevos (30 días)", value: nuevos, color: "#94a3b8" },
   ]
   const sum = segments.reduce((s, x) => s + x.value, 0)
 
@@ -940,7 +946,7 @@ function DonutDistribucionClientes({
               <BarraHorizontal
                 valor={s.value}
                 max={Math.max(...segments.map(x => x.value), 1)}
-                gradientClass="bg-gradient-to-r from-violet-500 to-indigo-400"
+                gradientClass={BARRA_AZUL_GRADIENT}
               />
             </div>
           )
@@ -1300,7 +1306,7 @@ export default function ReportesPage() {
                     variant="outline"
                     onClick={handleExportPDF}
                     disabled={isExportingPdf}
-                    className="border-violet-200 bg-violet-50/60 hover:bg-violet-50 text-violet-900 font-medium shadow-sm"
+                    className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-[#1e40af] font-medium shadow-sm"
                   >
                     {isExportingPdf
                       ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1310,7 +1316,7 @@ export default function ReportesPage() {
                   <Button
                     variant="outline"
                     onClick={handleExportExcel}
-                    className="border-emerald-200 bg-emerald-50/60 hover:bg-emerald-50 text-emerald-900 font-medium shadow-sm"
+                    className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-medium shadow-sm"
                   >
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
                     Exportar Excel
@@ -1321,15 +1327,15 @@ export default function ReportesPage() {
           </div>
 
           {/* Contexto visible: sucursal y período */}
-          <div className="border-b-2 border-violet-500/30 pb-3">
+          <div className="border-b-2 border-slate-200 pb-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                <Building2 className="h-4 w-4 text-violet-600" />
+                <Building2 className="h-4 w-4 text-slate-500" />
                 {(isAdmin || multiBranch) ? sucNombreActiva : (sucNombreActiva || "Mi sucursal")}
               </span>
               <span className="hidden sm:inline text-muted-foreground">·</span>
               <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                <Calendar className="h-4 w-4 text-violet-600" />
+                <Calendar className="h-4 w-4 text-slate-500" />
                 {periodoLabel}
               </span>
               <span className="hidden sm:inline text-muted-foreground">·</span>
@@ -1341,102 +1347,106 @@ export default function ReportesPage() {
         </div>
 
         {/* ── KPIs ── */}
-        <div className={`grid gap-4 ${isManager ? "sm:grid-cols-2 lg:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"}`}>
-          {!isManager && (
+        <div className="space-y-2">
+          <div className={cn(
+            "grid gap-3 items-start",
+            isManager ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-5" : "grid-cols-2 md:grid-cols-4 lg:grid-cols-7",
+          )}>
+            {!isManager && (
+              <KpiCard
+                icon={DollarSign}
+                iconBg="bg-green-50"
+                iconColor="text-green-500"
+                title="Ingresos Totales"
+                value={fmtMXN(statsActual.ingresosTotales)}
+                tendencia={{ actual: statsActual.ingresosTotales, anterior: statsAnterior.ingresosTotales }}
+              />
+            )}
+
             <KpiCard
-              className="xl:col-span-2"
-              icon={DollarSign}
-              iconBg="bg-green-100"
-              iconColor="text-green-600"
-              title="Ingresos Totales"
-              value={fmtMXN(statsActual.ingresosTotales)}
-              tendencia={{ actual: statsActual.ingresosTotales, anterior: statsAnterior.ingresosTotales }}
+              icon={BarChart3}
+              iconBg="bg-blue-50"
+              iconColor="text-blue-500"
+              title="Total Servicios"
+              value={statsActual.totalServicios}
+              tendencia={{ actual: statsActual.totalServicios, anterior: statsAnterior.totalServicios }}
             />
-          )}
 
-          <KpiCard
-            icon={BarChart3}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
-            title="Total Servicios"
-            value={statsActual.totalServicios}
-            tendencia={{ actual: statsActual.totalServicios, anterior: statsAnterior.totalServicios }}
-          />
+            {!isManager && (
+              <KpiCard
+                icon={Receipt}
+                iconBg="bg-orange-50"
+                iconColor="text-orange-500"
+                title="Ticket Promedio"
+                value={fmtMXN(statsActual.ticketPromedio)}
+                tendencia={{ actual: statsActual.ticketPromedio, anterior: statsAnterior.ticketPromedio }}
+              />
+            )}
 
-          {!isManager && (
-            <KpiCard
-              icon={Receipt}
-              iconBg="bg-orange-100"
-              iconColor="text-orange-600"
-              title="Ticket Promedio"
-              value={fmtMXN(statsActual.ticketPromedio)}
-              tendencia={{ actual: statsActual.ticketPromedio, anterior: statsAnterior.ticketPromedio }}
-            />
-          )}
-
-          <div className="flex flex-col gap-2">
             <KpiCard
               icon={Gift}
-              iconBg="bg-purple-100"
-              iconColor="text-purple-600"
+              iconBg="bg-sky-50"
+              iconColor="text-[#0ea5e9]"
               title="Ventas saldo gift cards"
               value={fmtMXN(ventasSaldoGcActual.monto)}
               subtitle={
-                <p className="text-xs text-muted-foreground">{ventasSaldoGcActual.transacciones} ventas en el período</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">{ventasSaldoGcActual.transacciones} ventas</p>
               }
               tendencia={!isManager ? { actual: ventasSaldoGcActual.monto, anterior: ventasSaldoGcAnt.monto } : undefined}
             />
-            {!isManager && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+
+            <KpiCard
+              icon={CheckCircle2}
+              iconBg="bg-emerald-50"
+              iconColor="text-emerald-500"
+              title="Citas Completadas"
+              value={citasResumen.completadas}
+              subtitle={<p className="text-[10px] text-muted-foreground leading-tight">De {citasResumen.total} totales</p>}
+            />
+
+            <KpiCard
+              icon={XCircle}
+              iconBg="bg-red-50"
+              iconColor="text-red-400"
+              title="Tasa Cancelación"
+              value={
+                <span className={cn(
+                  citasResumen.tasaCancelacion > 20 ? "text-red-500" : citasResumen.tasaCancelacion > 10 ? "text-amber-500" : "text-green-600",
+                )}>
+                  {citasResumen.tasaCancelacion}%
+                </span>
+              }
+              subtitle={
+                <p className="text-[10px] text-muted-foreground leading-tight">{citasResumen.canceladas + citasResumen.noShow} cancel. / no-show</p>
+              }
+            />
+
+            <KpiCard
+              icon={UserPlus}
+              iconBg="bg-slate-50"
+              iconColor="text-slate-500"
+              title="Nuevos Clientes"
+              value={clientesStats.nuevos}
+              subtitle={<p className="text-[10px] text-muted-foreground leading-tight">Últimos 30 días</p>}
+            />
+          </div>
+
+          {!isManager && (
+            <div className="flex justify-end no-print">
+              <button
+                type="button"
                 onClick={handleExportGiftCardsPDF}
                 disabled={isExportingGcPdf}
                 title="Descargar reporte PDF de gift cards"
+                className="inline-flex items-center gap-1 text-xs font-medium text-[#0ea5e9] hover:text-slate-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isExportingGcPdf
-                  ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Download className="h-3.5 w-3.5" />}
                 ↓ PDF Gift Cards
-              </Button>
-            )}
-          </div>
-
-          <KpiCard
-            icon={CheckCircle2}
-            iconBg="bg-emerald-100"
-            iconColor="text-emerald-600"
-            title="Citas Completadas"
-            value={citasResumen.completadas}
-            subtitle={<p className="text-xs text-muted-foreground">De {citasResumen.total} totales</p>}
-          />
-
-          <KpiCard
-            icon={XCircle}
-            iconBg="bg-red-100"
-            iconColor="text-red-500"
-            title="Tasa Cancelación"
-            value={
-              <span className={cn(
-                citasResumen.tasaCancelacion > 20 ? "text-red-500" : citasResumen.tasaCancelacion > 10 ? "text-amber-500" : "text-green-600",
-              )}>
-                {citasResumen.tasaCancelacion}%
-              </span>
-            }
-            subtitle={
-              <p className="text-xs text-muted-foreground">{citasResumen.canceladas + citasResumen.noShow} canceladas / no-show</p>
-            }
-          />
-
-          <KpiCard
-            icon={UserPlus}
-            iconBg="bg-sky-100"
-            iconColor="text-sky-600"
-            title="Nuevos Clientes"
-            value={clientesStats.nuevos}
-            subtitle={<p className="text-xs text-muted-foreground">Últimos 30 días</p>}
-          />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── Tabs ── */}
@@ -1460,7 +1470,7 @@ export default function ReportesPage() {
                     {periodo === "año" ? "Ventas por Mes" : periodo === "trimestre" ? "Ventas por Semana" : "Ventas por Día"}
                   </CardTitle>
                   <CardDescription>
-                    {periodoLabel} · barras violeta = actual, gris = período anterior
+                    {periodoLabel} · barras azules = actual, gris = período anterior
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1485,7 +1495,7 @@ export default function ReportesPage() {
                           <BarraHorizontal
                             valor={d.ventas}
                             max={maxVentas}
-                            gradientClass="bg-gradient-to-r from-indigo-500 to-violet-600"
+                            gradientClass={BARRA_AZUL_GRADIENT}
                             heightClass="h-2.5"
                           />
                           {/* Barra anterior */}
@@ -1528,7 +1538,7 @@ export default function ReportesPage() {
                               <BarraHorizontal
                                 valor={m.monto}
                                 max={statsActual.ingresosTotales}
-                                gradientClass="bg-gradient-to-r from-violet-600 to-purple-400"
+                                gradientClass={BARRA_AZUL_GRADIENT}
                               />
                             </div>
                           )
@@ -1638,7 +1648,7 @@ export default function ReportesPage() {
                             <TableCell>
                               <div className="space-y-1">
                                 <span className="font-medium">{s.name}</span>
-                                <BarraHorizontal valor={s.pctTotal} max={100} gradientClass="bg-gradient-to-r from-violet-500 to-indigo-400" />
+                                <BarraHorizontal valor={s.pctTotal} max={100} gradientClass={BARRA_AZUL_GRADIENT} />
                               </div>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{s.cantidad}</TableCell>
@@ -1695,7 +1705,7 @@ export default function ReportesPage() {
                                   <BarraHorizontal
                                     valor={e.ingresos}
                                     max={maxEmpleado}
-                                    gradientClass="bg-gradient-to-r from-violet-600 to-purple-400"
+                                    gradientClass={BARRA_AZUL_GRADIENT}
                                   />
                                 )}
                               </div>
@@ -1781,8 +1791,8 @@ export default function ReportesPage() {
                     nuevos={clientesStats.nuevos}
                     total={clientesStats.total}
                   />
-                  <div className="text-center p-4 rounded-lg bg-violet-50/50 border border-violet-100 mt-4">
-                    <div className="text-3xl font-bold text-violet-700">{clientesStats.total}</div>
+                  <div className="text-center p-4 rounded-lg bg-slate-50 border border-slate-200 mt-4">
+                    <div className="text-3xl font-bold text-slate-700">{clientesStats.total}</div>
                     <p className="text-xs text-muted-foreground mt-1">Total de clientes registrados</p>
                   </div>
                 </CardContent>
