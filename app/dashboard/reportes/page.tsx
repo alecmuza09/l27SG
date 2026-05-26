@@ -539,7 +539,7 @@ async function generarGiftCardsPdf(opts: {
 
   const totalEmitidas = opts.cards.length
   const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
-  const totalSaldoUsado = opts.canjes.reduce((sum, m) => sum + Number(m.monto || 0), 0)
+  const totalSaldoUsado = opts.cards.reduce((sum, c) => sum + c.saldoUsado, 0)
   const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoActual, 0)
 
   pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
