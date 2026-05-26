@@ -346,11 +346,11 @@ async function fetchCanjesParaPdf(giftCardsEmitidas: GiftCardDetallePdfRow[]): P
       const { data, error } = await (supabase as any)
         .from("gift_card_transacciones")
         .select(`
-          monto, fecha, created_at, tipo, gift_card_id,
+          *,
           empleado:empleados(nombre, apellido)
         `)
         .in("gift_card_id", chunk)
-        .in("tipo", ["canje", "uso"])
+        .in("tipo", ["canje", "uso", "descuento", "cobro"])
         .order("created_at", { ascending: false })
         .range(offset, offset + PAGE - 1)
 
@@ -366,12 +366,16 @@ async function fetchCanjesParaPdf(giftCardsEmitidas: GiftCardDetallePdfRow[]): P
     .map((t: any): CanjeGcPdfRow | null => {
       const gc = gcMap.get(t.gift_card_id as string)
       if (!gc) return null
+      const empleadaJoin = t.empleado
+        ? `${t.empleado.nombre ?? ""} ${t.empleado.apellido ?? ""}`.trim()
+        : ""
+      const empleadaDirecta = String(t.empleado_nombre ?? t.empleada ?? "").trim()
       return {
         fecha: normalizarFechaGc(t.fecha || t.created_at),
         codigo: gc.codigo,
         cliente: gc.cliente,
         monto: Number(t.monto) || 0,
-        empleada: t.empleado ? `${t.empleado.nombre} ${t.empleado.apellido}` : "—",
+        empleada: empleadaJoin || empleadaDirecta || "—",
         sucursal: gc.sucursal,
       }
     })
@@ -532,10 +536,7 @@ async function generarGiftCardsPdf(opts: {
 
   const totalEmitidas = opts.cards.length
   const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
-  const totalSaldoUsado = opts.cards.reduce(
-    (sum, gc) => sum + Math.max(0, gc.montoInicial - gc.saldoActual),
-    0,
-  )
+  const totalSaldoUsado = opts.canjes.reduce((sum, m) => sum + Number(m.monto || 0), 0)
   const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoActual, 0)
 
   pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
