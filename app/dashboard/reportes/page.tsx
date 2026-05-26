@@ -1211,14 +1211,9 @@ export default function ReportesPage() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                    <Gift className="h-4 w-4" />Ventas saldo gift cards
-                  </CardTitle>
-                  <CardDescription className="text-xs leading-snug">
-                    Monto cobrado por saldo inicial vendido al emitir tarjetas (Pagos → Cobros).
-                  </CardDescription>
-                </div>
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Gift className="h-4 w-4" />Ventas saldo gift cards
+                </CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
