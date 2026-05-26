@@ -6,7 +6,14 @@ import { Plus } from "lucide-react"
 import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, collectEffectiveSucursalIds, type User } from "@/lib/auth"
+import {
+  getCurrentUser,
+  refreshSession,
+  isGlobalAdministrator,
+  collectEffectiveSucursalIds,
+  userHasMultiBranchScope,
+  type User,
+} from "@/lib/auth"
 
 export default function CitasPage() {
   const getTodayLocal = () => {
@@ -26,9 +33,8 @@ export default function CitasPage() {
   // Detectado en JS para nunca montar Sheet y Panel al mismo tiempo
   const [isDesktop, setIsDesktop] = useState(false)
 
-  const isAdmin: boolean = Boolean(
-    currentUser?.role === 'admin' || currentUser?.role === 'superadmin'
-  )
+  const isAdmin = isGlobalAdministrator(currentUser)
+  const multiBranch = userHasMultiBranchScope(currentUser)
   const userSucursalIds = collectEffectiveSucursalIds(currentUser)
 
   // Detectar breakpoint lg (≥1024px) en tiempo de ejecución
@@ -41,8 +47,7 @@ export default function CitasPage() {
   }, [])
 
   useEffect(() => {
-    const user = getCurrentUser()
-    setCurrentUser(user)
+    void refreshSession().then((user) => setCurrentUser(user ?? getCurrentUser()))
   }, [])
 
   useEffect(() => {
@@ -53,7 +58,7 @@ export default function CitasPage() {
         const primaryId = currentUser?.sucursalId
         const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0]?.id
         if (defaultId) setSucursalId(defaultId)
-      } else if (userSucursalIds.length > 0) {
+      } else if ((multiBranch || userSucursalIds.length > 0) && userSucursalIds.length > 0) {
         const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
@@ -64,7 +69,7 @@ export default function CitasPage() {
       }
     }
     if (currentUser) loadSucursales()
-  }, [currentUser, isAdmin, userSucursalIds.join(',')])
+  }, [currentUser, isAdmin, multiBranch, userSucursalIds.join(',')])
 
   const handlePanelClose = (v: boolean) => {
     setIsDialogOpen(v)

@@ -115,16 +115,44 @@ async function upsertUsuario(email: string, password: string, rol: 'admin' | 'ma
     .maybeSingle()
 
   if (dbRow) {
+    const patch: Record<string, unknown> = {
+      nombre,
+      rol,
+      activo: true,
+      updated_at: new Date().toISOString(),
+    }
+    // Admins globales: sin sucursal fija ni filas en usuario_sucursales (RLS + selector de agenda)
+    if (rol === 'admin') {
+      patch.sucursal_id = null
+    }
     const { error } = await supabase
       .from('usuarios')
-      .update({ nombre, rol, activo: true, updated_at: new Date().toISOString() })
+      .update(patch)
       .eq('id', dbRow.id)
     if (error) { console.error(`   ❌ DB update: ${error.message}`); return false }
+    if (rol === 'admin') {
+      const { error: junctionError } = await supabase
+        .from('usuario_sucursales')
+        .delete()
+        .eq('usuario_id', dbRow.id)
+      if (junctionError) {
+        console.error(`   ❌ usuario_sucursales delete: ${junctionError.message}`)
+        return false
+      }
+    }
     console.log('   ✅ DB: registro actualizado')
   } else {
+    const insertRow: Record<string, unknown> = {
+      id: authUserId,
+      email,
+      nombre,
+      rol,
+      activo: true,
+    }
+    if (rol === 'admin') insertRow.sucursal_id = null
     const { error } = await supabase
       .from('usuarios')
-      .insert({ id: authUserId, email, nombre, rol, activo: true })
+      .insert(insertRow)
     if (error) { console.error(`   ❌ DB insert: ${error.message}`); return false }
     console.log('   ✅ DB: registro creado')
   }

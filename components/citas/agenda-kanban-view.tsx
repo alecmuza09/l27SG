@@ -33,7 +33,14 @@ import { AgregarServicioCitaDialog } from "./agregar-servicio-cita-dialog"
 import { CajaDialog } from "./caja-dialog"
 import { getVacacionesFromDB } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
-import { getCurrentUser, type User } from "@/lib/auth"
+import {
+  getCurrentUser,
+  refreshSession,
+  isGlobalAdministrator,
+  collectEffectiveSucursalIds,
+  userHasMultiBranchScope,
+  type User,
+} from "@/lib/auth"
 import { getSucursalesByIdsFromDB } from "@/lib/data/sucursales"
 import {
   getAusenciasFromDB,
@@ -484,15 +491,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   const [bloqueEditando, setBloqueEditando] = useState<BloqueAgenda | null>(null)
 
-  // Calcular isAdmin de forma segura (siempre definido)
-  const isAdmin: boolean = Boolean(
-    currentUser?.role === "admin" || currentUser?.role === "superadmin",
-  )
-  const userSucursalIds = currentUser?.sucursalIds ?? (currentUser?.sucursalId ? [currentUser.sucursalId] : [])
+  const isAdmin = isGlobalAdministrator(currentUser)
+  const multiBranch = userHasMultiBranchScope(currentUser)
+  const userSucursalIds = collectEffectiveSucursalIds(currentUser)
+  const canPickSucursal = isAdmin || multiBranch
 
   useEffect(() => {
-    const user = getCurrentUser()
-    setCurrentUser(user)
+    void refreshSession().then((user) => setCurrentUser(user ?? getCurrentUser()))
   }, [])
 
   useEffect(() => {
@@ -515,11 +520,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         const sucursalesData = await getSucursalesActivasFromDB()
         setSucursales(sucursalesData)
         if (sucursalesData.length > 0 && !isControlledSucursal && !selectedSucursalState) {
-          // Default: sucursal propia si existe, sino la primera
           const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
           setSelectedSucursalState(defaultId)
         }
-      } else if (userSucursalIds.length > 0) {
+      } else if ((multiBranch || userSucursalIds.length > 0) && userSucursalIds.length > 0) {
         const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
@@ -533,7 +537,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     if (currentUser) {
       loadSucursales()
     }
-  }, [currentUser, isAdmin, userSucursalIds.join(',')])
+  }, [currentUser, isAdmin, multiBranch, userSucursalIds.join(',')])
 
   useEffect(() => {
     async function loadEmpleados() {
@@ -1283,7 +1287,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </Button>
         </div>
 
-        {sucursales.length > 1 ? (
+        {canPickSucursal && sucursales.length > 1 ? (
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
             <Select value={selectedSucursal} onValueChange={setSelectedSucursal}>

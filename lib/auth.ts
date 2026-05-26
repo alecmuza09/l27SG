@@ -174,7 +174,7 @@ export function checkPermission(user: User | null, requiredRole: User["role"]): 
   return roleHierarchy[user.role] >= roleHierarchy[requiredRole]
 }
 
-/** Vista de todas las sucursales en la app cliente (roles admin / superadmin). */
+/** Vista de todas las sucursales (roles admin / superadmin). No depende de sucursal_id. */
 export function isGlobalAdministrator(user: User | null): boolean {
   return user?.role === "admin" || user?.role === "superadmin"
 }

@@ -1,17 +1,18 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, type ReactNode, type ComponentType } from "react"
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
-  Download, FileSpreadsheet, TrendingUp, TrendingDown,
+  Download, FileSpreadsheet, FileText, TrendingUp, TrendingDown,
   Users, Calendar, Loader2, RefreshCw, Building2,
   CheckCircle2, XCircle, Clock, AlertCircle, DollarSign,
-  BarChart3, Star, Gift,
+  BarChart3, Star, Gift, Receipt, UserPlus,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -774,18 +775,177 @@ function Tendencia({ actual, anterior }: { actual: number; anterior: number }) {
   const pct = Math.round(((actual - anterior) / anterior) * 100)
   const up  = pct >= 0
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? "text-green-600" : "text-red-500"}`}>
-      {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+    <span className={cn(
+      "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold",
+      up ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700",
+    )}>
+      {up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
       {up ? "+" : ""}{pct}%
     </span>
   )
 }
 
-function BarraHorizontal({ valor, max, colorClass = "bg-primary" }: { valor: number; max: number; colorClass?: string }) {
+function BarraHorizontal({
+  valor, max,
+  colorClass = "bg-violet-600",
+  gradientClass,
+  heightClass = "h-2",
+}: {
+  valor: number
+  max: number
+  colorClass?: string
+  gradientClass?: string
+  heightClass?: string
+}) {
   const pct = max > 0 ? Math.min(100, (valor / max) * 100) : 0
   return (
-    <div className="h-2 bg-muted rounded-full overflow-hidden">
-      <div className={`h-full ${colorClass} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+    <div className={cn("bg-muted rounded-full overflow-hidden", heightClass)}>
+      <div
+        className={cn("h-full rounded-full transition-all duration-500", gradientClass ?? colorClass)}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  )
+}
+
+const SUCURSAL_ACCENT_BORDERS = [
+  "border-l-violet-600",
+  "border-l-indigo-500",
+  "border-l-purple-500",
+  "border-l-fuchsia-500",
+  "border-l-blue-500",
+  "border-l-teal-500",
+]
+
+const SUCURSAL_GRADIENTS = [
+  "bg-gradient-to-r from-violet-600 to-purple-400",
+  "bg-gradient-to-r from-indigo-600 to-violet-400",
+  "bg-gradient-to-r from-purple-600 to-fuchsia-400",
+  "bg-gradient-to-r from-blue-600 to-indigo-400",
+  "bg-gradient-to-r from-fuchsia-600 to-pink-400",
+  "bg-gradient-to-r from-teal-600 to-cyan-400",
+]
+
+function KpiCard({
+  icon: Icon,
+  iconBg,
+  iconColor,
+  title,
+  value,
+  subtitle,
+  tendencia,
+  className,
+}: {
+  icon: ComponentType<{ className?: string }>
+  iconBg: string
+  iconColor: string
+  title: string
+  value: ReactNode
+  subtitle?: ReactNode
+  tendencia?: { actual: number; anterior: number }
+  className?: string
+}) {
+  return (
+    <Card className={cn("h-[152px] flex flex-col", className)}>
+      <CardHeader className="pb-2 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", iconBg)}>
+            <Icon className={cn("h-5 w-5", iconColor)} />
+          </div>
+          <CardTitle className="text-sm font-medium text-muted-foreground leading-tight">{title}</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 flex flex-col justify-end pt-0 gap-1">
+        <div className="text-3xl font-bold tracking-tight">{value}</div>
+        {subtitle}
+        {tendencia && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Tendencia actual={tendencia.actual} anterior={tendencia.anterior} />
+            <span className="text-xs text-muted-foreground">vs período anterior</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function BadgeOcupacion({ pct }: { pct: number }) {
+  const style =
+    pct > 70
+      ? "bg-green-100 text-green-700 border-green-200"
+      : pct >= 40
+        ? "bg-amber-100 text-amber-700 border-amber-200"
+        : "bg-red-100 text-red-700 border-red-200"
+  return (
+    <Badge variant="outline" className={cn("text-xs font-semibold border", style)}>
+      {pct}%
+    </Badge>
+  )
+}
+
+function DonutDistribucionClientes({
+  vip, activos, nuevos, total,
+}: {
+  vip: number
+  activos: number
+  nuevos: number
+  total: number
+}) {
+  const segments = [
+    { label: "VIP", value: vip, color: "#7c3aed" },
+    { label: "Activos", value: activos, color: "#6366f1" },
+    { label: "Nuevos (30 días)", value: nuevos, color: "#c4b5fd" },
+  ]
+  const sum = segments.reduce((s, x) => s + x.value, 0)
+
+  if (sum === 0 && total === 0) {
+    return <p className="text-center text-sm text-muted-foreground py-6">Sin datos de clientes</p>
+  }
+
+  let acc = 0
+  const stops = segments
+    .filter(s => s.value > 0)
+    .map(s => {
+      const start = (acc / Math.max(sum, 1)) * 100
+      acc += s.value
+      const end = (acc / Math.max(sum, 1)) * 100
+      return `${s.color} ${start}% ${end}%`
+    })
+    .join(", ")
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-6">
+      <div className="relative shrink-0">
+        <div
+          className="h-36 w-36 rounded-full shadow-inner"
+          style={{ background: stops ? `conic-gradient(${stops})` : "var(--muted)" }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-card flex flex-col items-center justify-center shadow-sm border">
+            <span className="text-2xl font-bold leading-none">{total}</span>
+            <span className="text-[10px] text-muted-foreground mt-0.5">Total</span>
+          </div>
+        </div>
+      </div>
+      <div className="flex-1 space-y-3 w-full min-w-0">
+        {segments.map(s => {
+          const pct = sum > 0 ? Math.round((s.value / sum) * 100) : 0
+          return (
+            <div key={s.label} className="space-y-1">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                <span className="font-medium flex-1 truncate">{s.label}</span>
+                <span className="text-muted-foreground tabular-nums shrink-0">{s.value} · {pct}%</span>
+              </div>
+              <BarraHorizontal
+                valor={s.value}
+                max={Math.max(...segments.map(x => x.value), 1)}
+                gradientClass="bg-gradient-to-r from-violet-500 to-indigo-400"
+              />
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1090,194 +1250,193 @@ export default function ReportesPage() {
       <div id="reporte-contenido" className="space-y-6">
 
         {/* ── Cabecera ── */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Reportes</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              {isManager ? "Análisis de tu sucursal" : "Análisis y estadísticas del negocio"}
-            </p>
-          </div>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">Reportes</h1>
+              <p className="text-muted-foreground text-sm mt-1">
+                {isManager ? "Análisis de tu sucursal" : "Análisis y estadísticas del negocio"}
+              </p>
+            </div>
 
-          <div className="flex flex-wrap gap-2 items-center no-print">
-            {/* Filtro sucursal (solo admin) */}
-            {(isAdmin || multiBranch) && sucursales.length > 0 && (
-              <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
-                <SelectTrigger className="w-52">
-                  <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
-                  <SelectValue placeholder="Sucursal" />
+            <div className="flex flex-wrap gap-2 items-center no-print">
+              {/* Filtro sucursal (solo admin) */}
+              {(isAdmin || multiBranch) && sucursales.length > 0 && (
+                <Select value={sucursalFilter} onValueChange={setSucursalFilter}>
+                  <SelectTrigger className="w-52">
+                    <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Sucursal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{multiBranch ? "Todas mis sucursales" : "Todas las sucursales"}</SelectItem>
+                    {sucursales.map(s => (
+                      <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {/* Filtro período */}
+              <Select value={periodo} onValueChange={v => setPeriodo(v as Periodo)}>
+                <SelectTrigger className="w-44">
+                  <Calendar className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{multiBranch ? "Todas mis sucursales" : "Todas las sucursales"}</SelectItem>
-                  {sucursales.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
-                  ))}
+                  <SelectItem value="semana">Esta Semana</SelectItem>
+                  <SelectItem value="mes">Este Mes</SelectItem>
+                  <SelectItem value="trimestre">Trimestre</SelectItem>
+                  <SelectItem value="año">Este Año</SelectItem>
                 </SelectContent>
               </Select>
-            )}
 
-            {/* Filtro período */}
-            <Select value={periodo} onValueChange={v => setPeriodo(v as Periodo)}>
-              <SelectTrigger className="w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="semana">Esta Semana</SelectItem>
-                <SelectItem value="mes">Este Mes</SelectItem>
-                <SelectItem value="trimestre">Trimestre</SelectItem>
-                <SelectItem value="año">Este Año</SelectItem>
-              </SelectContent>
-            </Select>
+              <Button variant="outline" size="icon" onClick={cargarDatos} title="Actualizar datos">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
 
-            <Button variant="outline" size="icon" onClick={cargarDatos} title="Actualizar datos">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-
-            {!isManager && (
-              <>
-                <Button variant="outline" onClick={handleExportPDF} disabled={isExportingPdf}>
-                  {isExportingPdf
-                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    : <Download className="mr-2 h-4 w-4" />}
-                  PDF
-                </Button>
-                <Button variant="outline" onClick={handleExportExcel}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />Excel
-                </Button>
-              </>
-            )}
+              {!isManager && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={handleExportPDF}
+                    disabled={isExportingPdf}
+                    className="border-violet-200 bg-violet-50/60 hover:bg-violet-50 text-violet-900 font-medium shadow-sm"
+                  >
+                    {isExportingPdf
+                      ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      : <FileText className="mr-2 h-4 w-4" />}
+                    Exportar PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleExportExcel}
+                    className="border-emerald-200 bg-emerald-50/60 hover:bg-emerald-50 text-emerald-900 font-medium shadow-sm"
+                  >
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Exportar Excel
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Badges de contexto */}
-        <div className="flex flex-wrap gap-2 text-xs">
-          <Badge variant="outline"><Calendar className="mr-1 h-3 w-3" />{periodoLabel}</Badge>
-          {(isAdmin || multiBranch) && <Badge variant="outline"><Building2 className="mr-1 h-3 w-3" />{sucNombreActiva}</Badge>}
-          <Badge variant="outline" className="text-muted-foreground">
-            Generado: {new Date().toLocaleDateString("es-MX", { dateStyle: "medium" })}
-          </Badge>
+          {/* Contexto visible: sucursal y período */}
+          <div className="border-b-2 border-violet-500/30 pb-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                <Building2 className="h-4 w-4 text-violet-600" />
+                {(isAdmin || multiBranch) ? sucNombreActiva : (sucNombreActiva || "Mi sucursal")}
+              </span>
+              <span className="hidden sm:inline text-muted-foreground">·</span>
+              <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                <Calendar className="h-4 w-4 text-violet-600" />
+                {periodoLabel}
+              </span>
+              <span className="hidden sm:inline text-muted-foreground">·</span>
+              <span className="text-xs text-muted-foreground">
+                Generado: {new Date().toLocaleDateString("es-MX", { dateStyle: "medium" })}
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* ── KPIs ── */}
         <div className={`grid gap-4 ${isManager ? "sm:grid-cols-2 lg:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"}`}>
           {!isManager && (
-            <Card className="xl:col-span-2">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                  <DollarSign className="h-4 w-4" />Ingresos Totales
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{fmtMXN(statsActual.ingresosTotales)}</div>
-                <div className="flex items-center gap-2 mt-1">
-                  <Tendencia actual={statsActual.ingresosTotales} anterior={statsAnterior.ingresosTotales} />
-                  <span className="text-xs text-muted-foreground">vs período anterior</span>
-                </div>
-              </CardContent>
-            </Card>
+            <KpiCard
+              className="xl:col-span-2"
+              icon={DollarSign}
+              iconBg="bg-green-100"
+              iconColor="text-green-600"
+              title="Ingresos Totales"
+              value={fmtMXN(statsActual.ingresosTotales)}
+              tendencia={{ actual: statsActual.ingresosTotales, anterior: statsAnterior.ingresosTotales }}
+            />
           )}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                <BarChart3 className="h-4 w-4" />Total Servicios
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{statsActual.totalServicios}</div>
-              <div className="flex items-center gap-2 mt-1">
-                <Tendencia actual={statsActual.totalServicios} anterior={statsAnterior.totalServicios} />
-                <span className="text-xs text-muted-foreground">vs período anterior</span>
-              </div>
-            </CardContent>
-          </Card>
+          <KpiCard
+            icon={BarChart3}
+            iconBg="bg-blue-100"
+            iconColor="text-blue-600"
+            title="Total Servicios"
+            value={statsActual.totalServicios}
+            tendencia={{ actual: statsActual.totalServicios, anterior: statsAnterior.totalServicios }}
+          />
 
           {!isManager && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                  <TrendingUp className="h-4 w-4" />Ticket Promedio
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{fmtMXN(statsActual.ticketPromedio)}</div>
-                <div className="flex items-center gap-2 mt-1">
-                  <Tendencia actual={statsActual.ticketPromedio} anterior={statsAnterior.ticketPromedio} />
-                  <span className="text-xs text-muted-foreground">vs período anterior</span>
-                </div>
-              </CardContent>
-            </Card>
+            <KpiCard
+              icon={Receipt}
+              iconBg="bg-orange-100"
+              iconColor="text-orange-600"
+              title="Ticket Promedio"
+              value={fmtMXN(statsActual.ticketPromedio)}
+              tendencia={{ actual: statsActual.ticketPromedio, anterior: statsAnterior.ticketPromedio }}
+            />
           )}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Gift className="h-4 w-4" />Ventas saldo gift cards
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                  onClick={handleExportGiftCardsPDF}
-                  disabled={isExportingGcPdf}
-                  title="Descargar reporte PDF de gift cards"
-                >
-                  {isExportingGcPdf
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <Download className="h-3.5 w-3.5" />}
-                  <span className="ml-1 hidden sm:inline">↓ PDF GC</span>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{fmtMXN(ventasSaldoGcActual.monto)}</div>
-              <p className="text-xs text-muted-foreground mt-1">{ventasSaldoGcActual.transacciones} ventas en el período</p>
-              {!isManager && (
-                <div className="flex items-center gap-2 mt-1">
-                  <Tendencia actual={ventasSaldoGcActual.monto} anterior={ventasSaldoGcAnt.monto} />
-                  <span className="text-xs text-muted-foreground">vs período anterior</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <div className="flex flex-col gap-2">
+            <KpiCard
+              icon={Gift}
+              iconBg="bg-purple-100"
+              iconColor="text-purple-600"
+              title="Ventas saldo gift cards"
+              value={fmtMXN(ventasSaldoGcActual.monto)}
+              subtitle={
+                <p className="text-xs text-muted-foreground">{ventasSaldoGcActual.transacciones} ventas en el período</p>
+              }
+              tendencia={!isManager ? { actual: ventasSaldoGcActual.monto, anterior: ventasSaldoGcAnt.monto } : undefined}
+            />
+            {!isManager && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+                onClick={handleExportGiftCardsPDF}
+                disabled={isExportingGcPdf}
+                title="Descargar reporte PDF de gift cards"
+              >
+                {isExportingGcPdf
+                  ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                ↓ PDF Gift Cards
+              </Button>
+            )}
+          </div>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                <CheckCircle2 className="h-4 w-4" />Citas Completadas
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{citasResumen.completadas}</div>
-              <p className="text-xs text-muted-foreground mt-1">De {citasResumen.total} totales</p>
-            </CardContent>
-          </Card>
+          <KpiCard
+            icon={CheckCircle2}
+            iconBg="bg-emerald-100"
+            iconColor="text-emerald-600"
+            title="Citas Completadas"
+            value={citasResumen.completadas}
+            subtitle={<p className="text-xs text-muted-foreground">De {citasResumen.total} totales</p>}
+          />
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                <XCircle className="h-4 w-4" />Tasa Cancelación
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${citasResumen.tasaCancelacion > 20 ? "text-red-500" : citasResumen.tasaCancelacion > 10 ? "text-amber-500" : "text-green-600"}`}>
+          <KpiCard
+            icon={XCircle}
+            iconBg="bg-red-100"
+            iconColor="text-red-500"
+            title="Tasa Cancelación"
+            value={
+              <span className={cn(
+                citasResumen.tasaCancelacion > 20 ? "text-red-500" : citasResumen.tasaCancelacion > 10 ? "text-amber-500" : "text-green-600",
+              )}>
                 {citasResumen.tasaCancelacion}%
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">{citasResumen.canceladas + citasResumen.noShow} canceladas / no-show</p>
-            </CardContent>
-          </Card>
+              </span>
+            }
+            subtitle={
+              <p className="text-xs text-muted-foreground">{citasResumen.canceladas + citasResumen.noShow} canceladas / no-show</p>
+            }
+          />
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                <Users className="h-4 w-4" />Nuevos Clientes
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{clientesStats.nuevos}</div>
-              <p className="text-xs text-muted-foreground mt-1">Últimos 30 días</p>
-            </CardContent>
-          </Card>
+          <KpiCard
+            icon={UserPlus}
+            iconBg="bg-sky-100"
+            iconColor="text-sky-600"
+            title="Nuevos Clientes"
+            value={clientesStats.nuevos}
+            subtitle={<p className="text-xs text-muted-foreground">Últimos 30 días</p>}
+          />
         </div>
 
         {/* ── Tabs ── */}
@@ -1301,7 +1460,7 @@ export default function ReportesPage() {
                     {periodo === "año" ? "Ventas por Mes" : periodo === "trimestre" ? "Ventas por Semana" : "Ventas por Día"}
                   </CardTitle>
                   <CardDescription>
-                    {periodoLabel} · barras azules = actual, grises = período anterior
+                    {periodoLabel} · barras violeta = actual, gris = período anterior
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1323,10 +1482,20 @@ export default function ReportesPage() {
                             </div>
                           </div>
                           {/* Barra actual */}
-                          <BarraHorizontal valor={d.ventas} max={maxVentas} colorClass="bg-primary" />
+                          <BarraHorizontal
+                            valor={d.ventas}
+                            max={maxVentas}
+                            gradientClass="bg-gradient-to-r from-indigo-500 to-violet-600"
+                            heightClass="h-2.5"
+                          />
                           {/* Barra anterior */}
                           {d.ventasAnt > 0 && (
-                            <BarraHorizontal valor={d.ventasAnt} max={maxVentas} colorClass="bg-muted-foreground/30" />
+                            <BarraHorizontal
+                              valor={d.ventasAnt}
+                              max={maxVentas}
+                              colorClass="bg-slate-200"
+                              heightClass="h-2"
+                            />
                           )}
                         </div>
                       ))}
@@ -1356,7 +1525,11 @@ export default function ReportesPage() {
                                 <span className="capitalize font-medium">{label}</span>
                                 <span className="text-muted-foreground tabular-nums">{fmtMXN(m.monto)} · {m.count} cobros · {pct}%</span>
                               </div>
-                              <BarraHorizontal valor={m.monto} max={statsActual.ingresosTotales} />
+                              <BarraHorizontal
+                                valor={m.monto}
+                                max={statsActual.ingresosTotales}
+                                gradientClass="bg-gradient-to-r from-violet-600 to-purple-400"
+                              />
                             </div>
                           )
                         })}
@@ -1465,7 +1638,7 @@ export default function ReportesPage() {
                             <TableCell>
                               <div className="space-y-1">
                                 <span className="font-medium">{s.name}</span>
-                                <BarraHorizontal valor={s.pctTotal} max={100} />
+                                <BarraHorizontal valor={s.pctTotal} max={100} gradientClass="bg-gradient-to-r from-violet-500 to-indigo-400" />
                               </div>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{s.cantidad}</TableCell>
@@ -1502,7 +1675,6 @@ export default function ReportesPage() {
                           <TableHead className="w-8">#</TableHead>
                           <TableHead>Empleada</TableHead>
                           {isAdmin && <TableHead>Sucursal</TableHead>}
-                          <TableHead className="text-right">Servicios</TableHead>
                           {!isManager && (
                             <>
                               <TableHead className="text-right">Ingresos</TableHead>
@@ -1520,14 +1692,17 @@ export default function ReportesPage() {
                               <div className="space-y-1">
                                 <span className="font-medium">{e.nombre} {e.apellido}</span>
                                 {!isManager && (
-                                  <BarraHorizontal valor={e.ingresos} max={maxEmpleado} />
+                                  <BarraHorizontal
+                                    valor={e.ingresos}
+                                    max={maxEmpleado}
+                                    gradientClass="bg-gradient-to-r from-violet-600 to-purple-400"
+                                  />
                                 )}
                               </div>
                             </TableCell>
                             {isAdmin && (
                               <TableCell className="text-muted-foreground text-sm">{e.sucursal}</TableCell>
                             )}
-                            <TableCell className="text-right tabular-nums">{e.servicios}</TableCell>
                             {!isManager && (
                               <>
                                 <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(e.ingresos)}</TableCell>
@@ -1535,9 +1710,7 @@ export default function ReportesPage() {
                               </>
                             )}
                             <TableCell className="text-right">
-                              <Badge variant={e.ocupacion >= 70 ? "default" : e.ocupacion >= 40 ? "secondary" : "outline"} className="text-xs">
-                                {e.ocupacion}%
-                              </Badge>
+                              <BadgeOcupacion pct={e.ocupacion} />
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1602,26 +1775,14 @@ export default function ReportesPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3 mb-4">
-                    {[
-                      { categoria: "VIP",              cantidad: clientesStats.vip    },
-                      { categoria: "Activos",          cantidad: clientesStats.activos },
-                      { categoria: "Nuevos (30 días)", cantidad: clientesStats.nuevos  },
-                    ].map(item => {
-                      const pct = clientesStats.total > 0 ? Math.round((item.cantidad / clientesStats.total) * 100) : 0
-                      return (
-                        <div key={item.categoria} className="space-y-1">
-                          <div className="flex justify-between text-sm">
-                            <span className="font-medium">{item.categoria}</span>
-                            <span className="text-muted-foreground">{item.cantidad} · {pct}%</span>
-                          </div>
-                          <BarraHorizontal valor={pct} max={100} />
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className="text-center p-4 rounded-lg bg-primary/5">
-                    <div className="text-3xl font-bold text-primary">{clientesStats.total}</div>
+                  <DonutDistribucionClientes
+                    vip={clientesStats.vip}
+                    activos={clientesStats.activos}
+                    nuevos={clientesStats.nuevos}
+                    total={clientesStats.total}
+                  />
+                  <div className="text-center p-4 rounded-lg bg-violet-50/50 border border-violet-100 mt-4">
+                    <div className="text-3xl font-bold text-violet-700">{clientesStats.total}</div>
                     <p className="text-xs text-muted-foreground mt-1">Total de clientes registrados</p>
                   </div>
                 </CardContent>
@@ -1675,23 +1836,48 @@ export default function ReportesPage() {
                     <>
                       {/* Resumen en tarjetas */}
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-6">
-                        {metricasSucursales.map(s => (
-                          <div key={s.sucursalId} className="p-4 rounded-lg border bg-card space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="font-semibold text-sm">{s.nombre}</p>
-                              <Badge variant="outline" className="text-xs">{s.totalCitas} citas</Badge>
-                            </div>
-                            <p className="text-xl font-bold">{fmtMXN(s.ingresos)}</p>
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Ticket: {fmtMXN(s.ticketPromedio)}</span>
-                              <span className="truncate max-w-[120px]">Top: {s.topServicio}</span>
-                            </div>
-                            <BarraHorizontal
-                              valor={s.ingresos}
-                              max={Math.max(...metricasSucursales.map(x => x.ingresos), 1)}
-                            />
-                          </div>
-                        ))}
+                        {(() => {
+                          const maxIngresos = Math.max(...metricasSucursales.map(x => x.ingresos), 1)
+                          const promedioIngresos = metricasSucursales.reduce((s, x) => s + x.ingresos, 0) / metricasSucursales.length
+                          return metricasSucursales.map((s, idx) => {
+                            const aboveAvg = s.ingresos >= promedioIngresos
+                            return (
+                              <div
+                                key={s.sucursalId}
+                                className={cn(
+                                  "p-4 rounded-lg border border-l-4 bg-card space-y-2 shadow-sm",
+                                  SUCURSAL_ACCENT_BORDERS[idx % SUCURSAL_ACCENT_BORDERS.length],
+                                )}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <p className="font-semibold text-sm">{s.nombre}</p>
+                                  <Badge variant="outline" className="text-xs">{s.totalCitas} citas</Badge>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xl font-bold">{fmtMXN(s.ingresos)}</p>
+                                  <span className={cn(
+                                    "inline-flex items-center text-xs font-semibold",
+                                    aboveAvg ? "text-green-600" : "text-red-500",
+                                  )}>
+                                    {aboveAvg
+                                      ? <TrendingUp className="h-4 w-4" />
+                                      : <TrendingDown className="h-4 w-4" />}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                  <span>Ticket: {fmtMXN(s.ticketPromedio)}</span>
+                                  <span className="truncate max-w-[120px]">Top: {s.topServicio}</span>
+                                </div>
+                                <BarraHorizontal
+                                  valor={s.ingresos}
+                                  max={maxIngresos}
+                                  gradientClass={SUCURSAL_GRADIENTS[idx % SUCURSAL_GRADIENTS.length]}
+                                  heightClass="h-3"
+                                />
+                              </div>
+                            )
+                          })
+                        })()}
                       </div>
 
                       {/* Tabla detallada */}
