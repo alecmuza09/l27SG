@@ -329,54 +329,57 @@ async function fetchGiftCardsParaPdf(
   })
 }
 
-async function fetchCanjesParaPdf(giftCardsEmitidas: GiftCardDetallePdfRow[]): Promise<CanjeGcPdfRow[]> {
-  const idsGC = giftCardsEmitidas.map(gc => gc.id)
-  if (idsGC.length === 0) return []
-
-  const gcMap = new Map(giftCardsEmitidas.map(gc => [gc.id, gc]))
-  const CHUNK = 200
+async function fetchCanjesParaPdf(
+  fechaDesde: string,
+  fechaHasta: string,
+  sucursalId?: string,
+): Promise<CanjeGcPdfRow[]> {
+  const PAGE = 1000
   const rows: Record<string, unknown>[] = []
+  let offset = 0
 
-  for (let i = 0; i < idsGC.length; i += CHUNK) {
-    const chunk = idsGC.slice(i, i + CHUNK)
-    let offset = 0
-    const PAGE = 1000
+  for (;;) {
+    let query = (supabase as any)
+      .from("gift_card_transacciones")
+      .select(`
+        *,
+        empleado:empleados(nombre, apellido),
+        gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
+      `)
+      .in("tipo", ["canje", "uso", "descuento", "cobro"])
+      .gte("created_at", fechaDesde + "T00:00:00")
+      .lte("created_at", fechaHasta + "T23:59:59")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + PAGE - 1)
 
-    for (;;) {
-      const { data, error } = await (supabase as any)
-        .from("gift_card_transacciones")
-        .select(`
-          *,
-          empleado:empleados(nombre, apellido)
-        `)
-        .in("gift_card_id", chunk)
-        .in("tipo", ["canje", "uso", "descuento", "cobro"])
-        .order("created_at", { ascending: false })
-        .range(offset, offset + PAGE - 1)
+    if (sucursalId) query = query.eq("gift_card.sucursal_id", sucursalId)
 
-      if (error) throw new Error(error.message)
-      if (!data?.length) break
-      rows.push(...data)
-      if (data.length < PAGE) break
-      offset += PAGE
-    }
+    const { data, error } = await query
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
   }
 
   return rows
     .map((t: any): CanjeGcPdfRow | null => {
-      const gc = gcMap.get(t.gift_card_id as string)
+      const gc = t.gift_card
       if (!gc) return null
       const empleadaJoin = t.empleado
         ? `${t.empleado.nombre ?? ""} ${t.empleado.apellido ?? ""}`.trim()
         : ""
       const empleadaDirecta = String(t.empleado_nombre ?? t.empleada ?? "").trim()
+      const clienteNombre = gc.cliente
+        ? `${gc.cliente.nombre} ${gc.cliente.apellido}`
+        : "Sin cliente"
       return {
         fecha: normalizarFechaGc(t.fecha || t.created_at),
         codigo: gc.codigo,
-        cliente: gc.cliente,
+        cliente: clienteNombre,
         monto: Number(t.monto) || 0,
         empleada: empleadaJoin || empleadaDirecta || "—",
-        sucursal: gc.sucursal,
+        sucursal: gc.sucursal?.nombre || gc.sucursal_id || "—",
       }
     })
     .filter((r): r is CanjeGcPdfRow => r !== null)
@@ -1215,7 +1218,7 @@ export default function ReportesPage() {
           : sucursalFija
 
       const cards = await fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId)
-      const canjes = await fetchCanjesParaPdf(cards)
+      const canjes = await fetchCanjesParaPdf(fechaDesde, fechaHasta, sucId)
 
       await generarGiftCardsPdf({
         sucursal: sucNombre,
