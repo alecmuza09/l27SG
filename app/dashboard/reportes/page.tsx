@@ -455,28 +455,128 @@ function calcularDesgloseMetodosPdf(pagos: Pago[]) {
 
 type JsPDFDoc = import("jspdf").jsPDF
 
-function pdfEncabezado(doc: JsPDFDoc, opts: { sucursal: string; periodo: string; seccion: string }) {
-  const w = doc.internal.pageSize.getWidth()
-  doc.setFillColor(88, 28, 135)
-  doc.rect(0, 0, w, 22, "F")
-  doc.setTextColor(255, 255, 255)
-  doc.setFontSize(16)
-  doc.text("Luna27", 14, 14)
-  doc.setFontSize(9)
-  doc.text("Reporte de Resultados", w - 14, 14, { align: "right" })
+const PDF_HEADER_BLACK: [number, number, number] = [10, 10, 10]
+const PDF_CREAM: [number, number, number] = [245, 240, 232]
+const PDF_TEXT_SOFT: [number, number, number] = [26, 26, 26]
+const PDF_TABLE_START_Y = 64
 
-  doc.setTextColor(40, 40, 40)
+function blobToBase64Data(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const result = reader.result as string
+      resolve(result.split(",")[1] ?? "")
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+function convertImageBlobToPngBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement("canvas")
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        URL.revokeObjectURL(url)
+        reject(new Error("No se pudo convertir el logo"))
+        return
+      }
+      ctx.drawImage(img, 0, 0)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL("image/png").split(",")[1] ?? "")
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error("No se pudo cargar el logo"))
+    }
+    img.src = url
+  })
+}
+
+async function cargarLogoPdfBase64(): Promise<string | null> {
+  try {
+    const logoRes = await fetch("/luna27-logo.png")
+    if (!logoRes.ok) return null
+    const logoBlob = await logoRes.blob()
+    if (logoBlob.type === "image/webp") {
+      return await convertImageBlobToPngBase64(logoBlob)
+    }
+    return await blobToBase64Data(logoBlob)
+  } catch {
+    return null
+  }
+}
+
+function pdfFondoCrema(doc: JsPDFDoc) {
+  const w = doc.internal.pageSize.getWidth()
+  const h = doc.internal.pageSize.getHeight()
+  doc.setFillColor(...PDF_CREAM)
+  doc.rect(0, 22, w, h - 22, "F")
+}
+
+function pdfTableOpts(fontSize: number) {
+  return {
+    theme: "grid" as const,
+    styles: {
+      fontSize,
+      cellPadding: fontSize <= 7 ? 1.5 : 2,
+      fillColor: [255, 255, 255] as [number, number, number],
+      textColor: PDF_TEXT_SOFT,
+    },
+    headStyles: {
+      fillColor: PDF_HEADER_BLACK,
+      textColor: 255,
+      fontStyle: "bold" as const,
+    },
+    alternateRowStyles: { fillColor: PDF_CREAM },
+    margin: { left: 14, right: 14 },
+  }
+}
+
+function pdfEncabezadoBase(
+  doc: JsPDFDoc,
+  opts: { sucursal: string; periodo: string; seccion: string },
+  tituloHeader: string,
+  logoBase64: string | null,
+) {
+  const w = doc.internal.pageSize.getWidth()
+
+  pdfFondoCrema(doc)
+  doc.setFillColor(...PDF_HEADER_BLACK)
+  doc.rect(0, 0, w, 22, "F")
+
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(9)
+  doc.text(tituloHeader, w - 14, 14, { align: "right" })
+
+  if (logoBase64) {
+    doc.addImage(logoBase64, "PNG", 14, 24, 35, 10)
+  }
+
+  doc.setTextColor(...PDF_TEXT_SOFT)
   doc.setFontSize(10)
-  doc.text(`Sucursal: ${opts.sucursal}`, 14, 30)
-  doc.text(`Período: ${opts.periodo}`, 14, 36)
+  doc.text(`Sucursal: ${opts.sucursal}`, 14, 38)
+  doc.text(`Período: ${opts.periodo}`, 14, 44)
   doc.text(
     `Generado: ${new Date().toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}`,
     14,
-    42,
+    50,
   )
   doc.setFontSize(13)
-  doc.setTextColor(0, 0, 0)
-  doc.text(opts.seccion, 14, 52)
+  doc.text(opts.seccion, 14, 58)
+}
+
+function pdfEncabezado(
+  doc: JsPDFDoc,
+  opts: { sucursal: string; periodo: string; seccion: string },
+  logoBase64: string | null,
+) {
+  pdfEncabezadoBase(doc, opts, "Reporte de Resultados", logoBase64)
 }
 
 function pdfPiePagina(doc: JsPDFDoc) {
@@ -484,7 +584,7 @@ function pdfPiePagina(doc: JsPDFDoc) {
   for (let i = 1; i <= total; i++) {
     doc.setPage(i)
     doc.setFontSize(8)
-    doc.setTextColor(130, 130, 130)
+    doc.setTextColor(100, 95, 88)
     doc.text(
       `Página ${i} de ${total}`,
       doc.internal.pageSize.getWidth() - 14,
@@ -494,26 +594,12 @@ function pdfPiePagina(doc: JsPDFDoc) {
   }
 }
 
-function pdfEncabezadoGiftCards(doc: JsPDFDoc, opts: { sucursal: string; periodo: string; seccion: string }) {
-  const w = doc.internal.pageSize.getWidth()
-  doc.setFillColor(88, 28, 135)
-  doc.rect(0, 0, w, 22, "F")
-  doc.setTextColor(255, 255, 255)
-  doc.setFontSize(13)
-  doc.text("Reporte de Gift Cards — Luna27", 14, 14)
-
-  doc.setTextColor(40, 40, 40)
-  doc.setFontSize(10)
-  doc.text(`Sucursal: ${opts.sucursal}`, 14, 30)
-  doc.text(`Período: ${opts.periodo}`, 14, 36)
-  doc.text(
-    `Generado: ${new Date().toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}`,
-    14,
-    42,
-  )
-  doc.setFontSize(13)
-  doc.setTextColor(0, 0, 0)
-  doc.text(opts.seccion, 14, 52)
+function pdfEncabezadoGiftCards(
+  doc: JsPDFDoc,
+  opts: { sucursal: string; periodo: string; seccion: string },
+  logoBase64: string | null,
+) {
+  pdfEncabezadoBase(doc, opts, "Reporte de Gift Cards", logoBase64)
 }
 
 async function generarGiftCardsPdf(opts: {
@@ -528,24 +614,20 @@ async function generarGiftCardsPdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
+  const logoBase64 = await cargarLogoPdfBase64()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
-  const tableOpts = {
-    theme: "grid" as const,
-    styles: { fontSize: 7, cellPadding: 1.5 },
-    headStyles: { fillColor: [88, 28, 135] as [number, number, number], textColor: 255, fontStyle: "bold" as const },
-    margin: { left: 14, right: 14 },
-  }
+  const tableOpts = pdfTableOpts(7)
 
   const totalEmitidas = opts.cards.length
   const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
   const totalSaldoUsado = opts.cards.reduce((sum, c) => sum + c.saldoUsado, 0)
   const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoActual, 0)
 
-  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
+  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Indicador", "Valor"]],
     body: [
       ["Gift cards emitidas en el período", String(totalEmitidas)],
@@ -560,10 +642,10 @@ async function generarGiftCardsPdf(opts: {
     sucursal: opts.sucursal,
     periodo: opts.periodoLabel,
     seccion: "Detalle de Gift Cards emitidas en el período",
-  })
+  }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [[
       "Código", "Cliente", "Emisión", "Monto inicial", "Método",
       "Saldo usado", "Saldo disp.", "Estado", "Sucursal",
@@ -588,10 +670,10 @@ async function generarGiftCardsPdf(opts: {
     sucursal: opts.sucursal,
     periodo: opts.periodoLabel,
     seccion: "Movimientos / Canjes del período",
-  })
+  }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Fecha", "Código GC", "Cliente", "Monto canjeado", "Empleada", "Sucursal"]],
     body: opts.canjes.length > 0
       ? opts.canjes.map(c => [
@@ -627,6 +709,7 @@ async function generarReportePdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
+  const logoBase64 = await cargarLogoPdfBase64()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const pagosComp = opts.pagos.filter(p => p.estado === "completado")
@@ -637,18 +720,13 @@ async function generarReportePdf(opts: {
   const rendimiento = calcularRendimientoEmpleadasPdf(opts.pagos)
   const ventasGc = calcularVentasGiftCardsPdf(opts.pagos, opts.sucursales, opts.sucursalPorDefecto)
 
-  const tableOpts = {
-    theme: "grid" as const,
-    styles: { fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: [88, 28, 135] as [number, number, number], textColor: 255, fontStyle: "bold" as const },
-    margin: { left: 14, right: 14 },
-  }
+  const tableOpts = pdfTableOpts(8)
 
   // ── Página 1: Resumen General ──
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen General" })
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen General" }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Indicador", "Valor"]],
     body: [
       ["Ingresos Totales", fmtPdfMXN(opts.statsActual.ingresosTotales)],
@@ -663,10 +741,10 @@ async function generarReportePdf(opts: {
 
   // ── Página 2: Desglose por Método de Pago ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Desglose de Ventas por Método de Pago" })
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Desglose de Ventas por Método de Pago" }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Método de Pago", "Monto"]],
     body: [
       ["Efectivo", fmtPdfMXN(metodos.efectivo)],
@@ -681,7 +759,7 @@ async function generarReportePdf(opts: {
       if (data.section === "body" && data.row.index >= 4) {
         data.cell.styles.fontStyle = "bold"
         if (data.row.index === 6) {
-          data.cell.styles.fillColor = [245, 245, 250]
+          data.cell.styles.fillColor = PDF_CREAM
         }
       }
     },
@@ -689,13 +767,13 @@ async function generarReportePdf(opts: {
 
   // ── Página 3: Detalle de Cobros ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" })
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" }, logoBase64)
   const cobrosOrdenados = [...pagosComp].sort((a, b) =>
     a.fecha.localeCompare(b.fecha) || (a.hora || "").localeCompare(b.hora || ""),
   )
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Fecha", "Hora", "Cliente", "Empleada", "Servicios", "Método", "Propina", "Total"]],
     body: cobrosOrdenados.length > 0
       ? cobrosOrdenados.map(p => [
@@ -718,10 +796,10 @@ async function generarReportePdf(opts: {
 
   // ── Página 4: Rendimiento por Empleada ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" })
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Nombre", "Servicios", "Ingresos", "Propinas", "Ticket prom."]],
     body: rendimiento.length > 0
       ? rendimiento.map(r => [
@@ -736,10 +814,10 @@ async function generarReportePdf(opts: {
 
   // ── Página 5: Propinas por Empleada ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" })
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Nombre", "Total propinas", "Cobros con propina", "Propina promedio"]],
     body: opts.propinasEmpleadas.length > 0
       ? opts.propinasEmpleadas.map(p => [
@@ -753,10 +831,10 @@ async function generarReportePdf(opts: {
 
   // ── Página 6: Ventas de Gift Cards ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" })
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" }, logoBase64)
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["Código", "Cliente", "Monto", "Método de pago", "Fecha emisión", "Sucursal"]],
     body: ventasGc.length > 0
       ? ventasGc.map(v => [
