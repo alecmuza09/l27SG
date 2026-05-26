@@ -460,29 +460,87 @@ const PDF_CREAM: [number, number, number] = [245, 240, 232]
 const PDF_TEXT_SOFT: [number, number, number] = [26, 26, 26]
 const PDF_TABLE_START_Y = 58
 
-function prepararLogoPdfBase64(
-  blob: Blob,
-  opts: { fondo: [number, number, number]; invertir?: boolean },
-): Promise<string> {
+function prepararLogoPdfBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob)
     const img = new Image()
     img.onload = () => {
+      const src = document.createElement("canvas")
+      src.width = img.naturalWidth
+      src.height = img.naturalHeight
+      const sctx = src.getContext("2d")
+      if (!sctx) {
+        URL.revokeObjectURL(url)
+        reject(new Error("No se pudo preparar el logo"))
+        return
+      }
+      sctx.drawImage(img, 0, 0)
+      const { data, width, height } = sctx.getImageData(0, 0, src.width, src.height)
+
+      const esTintaLogo = (i: number) => {
+        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+        return lum < 200
+      }
+
+      let minX = width
+      let minY = height
+      let maxX = 0
+      let maxY = 0
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (esTintaLogo((y * width + x) * 4)) {
+            minX = Math.min(minX, x)
+            minY = Math.min(minY, y)
+            maxX = Math.max(maxX, x)
+            maxY = Math.max(maxY, y)
+          }
+        }
+      }
+
+      if (maxX < minX || maxY < minY) {
+        URL.revokeObjectURL(url)
+        reject(new Error("Logo sin contenido visible"))
+        return
+      }
+
+      const pad = 2
+      minX = Math.max(0, minX - pad)
+      minY = Math.max(0, minY - pad)
+      maxX = Math.min(width - 1, maxX + pad)
+      maxY = Math.min(height - 1, maxY + pad)
+
+      const outW = maxX - minX + 1
+      const outH = maxY - minY + 1
       const canvas = document.createElement("canvas")
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
+      canvas.width = outW
+      canvas.height = outH
       const ctx = canvas.getContext("2d")
       if (!ctx) {
         URL.revokeObjectURL(url)
         reject(new Error("No se pudo preparar el logo"))
         return
       }
-      const [r, g, b] = opts.fondo
-      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      if (opts.invertir) ctx.filter = "invert(1)"
-      ctx.drawImage(img, 0, 0)
-      ctx.filter = "none"
+
+      const out = ctx.createImageData(outW, outH)
+      const [br, bg, bb] = PDF_HEADER_BLACK
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const si = (y * width + x) * 4
+          const oi = ((y - minY) * outW + (x - minX)) * 4
+          if (esTintaLogo(si)) {
+            out.data[oi] = 255
+            out.data[oi + 1] = 255
+            out.data[oi + 2] = 255
+            out.data[oi + 3] = 255
+          } else {
+            out.data[oi] = br
+            out.data[oi + 1] = bg
+            out.data[oi + 2] = bb
+            out.data[oi + 3] = 255
+          }
+        }
+      }
+      ctx.putImageData(out, 0, 0)
       URL.revokeObjectURL(url)
       resolve(canvas.toDataURL("image/png").split(",")[1] ?? "")
     }
@@ -494,13 +552,21 @@ function prepararLogoPdfBase64(
   })
 }
 
-async function cargarLogoPdfBase64(): Promise<string | null> {
+async function cargarLogoPdfBase64(): Promise<{ base64: string; aspect: number } | null> {
   try {
     const logoRes = await fetch("/luna27-logo.png")
     if (!logoRes.ok) return null
     const logoBlob = await logoRes.blob()
-    // jsPDF no respeta alpha en PNG: componer sobre fondo sólido e invertir a blanco para el header negro
-    return await prepararLogoPdfBase64(logoBlob, { fondo: PDF_HEADER_BLACK, invertir: true })
+    const base64 = await prepararLogoPdfBase64(logoBlob)
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => resolve({
+        base64,
+        aspect: img.naturalWidth / img.naturalHeight,
+      })
+      img.onerror = () => resolve({ base64, aspect: 8 })
+      img.src = `data:image/png;base64,${base64}`
+    })
   } catch {
     return null
   }
@@ -536,7 +602,7 @@ function pdfEncabezadoBase(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
   tituloHeader: string,
-  logoBase64: string | null,
+  logo: { base64: string; aspect: number } | null,
 ) {
   const w = doc.internal.pageSize.getWidth()
 
@@ -548,8 +614,10 @@ function pdfEncabezadoBase(
   doc.setFontSize(9)
   doc.text(tituloHeader, w - 14, 14, { align: "right" })
 
-  if (logoBase64) {
-    doc.addImage(logoBase64, "PNG", 14, 5, 38, 12)
+  if (logo) {
+    const logoH = 10
+    const logoW = Math.min(42, logoH * logo.aspect)
+    doc.addImage(logo.base64, "PNG", 14, 6, logoW, logoH)
   }
 
   doc.setTextColor(...PDF_TEXT_SOFT)
@@ -568,9 +636,9 @@ function pdfEncabezadoBase(
 function pdfEncabezado(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
-  logoBase64: string | null,
+  logo: { base64: string; aspect: number } | null,
 ) {
-  pdfEncabezadoBase(doc, opts, "Reporte de Resultados", logoBase64)
+  pdfEncabezadoBase(doc, opts, "Reporte de Resultados", logo)
 }
 
 function pdfPiePagina(doc: JsPDFDoc) {
@@ -591,9 +659,9 @@ function pdfPiePagina(doc: JsPDFDoc) {
 function pdfEncabezadoGiftCards(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
-  logoBase64: string | null,
+  logo: { base64: string; aspect: number } | null,
 ) {
-  pdfEncabezadoBase(doc, opts, "Reporte de Gift Cards", logoBase64)
+  pdfEncabezadoBase(doc, opts, "Reporte de Gift Cards", logo)
 }
 
 async function generarGiftCardsPdf(opts: {
@@ -608,7 +676,7 @@ async function generarGiftCardsPdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
-  const logoBase64 = await cargarLogoPdfBase64()
+  const logo = await cargarLogoPdfBase64()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const tableOpts = pdfTableOpts(7)
@@ -618,7 +686,7 @@ async function generarGiftCardsPdf(opts: {
   const totalSaldoUsado = opts.cards.reduce((sum, c) => sum + c.saldoUsado, 0)
   const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoActual, 0)
 
-  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" }, logoBase64)
+  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -636,7 +704,7 @@ async function generarGiftCardsPdf(opts: {
     sucursal: opts.sucursal,
     periodo: opts.periodoLabel,
     seccion: "Detalle de Gift Cards emitidas en el período",
-  }, logoBase64)
+  }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -664,7 +732,7 @@ async function generarGiftCardsPdf(opts: {
     sucursal: opts.sucursal,
     periodo: opts.periodoLabel,
     seccion: "Movimientos / Canjes del período",
-  }, logoBase64)
+  }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -703,7 +771,7 @@ async function generarReportePdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
-  const logoBase64 = await cargarLogoPdfBase64()
+  const logo = await cargarLogoPdfBase64()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const pagosComp = opts.pagos.filter(p => p.estado === "completado")
@@ -717,7 +785,7 @@ async function generarReportePdf(opts: {
   const tableOpts = pdfTableOpts(8)
 
   // ── Página 1: Resumen General ──
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen General" }, logoBase64)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen General" }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -735,7 +803,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 2: Desglose por Método de Pago ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Desglose de Ventas por Método de Pago" }, logoBase64)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Desglose de Ventas por Método de Pago" }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -761,7 +829,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 3: Detalle de Cobros ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" }, logoBase64)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" }, logo)
   const cobrosOrdenados = [...pagosComp].sort((a, b) =>
     a.fecha.localeCompare(b.fecha) || (a.hora || "").localeCompare(b.hora || ""),
   )
@@ -790,7 +858,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 4: Rendimiento por Empleada ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" }, logoBase64)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -808,7 +876,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 5: Propinas por Empleada ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" }, logoBase64)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -825,7 +893,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 6: Ventas de Gift Cards ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" }, logoBase64)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" }, logo)
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
