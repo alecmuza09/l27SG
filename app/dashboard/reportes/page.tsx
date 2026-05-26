@@ -458,11 +458,11 @@ type JsPDFDoc = import("jspdf").jsPDF
 const PDF_HEADER_BLACK: [number, number, number] = [10, 10, 10]
 const PDF_CREAM: [number, number, number] = [245, 240, 232]
 const PDF_TEXT_SOFT: [number, number, number] = [26, 26, 26]
-const PDF_TABLE_START_Y = 58
+const PDF_TABLE_START_Y = 64
 
 async function cargarLogoPdf(): Promise<{ dataUrl: string; aspect: number } | null> {
   try {
-    const res = await fetch("/luna27-logo-header.png")
+    const res = await fetch("/luna27-logo-cream.png")
     if (!res.ok) return null
     const blob = await res.blob()
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -529,24 +529,25 @@ function pdfEncabezadoBase(
 
   if (logo) {
     const logoH = 10
-    const logoW = Math.min(42, logoH * logo.aspect)
-    doc.addImage(logo.dataUrl, "PNG", 14, 6, logoW, logoH)
+    const logoW = Math.min(44, logoH * logo.aspect)
+    doc.addImage(logo.dataUrl, "PNG", 14, 24, logoW, logoH)
   } else {
+    doc.setTextColor(...PDF_TEXT_SOFT)
     doc.setFontSize(14)
-    doc.text("Luna·27", 14, 14)
+    doc.text("Luna·27", 14, 32)
   }
 
   doc.setTextColor(...PDF_TEXT_SOFT)
   doc.setFontSize(10)
-  doc.text(`Sucursal: ${opts.sucursal}`, 14, 30)
-  doc.text(`Período: ${opts.periodo}`, 14, 36)
+  doc.text(`Sucursal: ${opts.sucursal}`, 14, 38)
+  doc.text(`Período: ${opts.periodo}`, 14, 44)
   doc.text(
     `Generado: ${new Date().toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}`,
     14,
-    42,
+    50,
   )
   doc.setFontSize(13)
-  doc.text(opts.seccion, 14, 52)
+  doc.text(opts.seccion, 14, 58)
 }
 
 function pdfEncabezado(
