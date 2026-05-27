@@ -579,7 +579,9 @@ async function generarGiftCardsPdf(opts: {
   const totalEmitidas = opts.cards.length
   const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
   const totalSaldoUsado = opts.cards.reduce((sum, c) => sum + c.saldoUsado, 0)
-  const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoActual, 0)
+  const diferencia = totalVendido - totalSaldoUsado
+  const favorLabel = diferencia >= 0 ? "Favor a Gisman" : "Favor a Sucursal"
+  const favorMonto = Math.abs(diferencia)
 
   pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
   autoTable(doc, {
@@ -590,8 +592,19 @@ async function generarGiftCardsPdf(opts: {
       ["Gift cards emitidas en el período", String(totalEmitidas)],
       ["Total vendido en el período", fmtPdfMXN(totalVendido)],
       ["Total de saldo usado (canjes)", fmtPdfMXN(totalSaldoUsado)],
-      ["Total de saldo disponible restante", fmtPdfMXN(totalSaldoRestante)],
+      [favorLabel, fmtPdfMXN(favorMonto)],
     ],
+    didParseCell: (data: any) => {
+      if (data.section === "body" && data.row.index === 3) {
+        data.cell.styles.fontStyle = "bold"
+        data.cell.styles.fillColor = diferencia >= 0
+          ? [220, 240, 220]
+          : [240, 220, 220]
+        data.cell.styles.textColor = diferencia >= 0
+          ? [30, 100, 30]
+          : [140, 30, 30]
+      }
+    },
   })
 
   doc.addPage()
