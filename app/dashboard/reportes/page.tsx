@@ -744,7 +744,42 @@ async function generarReportePdf(opts: {
     },
   })
 
-  // ── Página 3: Detalle de Cobros ──
+  // ── Página 3: Rendimiento por Empleada ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" }, logo)
+  autoTable(doc, {
+    ...tableOpts,
+    startY: PDF_TABLE_START_Y,
+    head: [["Nombre", "Servicios", "Ingresos", "Propinas", "Ticket prom."]],
+    body: rendimiento.length > 0
+      ? rendimiento.map(r => [
+          r.nombre,
+          String(r.servicios),
+          fmtPdfMXN(r.ingresos),
+          fmtPdfMXN(r.propinas),
+          fmtPdfMXN(r.ticketPromedio),
+        ])
+      : [["Sin datos en este período", "—", "—", "—", "—"]],
+  })
+
+  // ── Página 4: Propinas por Empleada ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" }, logo)
+  autoTable(doc, {
+    ...tableOpts,
+    startY: PDF_TABLE_START_Y,
+    head: [["Nombre", "Total propinas", "Cobros con propina", "Propina promedio"]],
+    body: opts.propinasEmpleadas.length > 0
+      ? opts.propinasEmpleadas.map(p => [
+          p.nombre,
+          fmtPdfMXN(p.totalPropinas),
+          String(p.cobros),
+          fmtPdfMXN(p.promedio),
+        ])
+      : [["Sin propinas en este período", "—", "—", "—"]],
+  })
+
+  // ── Página 5: Detalle de Cobros ──
   doc.addPage()
   pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" }, logo)
   const cobrosOrdenados = [...pagosComp].sort((a, b) =>
@@ -771,41 +806,6 @@ async function generarReportePdf(opts: {
       1: { cellWidth: 14 },
       4: { cellWidth: 38 },
     },
-  })
-
-  // ── Página 4: Rendimiento por Empleada ──
-  doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" }, logo)
-  autoTable(doc, {
-    ...tableOpts,
-    startY: PDF_TABLE_START_Y,
-    head: [["Nombre", "Servicios", "Ingresos", "Propinas", "Ticket prom."]],
-    body: rendimiento.length > 0
-      ? rendimiento.map(r => [
-          r.nombre,
-          String(r.servicios),
-          fmtPdfMXN(r.ingresos),
-          fmtPdfMXN(r.propinas),
-          fmtPdfMXN(r.ticketPromedio),
-        ])
-      : [["Sin datos en este período", "—", "—", "—", "—"]],
-  })
-
-  // ── Página 5: Propinas por Empleada ──
-  doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" }, logo)
-  autoTable(doc, {
-    ...tableOpts,
-    startY: PDF_TABLE_START_Y,
-    head: [["Nombre", "Total propinas", "Cobros con propina", "Propina promedio"]],
-    body: opts.propinasEmpleadas.length > 0
-      ? opts.propinasEmpleadas.map(p => [
-          p.nombre,
-          fmtPdfMXN(p.totalPropinas),
-          String(p.cobros),
-          fmtPdfMXN(p.promedio),
-        ])
-      : [["Sin propinas en este período", "—", "—", "—"]],
   })
 
   // ── Página 6: Ventas de Gift Cards ──
