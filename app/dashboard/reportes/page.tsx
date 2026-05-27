@@ -681,6 +681,7 @@ async function generarReportePdf(opts: {
   clientesNuevos: number
   pagos: Pago[]
   propinasEmpleadas: PropinaEmpleadaRow[]
+  serviciosMasVendidos: Array<{ name: string; cantidad: number; ingresos: number; pctTotal: number }>
   sucursales: Sucursal[]
   sucursalPorDefecto?: string
 }) {
@@ -779,7 +780,26 @@ async function generarReportePdf(opts: {
       : [["Sin propinas en este período", "—", "—", "—"]],
   })
 
-  // ── Página 5: Detalle de Cobros ──
+  // ── Página 5: Top 5 Servicios Más Vendidos ──
+  doc.addPage()
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Top 5 Servicios Más Vendidos" }, logo)
+  autoTable(doc, {
+    ...tableOpts,
+    startY: 58,
+    head: [["#", "Servicio", "# Citas", "% del Total", "Ingresos", "Ticket Promedio"]],
+    body: opts.serviciosMasVendidos.length > 0
+      ? opts.serviciosMasVendidos.slice(0, 5).map((s, i) => [
+          String(i + 1),
+          s.name,
+          String(s.cantidad),
+          `${s.pctTotal}%`,
+          fmtPdfMXN(s.ingresos),
+          fmtPdfMXN(s.cantidad > 0 ? Math.round(s.ingresos / s.cantidad) : 0),
+        ])
+      : [["—", "Sin servicios en este período", "—", "—", "—", "—"]],
+  })
+
+  // ── Página 6: Detalle de Cobros ──
   doc.addPage()
   pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" }, logo)
   const cobrosOrdenados = [...pagosComp].sort((a, b) =>
@@ -808,7 +828,7 @@ async function generarReportePdf(opts: {
     },
   })
 
-  // ── Página 6: Ventas de Gift Cards ──
+  // ── Página 7: Ventas de Gift Cards ──
   doc.addPage()
   pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" }, logo)
   autoTable(doc, {
@@ -1252,6 +1272,7 @@ export default function ReportesPage() {
         clientesNuevos: clientesStats.nuevos,
         pagos: pagosBrutos,
         propinasEmpleadas,
+        serviciosMasVendidos,
         sucursales,
         sucursalPorDefecto: sucursalFilter !== "all" ? sucNombre : undefined,
       })
