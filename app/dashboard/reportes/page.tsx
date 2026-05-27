@@ -458,46 +458,15 @@ type JsPDFDoc = import("jspdf").jsPDF
 const PDF_HEADER_BLACK: [number, number, number] = [10, 10, 10]
 const PDF_CREAM: [number, number, number] = [245, 240, 232]
 const PDF_TEXT_SOFT: [number, number, number] = [26, 26, 26]
-const PDF_TABLE_START_Y = 64
+const PDF_TABLE_START_Y = 70
 
-async function cargarLogoPdf(): Promise<{ dataUrl: string; aspect: number } | null> {
-  try {
-    const res = await fetch("/luna27-logo-cream.png")
-    if (!res.ok) return null
-    const blob = await res.blob()
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") resolve(reader.result)
-        else reject(new Error("No se pudo leer el logo"))
-      }
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
-    return await new Promise((resolve) => {
-      const img = new Image()
-      img.onload = () => resolve({ dataUrl, aspect: img.naturalWidth / img.naturalHeight })
-      img.onerror = () => resolve({ dataUrl, aspect: 972 / 129 })
-      img.src = dataUrl
-    })
-  } catch {
-    return null
-  }
-}
-
-function pdfFondoCrema(doc: JsPDFDoc) {
-  const w = doc.internal.pageSize.getWidth()
-  const h = doc.internal.pageSize.getHeight()
-  doc.setFillColor(...PDF_CREAM)
-  doc.rect(0, 22, w, h - 22, "F")
-}
-
-function pdfTableOpts(fontSize: number) {
+function pdfTableOpts() {
   return {
     theme: "grid" as const,
     styles: {
-      fontSize,
-      cellPadding: fontSize <= 7 ? 1.5 : 2,
+      fontSize: 7.5,
+      cellPadding: 2,
+      font: "helvetica",
       fillColor: [255, 255, 255] as [number, number, number],
       textColor: PDF_TEXT_SOFT,
     },
@@ -505,6 +474,7 @@ function pdfTableOpts(fontSize: number) {
       fillColor: PDF_HEADER_BLACK,
       textColor: 255,
       fontStyle: "bold" as const,
+      font: "helvetica",
     },
     alternateRowStyles: { fillColor: PDF_CREAM },
     margin: { left: 14, right: 14 },
@@ -515,53 +485,63 @@ function pdfEncabezadoBase(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
   tituloHeader: string,
-  logo: { dataUrl: string; aspect: number } | null,
 ) {
   const w = doc.internal.pageSize.getWidth()
+  const h = doc.internal.pageSize.getHeight()
 
-  pdfFondoCrema(doc)
+  doc.setFillColor(...PDF_CREAM)
+  doc.rect(0, 0, w, h, "F")
+
   doc.setFillColor(...PDF_HEADER_BLACK)
-  doc.rect(0, 0, w, 22, "F")
+  doc.rect(0, 0, w, 24, "F")
 
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(15)
   doc.setTextColor(255, 255, 255)
+  doc.text("Luna\u00B727", 14, 16)
+
+  doc.setFont("helvetica", "normal")
   doc.setFontSize(9)
-  doc.text(tituloHeader, w - 14, 14, { align: "right" })
+  doc.setTextColor(200, 200, 200)
+  doc.text(tituloHeader, w - 14, 16, { align: "right" })
 
-  if (logo) {
-    const logoH = 10
-    const logoW = Math.min(44, logoH * logo.aspect)
-    doc.addImage(logo.dataUrl, "PNG", 14, 24, logoW, logoH)
-  } else {
-    doc.setTextColor(...PDF_TEXT_SOFT)
-    doc.setFontSize(14)
-    doc.text("Luna·27", 14, 32)
-  }
+  doc.setDrawColor(200, 195, 185)
+  doc.setLineWidth(0.3)
+  doc.line(14, 32, w - 14, 32)
 
-  doc.setTextColor(...PDF_TEXT_SOFT)
-  doc.setFontSize(10)
-  doc.text(`Sucursal: ${opts.sucursal}`, 14, 38)
-  doc.text(`Período: ${opts.periodo}`, 14, 44)
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(8.5)
+  doc.setTextColor(80, 75, 70)
+  doc.text(`Sucursal: ${opts.sucursal}`, 14, 39)
+  doc.text(`Período: ${opts.periodo}`, 14, 45)
   doc.text(
     `Generado: ${new Date().toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}`,
     14,
-    50,
+    51,
   )
-  doc.setFontSize(13)
-  doc.text(opts.seccion, 14, 58)
+
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(12)
+  doc.setTextColor(10, 10, 10)
+  doc.text(opts.seccion, 14, 62)
+
+  doc.setDrawColor(10, 10, 10)
+  doc.setLineWidth(0.5)
+  doc.line(14, 65, w - 14, 65)
 }
 
 function pdfEncabezado(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
-  logo: { dataUrl: string; aspect: number } | null,
 ) {
-  pdfEncabezadoBase(doc, opts, "Reporte de Resultados", logo)
+  pdfEncabezadoBase(doc, opts, "Reporte de Resultados")
 }
 
 function pdfPiePagina(doc: JsPDFDoc) {
   const total = doc.getNumberOfPages()
   for (let i = 1; i <= total; i++) {
     doc.setPage(i)
+    doc.setFont("helvetica", "normal")
     doc.setFontSize(8)
     doc.setTextColor(100, 95, 88)
     doc.text(
@@ -576,9 +556,8 @@ function pdfPiePagina(doc: JsPDFDoc) {
 function pdfEncabezadoGiftCards(
   doc: JsPDFDoc,
   opts: { sucursal: string; periodo: string; seccion: string },
-  logo: { dataUrl: string; aspect: number } | null,
 ) {
-  pdfEncabezadoBase(doc, opts, "Reporte de Gift Cards", logo)
+  pdfEncabezadoBase(doc, opts, "Reporte de Gift Cards")
 }
 
 async function generarGiftCardsPdf(opts: {
@@ -593,17 +572,16 @@ async function generarGiftCardsPdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
-  const logo = await cargarLogoPdf()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
-  const tableOpts = pdfTableOpts(7)
+  const tableOpts = pdfTableOpts()
 
   const totalEmitidas = opts.cards.length
   const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
   const totalSaldoUsado = opts.cards.reduce((sum, c) => sum + c.saldoUsado, 0)
   const totalSaldoRestante = opts.cards.reduce((s, c) => s + c.saldoActual, 0)
 
-  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" }, logo)
+  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -621,7 +599,7 @@ async function generarGiftCardsPdf(opts: {
     sucursal: opts.sucursal,
     periodo: opts.periodoLabel,
     seccion: "Detalle de Gift Cards emitidas en el período",
-  }, logo)
+  })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -649,7 +627,7 @@ async function generarGiftCardsPdf(opts: {
     sucursal: opts.sucursal,
     periodo: opts.periodoLabel,
     seccion: "Movimientos / Canjes del período",
-  }, logo)
+  })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -689,7 +667,6 @@ async function generarReportePdf(opts: {
     import("jspdf"),
     import("jspdf-autotable"),
   ])
-  const logo = await cargarLogoPdf()
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const pagosComp = opts.pagos.filter(p => p.estado === "completado")
@@ -700,10 +677,10 @@ async function generarReportePdf(opts: {
   const rendimiento = calcularRendimientoEmpleadasPdf(opts.pagos)
   const ventasGc = calcularVentasGiftCardsPdf(opts.pagos, opts.sucursales, opts.sucursalPorDefecto)
 
-  const tableOpts = pdfTableOpts(8)
+  const tableOpts = pdfTableOpts()
 
   // ── Página 1: Resumen General ──
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen General" }, logo)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen General" })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -721,7 +698,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 2: Desglose por Método de Pago ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Desglose de Ventas por Método de Pago" }, logo)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Desglose de Ventas por Método de Pago" })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -747,7 +724,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 3: Rendimiento por Empleada ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" }, logo)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Rendimiento por Empleada" })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -765,7 +742,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 4: Propinas por Empleada ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" }, logo)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Propinas por Empleada" })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -782,10 +759,10 @@ async function generarReportePdf(opts: {
 
   // ── Página 5: Top 5 Servicios Más Vendidos ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Top 5 Servicios Más Vendidos" }, logo)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Top 5 Servicios Más Vendidos" })
   autoTable(doc, {
     ...tableOpts,
-    startY: 58,
+    startY: PDF_TABLE_START_Y,
     head: [["#", "Servicio", "# Citas", "% del Total", "Ingresos", "Ticket Promedio"]],
     body: opts.serviciosMasVendidos.length > 0
       ? opts.serviciosMasVendidos.slice(0, 5).map((s, i) => [
@@ -801,7 +778,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 6: Detalle de Cobros ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" }, logo)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Detalle de Cobros" })
   const cobrosOrdenados = [...pagosComp].sort((a, b) =>
     a.fecha.localeCompare(b.fecha) || (a.hora || "").localeCompare(b.hora || ""),
   )
@@ -830,7 +807,7 @@ async function generarReportePdf(opts: {
 
   // ── Página 7: Ventas de Gift Cards ──
   doc.addPage()
-  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" }, logo)
+  pdfEncabezado(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Ventas de Gift Cards" })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
