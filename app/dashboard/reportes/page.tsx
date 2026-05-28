@@ -227,6 +227,77 @@ function buildVentasPorPeriodo(
     return semanas
   }
 
+  if (periodo === "personalizado") {
+    const ini = new Date(fechaDesde + "T12:00:00")
+    const fin = new Date(fechaHasta + "T12:00:00")
+    const dias = Math.round((fin.getTime() - ini.getTime()) / 86400000) + 1
+
+    if (dias <= 31) {
+      // día por día
+      const cur = new Date(ini)
+      const result: VentaDia[] = []
+      while (cur <= fin) {
+        const f = localFmt(cur)
+        const antD = new Date(cur)
+        antD.setDate(antD.getDate() - dias)
+        const fAnt = localFmt(antD)
+        result.push({
+          etiqueta: cur.toLocaleDateString("es-MX", { day: "numeric", month: "short" }),
+          fecha: f,
+          ventas: ventasPorFecha(comp, f),
+          ventasAnt: ventasPorFecha(compAnt, fAnt),
+        })
+        cur.setDate(cur.getDate() + 1)
+      }
+      return result
+    }
+
+    if (dias <= 90) {
+      // semana por semana
+      const cur = new Date(ini)
+      const result: VentaDia[] = []
+      while (cur <= fin) {
+        const desde = localFmt(cur)
+        const hastaD = new Date(cur)
+        hastaD.setDate(hastaD.getDate() + 6)
+        if (hastaD > fin) hastaD.setTime(fin.getTime())
+        const hasta = localFmt(hastaD)
+        const ventas = comp.filter(p => p.fecha >= desde && p.fecha <= hasta).reduce((s, p) => s + p.monto, 0)
+        const ventasAnt = compAnt.filter(p => p.fecha >= desde && p.fecha <= hasta).reduce((s, p) => s + p.monto, 0)
+        result.push({
+          etiqueta: `${cur.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} – ${hastaD.toLocaleDateString("es-MX", { day: "numeric", month: "short" })}`,
+          fecha: desde,
+          ventas,
+          ventasAnt,
+        })
+        cur.setDate(cur.getDate() + 7)
+      }
+      return result
+    }
+
+    // más de 90 días → por mes
+    const result: VentaDia[] = []
+    const curM = new Date(ini.getFullYear(), ini.getMonth(), 1)
+    const lastM = new Date(fin.getFullYear(), fin.getMonth(), 1)
+    while (curM <= lastM) {
+      const y = curM.getFullYear()
+      const m = curM.getMonth()
+      const monthStart = `${y}-${String(m + 1).padStart(2, "0")}-01`
+      const ult = new Date(y, m + 1, 0).getDate()
+      const monthEnd = `${y}-${String(m + 1).padStart(2, "0")}-${String(ult).padStart(2, "0")}`
+      const desde = monthStart < fechaDesde ? fechaDesde : monthStart
+      const hasta = monthEnd > fechaHasta ? fechaHasta : monthEnd
+      result.push({
+        etiqueta: new Date(y, m, 1).toLocaleDateString("es-MX", { month: "short", year: "2-digit" }),
+        fecha: desde,
+        ventas: comp.filter(p => p.fecha >= desde && p.fecha <= hasta).reduce((s, p) => s + p.monto, 0),
+        ventasAnt: compAnt.filter(p => p.fecha >= desde && p.fecha <= hasta).reduce((s, p) => s + p.monto, 0),
+      })
+      curM.setMonth(curM.getMonth() + 1)
+    }
+    return result
+  }
+
   // año → por mes
   const hoy = new Date()
   return Array.from({ length: hoy.getMonth() + 1 }, (_, m) => {
