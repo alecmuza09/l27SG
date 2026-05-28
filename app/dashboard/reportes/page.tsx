@@ -1378,25 +1378,137 @@ export default function ReportesPage() {
       const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
       const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(periodo, fechaCustomDesde, fechaCustomHasta)
 
-      // sucursal efectiva: admin o multi-sucursal con «all» → undefined (RLS acota); una sede concreta → id
+      // Admin global: sin filtro cuando es "all"
+      // Manager multi-sucursal: filtrar por sucursal seleccionada o cargar cada una
+      // Usuario single-branch: su sucursal fija
       const sucId =
-        isAdmin || multiBranch
+        isAdmin
           ? (sucursalFilter === "all" ? undefined : sucursalFilter)
-          : sucursalFija
+          : sucursalFilter !== "all"
+            ? sucursalFilter
+            : sucursalFija
 
-      const [pagos, pagosAnt, citasRes, servicios, empleados, todasEmpleadas, cliStats, topCli, metSuc] = await Promise.all([
-        getPagosFromDB(sucId, undefined, fechaDesde, fechaHasta),
-        getPagosFromDB(sucId, undefined, antDesde,   antHasta),
-        getCitasResumenPeriodo(fechaDesde, fechaHasta, sucId),
-        getServiciosPopulares(10, sucId, undefined, fechaDesde, fechaHasta),
-        getTopEmpleadosFromDB(10, sucId, fechaDesde, fechaHasta),
-        getTopEmpleadosFromDB(200, sucId, fechaDesde, fechaHasta),
-        getClientesStats(sucId),
-        getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucId),
-        isAdmin && sucursalFilter === "all"
-          ? getMetricasSucursales(fechaDesde, fechaHasta)
-          : Promise.resolve([] as MetricaSucursal[]),
-      ])
+      const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
+
+      let pagos: Pago[]
+      let pagosAnt: Pago[]
+
+      if (esMultiBranchAll) {
+        const [pagosPorSuc, pagosAntPorSuc] = await Promise.all([
+          Promise.all(branchIds.map(id => getPagosFromDB(id, undefined, fechaDesde, fechaHasta))),
+          Promise.all(branchIds.map(id => getPagosFromDB(id, undefined, antDesde, antHasta))),
+        ])
+        pagos = pagosPorSuc.flat()
+        pagosAnt = pagosAntPorSuc.flat()
+      } else {
+        ;[pagos, pagosAnt] = await Promise.all([
+          getPagosFromDB(sucId, undefined, fechaDesde, fechaHasta),
+          getPagosFromDB(sucId, undefined, antDesde, antHasta),
+        ])
+      }
+
+      const sucIdParaRest = sucId
+
+      let citasRes: Awaited<ReturnType<typeof getCitasResumenPeriodo>>
+      let servicios: Awaited<ReturnType<typeof getServiciosPopulares>>
+      let empleados: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
+      let todasEmpleadas: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
+      let cliStats: Awaited<ReturnType<typeof getClientesStats>>
+      let topCli: Awaited<ReturnType<typeof getTopClientesPorGasto>>
+      let metSuc: MetricaSucursal[]
+
+      if (esMultiBranchAll) {
+        const [citasArr, servArr, emp10Arr, emp200Arr, cliArr, topCliArr] = await Promise.all([
+          Promise.all(branchIds.map(id => getCitasResumenPeriodo(fechaDesde, fechaHasta, id))),
+          Promise.all(branchIds.map(id => getServiciosPopulares(10, id, undefined, fechaDesde, fechaHasta))),
+          Promise.all(branchIds.map(id => getTopEmpleadosFromDB(10, id, fechaDesde, fechaHasta))),
+          Promise.all(branchIds.map(id => getTopEmpleadosFromDB(200, id, fechaDesde, fechaHasta))),
+          Promise.all(branchIds.map(id => getClientesStats(id))),
+          Promise.all(branchIds.map(id => getTopClientesPorGasto(10, fechaDesde, fechaHasta, id))),
+        ])
+        citasRes = citasArr.reduce(
+          (acc, c) => ({
+            completadas: acc.completadas + c.completadas,
+            canceladas: acc.canceladas + c.canceladas,
+            pendientes: acc.pendientes + c.pendientes,
+            noShow: acc.noShow + c.noShow,
+            total: 0,
+            tasaCancelacion: 0,
+          }),
+          { completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 },
+        )
+        citasRes.total = citasRes.completadas + citasRes.canceladas + citasRes.pendientes + citasRes.noShow
+        citasRes.tasaCancelacion =
+          citasRes.total > 0
+            ? Math.round(((citasRes.canceladas + citasRes.noShow) / citasRes.total) * 100)
+            : 0
+
+        const servMap = new Map<string, { name: string; count: number; revenue: number }>()
+        for (const list of servArr) {
+          for (const s of list) {
+            const prev = servMap.get(s.name)
+            if (prev) {
+              prev.count += s.count
+              prev.revenue += s.revenue
+            } else {
+              servMap.set(s.name, { name: s.name, count: s.count, revenue: s.revenue })
+            }
+          }
+        }
+        const servMerged = Array.from(servMap.values())
+          .map(s => ({ name: s.name, count: s.count, revenue: s.revenue, percentage: 0 }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10)
+        const totalSvcMerged = servMerged.reduce((sum, s) => sum + s.count, 0)
+        servicios = servMerged.map(s => ({
+          ...s,
+          percentage: totalSvcMerged > 0 ? Math.round((s.count / totalSvcMerged) * 100) : 0,
+        }))
+
+        empleados = emp10Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 10)
+        todasEmpleadas = emp200Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 200)
+
+        cliStats = cliArr.reduce(
+          (acc, c) => ({
+            total: acc.total + c.total,
+            activos: acc.activos + c.activos,
+            vip: acc.vip + c.vip,
+            nuevos: acc.nuevos + c.nuevos,
+          }),
+          { total: 0, activos: 0, vip: 0, nuevos: 0 },
+        )
+
+        const topMap = new Map<string, { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }>()
+        for (const list of topCliArr) {
+          for (const c of list) {
+            const prev = topMap.get(c.clienteId)
+            if (prev) {
+              prev.visitas += c.visitas
+              prev.totalGastado += c.totalGastado
+              if (c.ultimaVisita > prev.ultimaVisita) prev.ultimaVisita = c.ultimaVisita
+            } else {
+              topMap.set(c.clienteId, { ...c })
+            }
+          }
+        }
+        topCli = Array.from(topMap.values())
+          .sort((a, b) => b.totalGastado - a.totalGastado)
+          .slice(0, 10)
+
+        metSuc = []
+      } else {
+        ;[citasRes, servicios, empleados, todasEmpleadas, cliStats, topCli, metSuc] = await Promise.all([
+          getCitasResumenPeriodo(fechaDesde, fechaHasta, sucIdParaRest),
+          getServiciosPopulares(10, sucIdParaRest, undefined, fechaDesde, fechaHasta),
+          getTopEmpleadosFromDB(10, sucIdParaRest, fechaDesde, fechaHasta),
+          getTopEmpleadosFromDB(200, sucIdParaRest, fechaDesde, fechaHasta),
+          getClientesStats(sucIdParaRest),
+          getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucIdParaRest),
+          isAdmin && sucursalFilter === "all"
+            ? getMetricasSucursales(fechaDesde, fechaHasta)
+            : Promise.resolve([] as MetricaSucursal[]),
+        ])
+      }
 
       setPagosBrutos(pagos)
       setPagosAnteriores(pagosAnt)
@@ -1460,7 +1572,7 @@ export default function ReportesPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch])
+  }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
 
   useEffect(() => {
     if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
@@ -1585,12 +1697,27 @@ export default function ReportesPage() {
         ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
         : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
       const sucId =
-        isAdmin || multiBranch
+        isAdmin
           ? (sucursalFilter === "all" ? undefined : sucursalFilter)
-          : sucursalFija
+          : sucursalFilter !== "all"
+            ? sucursalFilter
+            : sucursalFija
 
-      const cards = await fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId)
-      const canjes = await fetchCanjesParaPdf(fechaDesde, fechaHasta, sucId)
+      const esMultiBranchAllGc = !isAdmin && multiBranch && sucursalFilter === "all"
+
+      let cards: GiftCardDetallePdfRow[]
+      let canjes: CanjeGcPdfRow[]
+      if (esMultiBranchAllGc) {
+        const [cardsPorSuc, canjesPorSuc] = await Promise.all([
+          Promise.all(branchIds.map(id => fetchGiftCardsParaPdf(fechaDesde, fechaHasta, id))),
+          Promise.all(branchIds.map(id => fetchCanjesParaPdf(fechaDesde, fechaHasta, id))),
+        ])
+        cards = cardsPorSuc.flat()
+        canjes = canjesPorSuc.flat()
+      } else {
+        cards = await fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId)
+        canjes = await fetchCanjesParaPdf(fechaDesde, fechaHasta, sucId)
+      }
 
       await generarGiftCardsPdf({
         sucursal: sucNombre,
