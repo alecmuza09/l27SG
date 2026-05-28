@@ -89,8 +89,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const isGlobalAdmin = currentUser?.role === "admin" || currentUser?.role === "superadmin"
   const isSuperAdmin = currentUser?.role === "superadmin"
   const isBranchAdmin = currentUser?.role === "branch-admin"
-  const isManager = currentUser?.role === "manager"
-  /** Cuentas con alcance de sucursala (bloquear «Dashboard» global; managers sin reportes) */
+  /** Cuentas con alcance de sucursala (bloquear «Dashboard» global) */
   const isSucursalScoped = userIsSucursalScopedLike(currentUser)
   const sanJerRestrictedMenu =
     !isGlobalAdmin && isSanJeronimoRestrictedNavUser(currentUser)
@@ -104,7 +103,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
           if (i.href === "/dashboard/empleados" && !isBranchAdmin && !userHasMultiBranchScope(currentUser))
             return false
           if (i.href === "/dashboard" && isSucursalScoped) return false
-          if (i.href === "/dashboard/reportes" && isManager && !userHasMultiBranchScope(currentUser)) return false
+          // Reportes visible para todos los roles — los datos se filtran por sucursal en la página
           return true
         })
   const visibleModules = isGlobalAdmin
