@@ -1327,7 +1327,7 @@ export default function ReportesPage() {
   const currentUser    = viewer ?? getCurrentUser()
   const isSuperAdmin   = currentUser?.role === "superadmin"
   const isAdmin        = isGlobalAdministrator(currentUser)
-  const isManager      = currentUser?.role === "manager"
+  const isManager      = false
   const multiBranch    = userHasMultiBranchScope(currentUser)
   const branchIds      = collectEffectiveSucursalIds(currentUser)
   const sucursalFija   = isAdmin || multiBranch ? undefined : effectivePrimarySucursalId(currentUser)
