@@ -940,6 +940,7 @@ async function generarNominaPdf(opts: {
   periodoLabel: string
   periodoSlug: string
   sucSlug: string
+  agruparPorSucursal: boolean
   empleados: Array<{
     nombre: string
     apellido: string
@@ -958,58 +959,167 @@ async function generarNominaPdf(opts: {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const tableOpts = pdfTableOpts()
 
-  const totalVentas   = opts.empleados.reduce((s, e) => s + e.ingresos, 0)
-  const totalComision = opts.empleados.reduce((s, e) => s + e.comision, 0)
-  const totalPropinas = opts.empleados.reduce((s, e) => s + e.propinas, 0)
-  const totalAPagar   = totalComision + totalPropinas
+  if (opts.agruparPorSucursal) {
+    // Agrupar empleadas por sucursal
+    const porSucursal = new Map<string, typeof opts.empleados>()
+    for (const e of opts.empleados) {
+      const key = e.sucursal || "Sin sucursal"
+      if (!porSucursal.has(key)) porSucursal.set(key, [])
+      porSucursal.get(key)!.push(e)
+    }
+    const sucursalesOrdenadas = Array.from(porSucursal.keys()).sort()
 
-  pdfEncabezado(doc, {
-    sucursal: opts.sucursal,
-    periodo: opts.periodoLabel,
-    seccion: "Nómina por Empleada",
-  })
+    let primeraSeccion = true
+    for (const sucursalNombre of sucursalesOrdenadas) {
+      const empleadasSuc = porSucursal.get(sucursalNombre)!
+      const totalVentas   = empleadasSuc.reduce((s, e) => s + e.ingresos, 0)
+      const totalComision = empleadasSuc.reduce((s, e) => s + e.comision, 0)
+      const totalPropinas = empleadasSuc.reduce((s, e) => s + e.propinas, 0)
+      const totalAPagar   = totalComision + totalPropinas
 
-  autoTable(doc, {
-    ...tableOpts,
-    startY: PDF_TABLE_START_Y,
-    head: [["#", "Empleada", "Sucursal", "Servicios", "Ventas Totales", "Comisión (30%)", "Propinas", "Total a Pagar"]],
-    body: [
-      ...opts.empleados.map((e, i) => [
-        String(i + 1),
-        `${e.nombre} ${e.apellido}`,
-        e.sucursal,
-        String(e.servicios),
-        fmtPdfMXN(e.ingresos),
-        fmtPdfMXN(e.comision),
-        e.propinas > 0 ? fmtPdfMXN(e.propinas) : "—",
-        fmtPdfMXN(e.comision + e.propinas),
-      ]),
-      ["", "TOTALES", "", "", fmtPdfMXN(totalVentas), fmtPdfMXN(totalComision), fmtPdfMXN(totalPropinas), fmtPdfMXN(totalAPagar)],
-    ],
-    didParseCell: (data: any) => {
-      if (data.section === "body" && data.row.index === opts.empleados.length) {
-        data.cell.styles.fontStyle = "bold"
-        data.cell.styles.fillColor = PDF_HEADER_BLACK
-        data.cell.styles.textColor = 255
-      }
-    },
-    columnStyles: {
-      0: { cellWidth: 8 },
-      1: { cellWidth: 38 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 16 },
-    },
-  })
+      if (!primeraSeccion) doc.addPage()
+      primeraSeccion = false
 
-  doc.setFont("helvetica", "normal")
-  doc.setFontSize(7.5)
-  doc.setTextColor(120, 115, 108)
-  const finalY = (doc as any).lastAutoTable?.finalY ?? PDF_TABLE_START_Y + 10
-  doc.text(
-    "* Comisión calculada al 30% sobre ventas totales. Propinas tomadas de cobros registrados en el período.",
-    14,
-    finalY + 6,
-  )
+      pdfEncabezado(doc, {
+        sucursal: sucursalNombre,
+        periodo: opts.periodoLabel,
+        seccion: "Nómina por Empleada",
+      })
+
+      autoTable(doc, {
+        ...tableOpts,
+        startY: PDF_TABLE_START_Y,
+        head: [["#", "Empleada", "Servicios", "Ventas Totales", "Comisión (30%)", "Propinas", "Total a Pagar"]],
+        body: [
+          ...empleadasSuc.map((e, i) => [
+            String(i + 1),
+            `${e.nombre} ${e.apellido}`,
+            String(e.servicios),
+            fmtPdfMXN(e.ingresos),
+            fmtPdfMXN(e.comision),
+            e.propinas > 0 ? fmtPdfMXN(e.propinas) : "—",
+            fmtPdfMXN(e.comision + e.propinas),
+          ]),
+          ["", "TOTALES", "", fmtPdfMXN(totalVentas), fmtPdfMXN(totalComision), fmtPdfMXN(totalPropinas), fmtPdfMXN(totalAPagar)],
+        ],
+        didParseCell: (data: any) => {
+          if (data.section === "body" && data.row.index === empleadasSuc.length) {
+            data.cell.styles.fontStyle = "bold"
+            data.cell.styles.fillColor = PDF_HEADER_BLACK
+            data.cell.styles.textColor = 255
+          }
+        },
+        columnStyles: {
+          0: { cellWidth: 8 },
+          1: { cellWidth: 50 },
+          2: { cellWidth: 16 },
+        },
+      })
+
+      const finalY = (doc as any).lastAutoTable?.finalY ?? PDF_TABLE_START_Y + 10
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(7.5)
+      doc.setTextColor(120, 115, 108)
+      doc.text(
+        "* Comisión calculada al 30% sobre ventas totales.",
+        14,
+        finalY + 6,
+      )
+    }
+
+    // Página final: resumen general de todas las sucursales
+    doc.addPage()
+    const totalGenVentas   = opts.empleados.reduce((s, e) => s + e.ingresos, 0)
+    const totalGenComision = opts.empleados.reduce((s, e) => s + e.comision, 0)
+    const totalGenPropinas = opts.empleados.reduce((s, e) => s + e.propinas, 0)
+    const totalGenAPagar   = totalGenComision + totalGenPropinas
+
+    pdfEncabezado(doc, {
+      sucursal: opts.sucursal,
+      periodo: opts.periodoLabel,
+      seccion: "Resumen General de Nómina",
+    })
+
+    autoTable(doc, {
+      ...tableOpts,
+      startY: PDF_TABLE_START_Y,
+      head: [["Sucursal", "Empleadas", "Ventas Totales", "Comisión (30%)", "Propinas", "Total a Pagar"]],
+      body: [
+        ...sucursalesOrdenadas.map(suc => {
+          const emps = porSucursal.get(suc)!
+          return [
+            suc,
+            String(emps.length),
+            fmtPdfMXN(emps.reduce((s, e) => s + e.ingresos, 0)),
+            fmtPdfMXN(emps.reduce((s, e) => s + e.comision, 0)),
+            fmtPdfMXN(emps.reduce((s, e) => s + e.propinas, 0)),
+            fmtPdfMXN(emps.reduce((s, e) => s + e.comision + e.propinas, 0)),
+          ]
+        }),
+        ["TOTALES", String(opts.empleados.length), fmtPdfMXN(totalGenVentas), fmtPdfMXN(totalGenComision), fmtPdfMXN(totalGenPropinas), fmtPdfMXN(totalGenAPagar)],
+      ],
+      didParseCell: (data: any) => {
+        if (data.section === "body" && data.row.index === sucursalesOrdenadas.length) {
+          data.cell.styles.fontStyle = "bold"
+          data.cell.styles.fillColor = PDF_HEADER_BLACK
+          data.cell.styles.textColor = 255
+        }
+      },
+    })
+
+  } else {
+    // Una sola sucursal — mismo comportamiento original
+    const totalVentas   = opts.empleados.reduce((s, e) => s + e.ingresos, 0)
+    const totalComision = opts.empleados.reduce((s, e) => s + e.comision, 0)
+    const totalPropinas = opts.empleados.reduce((s, e) => s + e.propinas, 0)
+    const totalAPagar   = totalComision + totalPropinas
+
+    pdfEncabezado(doc, {
+      sucursal: opts.sucursal,
+      periodo: opts.periodoLabel,
+      seccion: "Nómina por Empleada",
+    })
+
+    autoTable(doc, {
+      ...tableOpts,
+      startY: PDF_TABLE_START_Y,
+      head: [["#", "Empleada", "Servicios", "Ventas Totales", "Comisión (30%)", "Propinas", "Total a Pagar"]],
+      body: [
+        ...opts.empleados.map((e, i) => [
+          String(i + 1),
+          `${e.nombre} ${e.apellido}`,
+          String(e.servicios),
+          fmtPdfMXN(e.ingresos),
+          fmtPdfMXN(e.comision),
+          e.propinas > 0 ? fmtPdfMXN(e.propinas) : "—",
+          fmtPdfMXN(e.comision + e.propinas),
+        ]),
+        ["", "TOTALES", "", fmtPdfMXN(totalVentas), fmtPdfMXN(totalComision), fmtPdfMXN(totalPropinas), fmtPdfMXN(totalAPagar)],
+      ],
+      didParseCell: (data: any) => {
+        if (data.section === "body" && data.row.index === opts.empleados.length) {
+          data.cell.styles.fontStyle = "bold"
+          data.cell.styles.fillColor = PDF_HEADER_BLACK
+          data.cell.styles.textColor = 255
+        }
+      },
+      columnStyles: {
+        0: { cellWidth: 8 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 16 },
+      },
+    })
+
+    const finalY = (doc as any).lastAutoTable?.finalY ?? PDF_TABLE_START_Y + 10
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(7.5)
+    doc.setTextColor(120, 115, 108)
+    doc.text(
+      "* Comisión calculada al 30% sobre ventas totales.",
+      14,
+      finalY + 6,
+    )
+  }
 
   pdfPiePagina(doc)
   doc.save(`nomina-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.pdf`)
@@ -1237,6 +1347,7 @@ export default function ReportesPage() {
   const [citasResumen,         setCitasResumen]         = useState<CitasResumen>({ completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 })
   const [serviciosMasVendidos, setServiciosMasVendidos] = useState<ServicioRow[]>([])
   const [empleadosTop,         setEmpleadosTop]         = useState<EmpleadoRow[]>([])
+  const [todasEmpleadasNomina, setTodasEmpleadasNomina] = useState<EmpleadoRow[]>([])
   const [propinasEmpleadas,    setPropinasEmpleadas]    = useState<PropinaEmpleadaRow[]>([])
   const [clientesStats,        setClientesStats]        = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
   const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
@@ -1268,12 +1379,13 @@ export default function ReportesPage() {
           ? (sucursalFilter === "all" ? undefined : sucursalFilter)
           : sucursalFija
 
-      const [pagos, pagosAnt, citasRes, servicios, empleados, cliStats, topCli, metSuc] = await Promise.all([
+      const [pagos, pagosAnt, citasRes, servicios, empleados, todasEmpleadas, cliStats, topCli, metSuc] = await Promise.all([
         getPagosFromDB(sucId, undefined, fechaDesde, fechaHasta),
         getPagosFromDB(sucId, undefined, antDesde,   antHasta),
         getCitasResumenPeriodo(fechaDesde, fechaHasta, sucId),
         getServiciosPopulares(10, sucId, undefined, fechaDesde, fechaHasta),
         getTopEmpleadosFromDB(10, sucId, fechaDesde, fechaHasta),
+        getTopEmpleadosFromDB(200, sucId, fechaDesde, fechaHasta),
         getClientesStats(sucId),
         getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucId),
         isAdmin && sucursalFilter === "all"
@@ -1324,6 +1436,13 @@ export default function ReportesPage() {
       })))
 
       setEmpleadosTop(empleados.map(e => ({
+        nombre: e.nombre, apellido: e.apellido,
+        sucursal: e.sucursalNombre,
+        servicios: e.citas, ingresos: e.ingresos,
+        comision: Math.round(e.ingresos * 0.3),
+        ocupacion: e.ocupacion,
+      })))
+      setTodasEmpleadasNomina(todasEmpleadas.map(e => ({
         nombre: e.nombre, apellido: e.apellido,
         sucursal: e.sucursalNombre,
         servicios: e.citas, ingresos: e.ingresos,
@@ -1490,14 +1609,18 @@ export default function ReportesPage() {
       const sucNombre = sucursalFilter === "all"
         ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
         : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
+      const agrupar = sucursalFilter === "all" && (isAdmin || multiBranch)
 
       const propMap = new Map(
         propinasEmpleadas.map(p => [p.empleadoId, p.totalPropinas])
       )
-      const empleadosConPropinas = empleadosTop.map(e => ({
+      const fuente = agrupar ? todasEmpleadasNomina : empleadosTop
+      const empleadosConPropinas = fuente.map(e => ({
         ...e,
         propinas: propMap.get(
-          pagosBrutos.find(p => p.empleadoNombre === `${e.nombre} ${e.apellido}`)?.empleadoId ?? ""
+          pagosBrutos.find(p =>
+            p.empleadoNombre === `${e.nombre} ${e.apellido}`
+          )?.empleadoId ?? ""
         ) ?? 0,
       }))
 
@@ -1506,6 +1629,7 @@ export default function ReportesPage() {
         periodoLabel: label,
         periodoSlug: periodoSlugFrom(periodo),
         sucSlug: slugPdf(sucNombre),
+        agruparPorSucursal: agrupar,
         empleados: empleadosConPropinas,
       })
     } catch (err) {
