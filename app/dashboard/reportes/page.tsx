@@ -1630,7 +1630,7 @@ export default function ReportesPage() {
           sucursal: "",
         }
         prev.servicios += 1
-        prev.ingresos += p.monto
+        prev.ingresos += p.monto - (p.propina ?? 0)
         prev.propinas += p.propina ?? 0
         pagosPorEmpleado.set(key, prev)
       }
