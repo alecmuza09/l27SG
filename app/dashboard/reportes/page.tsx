@@ -2426,12 +2426,12 @@ export default function ReportesPage() {
                               const totalVentas    = rows.reduce((s, r) => s + r.ingresos, 0)
                               const totalComision  = rows.reduce((s, r) => s + r.comision, 0)
                               const totalPropinas  = rows.reduce((s, r) => s + r.propinas, 0)
-                              const totalAPagar    = totalComision + totalPropinas
+                              const totalAPagar    = totalComision
 
                               return (
                                 <>
                                   {rows.map((e, i) => {
-                                    const totalPagar = e.comision + e.propinas
+                                    const totalPagar = e.comision
                                     return (
                                       <TableRow key={`${e.nombre}-${e.apellido}-${i}`}>
                                         <TableCell className="text-muted-foreground font-mono text-xs">
