@@ -1616,47 +1616,26 @@ export default function ReportesPage() {
         : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
       const agrupar = sucursalFilter === "all" && (isAdmin || multiBranch)
 
-      const pagosComp = pagosBrutos.filter(p => p.estado === "completado")
-
-      // Agrupar pagos por empleadoId para contar servicios e ingresos reales
-      const pagosPorEmpleado = new Map<string, { servicios: number; ingresos: number; propinas: number; nombre: string; sucursal: string }>()
-      for (const p of pagosComp) {
-        const key = p.empleadoId ?? `nombre:${p.empleadoNombre}`
-        const prev = pagosPorEmpleado.get(key) ?? {
-          servicios: 0,
-          ingresos: 0,
-          propinas: 0,
-          nombre: p.empleadoNombre || "Sin empleado",
-          sucursal: "",
-        }
-        prev.servicios += 1
-        prev.ingresos += p.monto - (p.propina ?? 0)
-        prev.propinas += p.propina ?? 0
-        pagosPorEmpleado.set(key, prev)
+      // propinas por nombre de empleada (ya calculadas correctamente)
+      const propMap = new Map<string, number>()
+      for (const p of propinasEmpleadas) {
+        propMap.set(p.nombre, p.totalPropinas)
       }
 
-      // Enriquecer con sucursal desde la fuente de empleadosTop/todasEmpleadasNomina
       const fuente = agrupar ? todasEmpleadasNomina : empleadosTop
-      for (const e of fuente) {
-        const key = pagosBrutos.find(
-          p => p.empleadoNombre === `${e.nombre} ${e.apellido}`
-        )?.empleadoId ?? `nombre:${e.nombre} ${e.apellido}`
-        const entry = pagosPorEmpleado.get(key)
-        if (entry) entry.sucursal = e.sucursal
-      }
 
-      const empleadosConPropinas = Array.from(pagosPorEmpleado.values())
-        .filter(e => e.ingresos > 0)
-        .map(e => ({
-          nombre: e.nombre.split(" ")[0] ?? e.nombre,
-          apellido: e.nombre.split(" ").slice(1).join(" ") ?? "",
-          sucursal: e.sucursal || "Sin sucursal",
+      const empleadosConPropinas = fuente.map(e => {
+        const nombreCompleto = `${e.nombre} ${e.apellido}`.trim()
+        return {
+          nombre: e.nombre,
+          apellido: e.apellido,
+          sucursal: e.sucursal,
           servicios: e.servicios,
           ingresos: e.ingresos,
-          comision: Math.round(e.ingresos * 0.3),
-          propinas: e.propinas,
-        }))
-        .sort((a, b) => b.ingresos - a.ingresos)
+          comision: e.comision,
+          propinas: propMap.get(nombreCompleto) ?? 0,
+        }
+      })
 
       await generarNominaPdf({
         sucursal: sucNombre,
