@@ -980,7 +980,7 @@ async function generarNominaPdf(opts: {
       const totalVentas   = empleadasSuc.reduce((s, e) => s + e.ingresos, 0)
       const totalComision = empleadasSuc.reduce((s, e) => s + e.comision, 0)
       const totalPropinas = empleadasSuc.reduce((s, e) => s + e.propinas, 0)
-      const totalAPagar   = totalComision + totalPropinas
+      const totalAPagar   = totalComision
 
       if (!primeraSeccion) doc.addPage()
       primeraSeccion = false
@@ -1003,7 +1003,7 @@ async function generarNominaPdf(opts: {
             fmtPdfMXN(e.ingresos),
             fmtPdfMXN(e.comision),
             e.propinas > 0 ? fmtPdfMXN(e.propinas) : "—",
-            fmtPdfMXN(e.comision + e.propinas),
+            fmtPdfMXN(e.comision),
           ]),
           ["", "TOTALES", "", fmtPdfMXN(totalVentas), fmtPdfMXN(totalComision), fmtPdfMXN(totalPropinas), fmtPdfMXN(totalAPagar)],
         ],
@@ -1037,7 +1037,7 @@ async function generarNominaPdf(opts: {
     const totalGenVentas   = opts.empleados.reduce((s, e) => s + e.ingresos, 0)
     const totalGenComision = opts.empleados.reduce((s, e) => s + e.comision, 0)
     const totalGenPropinas = opts.empleados.reduce((s, e) => s + e.propinas, 0)
-    const totalGenAPagar   = totalGenComision + totalGenPropinas
+    const totalGenAPagar   = totalGenComision
 
     pdfEncabezado(doc, {
       sucursal: opts.sucursal,
@@ -1058,7 +1058,7 @@ async function generarNominaPdf(opts: {
             fmtPdfMXN(emps.reduce((s, e) => s + e.ingresos, 0)),
             fmtPdfMXN(emps.reduce((s, e) => s + e.comision, 0)),
             fmtPdfMXN(emps.reduce((s, e) => s + e.propinas, 0)),
-            fmtPdfMXN(emps.reduce((s, e) => s + e.comision + e.propinas, 0)),
+            fmtPdfMXN(emps.reduce((s, e) => s + e.comision, 0)),
           ]
         }),
         ["TOTALES", String(opts.empleados.length), fmtPdfMXN(totalGenVentas), fmtPdfMXN(totalGenComision), fmtPdfMXN(totalGenPropinas), fmtPdfMXN(totalGenAPagar)],
@@ -1077,7 +1077,7 @@ async function generarNominaPdf(opts: {
     const totalVentas   = opts.empleados.reduce((s, e) => s + e.ingresos, 0)
     const totalComision = opts.empleados.reduce((s, e) => s + e.comision, 0)
     const totalPropinas = opts.empleados.reduce((s, e) => s + e.propinas, 0)
-    const totalAPagar   = totalComision + totalPropinas
+    const totalAPagar   = totalComision
 
     pdfEncabezado(doc, {
       sucursal: opts.sucursal,
@@ -1097,7 +1097,7 @@ async function generarNominaPdf(opts: {
           fmtPdfMXN(e.ingresos),
           fmtPdfMXN(e.comision),
           e.propinas > 0 ? fmtPdfMXN(e.propinas) : "—",
-          fmtPdfMXN(e.comision + e.propinas),
+          fmtPdfMXN(e.comision),
         ]),
         ["", "TOTALES", "", fmtPdfMXN(totalVentas), fmtPdfMXN(totalComision), fmtPdfMXN(totalPropinas), fmtPdfMXN(totalAPagar)],
       ],
