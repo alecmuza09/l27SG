@@ -201,6 +201,7 @@ export const SAN_JERONIMO_ALLOWED_ROUTE_PREFIXES = [
   "/dashboard/gift-cards",
   "/dashboard/vacaciones",
   "/dashboard/ausencias",
+  "/dashboard/reportes",
 ] as const
 
 export function pathnameAllowedForSanJeronimoUser(pathname: string): boolean {

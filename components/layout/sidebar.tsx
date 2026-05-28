@@ -40,6 +40,7 @@ const SAN_JERONIMO_NAV_HREFS = new Set([
   "/dashboard/citas",
   "/dashboard/clientes",
   "/dashboard/pagos",
+  "/dashboard/reportes",
 ])
 const SAN_JERONIMO_MODULE_HREFS = new Set([
   "/dashboard/gift-cards",
