@@ -225,6 +225,7 @@ export default function PagosPage() {
   let totalEfectivo = 0
   let totalTarjeta = 0
   let totalTransf = 0
+  let totalVipPass = 0
   let totalOtro = 0
   for (const p of pagos) {
     if (p.estado !== "completado") continue
@@ -232,7 +233,13 @@ export default function PagosPage() {
     totalEfectivo += d.efectivo
     totalTarjeta += d.tarjeta
     totalTransf += d.transferencia
-    totalOtro += d.otro
+    if (d.otro > 0.009) {
+      if (p.descuentoTipo === "vip_pass") {
+        totalVipPass += d.otro
+      } else {
+        totalOtro += d.otro
+      }
+    }
   }
 
   const ventasSaldoGiftCards = totalizarVentasSaldoGiftCards(pagos)
@@ -626,8 +633,11 @@ export default function PagosPage() {
           <StatRow label="Servicios — Efectivo" value={fmtMXN(totalEfectivo)} />
           <StatRow label="Ventas saldo gift cards" value={fmtMXN(ventasSaldoGiftCards.monto)} />
           <StatRow label="Transferencias" value={fmtMXN(totalTransf)} />
+          {totalVipPass > 0 && (
+            <StatRow label="VIP Pass" value={fmtMXN(totalVipPass)} />
+          )}
           {totalOtro > 0 && (
-            <StatRow label="Otros medios / mixto (detalle)" value={fmtMXN(totalOtro)} />
+            <StatRow label="Otros medios / mixto" value={fmtMXN(totalOtro)} />
           )}
           <StatRow label="Propinas" value={fmtMXN(resumen?.totalPropinas ?? 0)} />
           <StatRow label="Descuentos" value={fmtMXN(resumen?.totalDescuentos ?? 0)} />

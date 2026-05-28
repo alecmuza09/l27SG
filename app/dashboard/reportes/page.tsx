@@ -440,7 +440,7 @@ async function fetchCanjesParaPdf(
         empleado:empleados(nombre, apellido),
         gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
       `)
-      .in("tipo", ["canje", "uso", "descuento", "cobro"])
+      .in("tipo", ["canje", "uso", "descuento", "cobro", "vip_pass"])
       .gte("created_at", fechaDesde + "T00:00:00")
       .lte("created_at", fechaHasta + "T23:59:59")
       .order("created_at", { ascending: false })
@@ -738,7 +738,7 @@ async function generarGiftCardsPdf(opts: {
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
-    head: [["Fecha", "Código GC", "Cliente", "Monto canjeado", "Empleada", "Sucursal"]],
+    head: [["Fecha", "Código GC", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
     body: opts.canjes.length > 0
       ? opts.canjes.map(c => [
           c.fecha,
