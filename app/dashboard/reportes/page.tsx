@@ -1647,6 +1647,7 @@ export default function ReportesPage() {
             {!isManager && <TabsTrigger value="ventas">Ventas</TabsTrigger>}
             <TabsTrigger value="servicios">Servicios</TabsTrigger>
             <TabsTrigger value="empleados">Empleados</TabsTrigger>
+            {!isManager && <TabsTrigger value="nomina">Nómina</TabsTrigger>}
             <TabsTrigger value="clientes">Clientes</TabsTrigger>
             {isAdmin && <TabsTrigger value="sucursales">Sucursales</TabsTrigger>}
           </TabsList>
@@ -2109,6 +2110,124 @@ export default function ReportesPage() {
                           </TableBody>
                         </Table>
                       </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {!isManager && (
+            <TabsContent value="nomina" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Receipt className="h-5 w-5" />
+                    Nómina por Empleada
+                  </CardTitle>
+                  <CardDescription>{periodoLabel}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {empleadosTop.length === 0 ? (
+                    <p className="text-center py-8 text-sm text-muted-foreground">
+                      Sin datos en este período
+                    </p>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>#</TableHead>
+                              <TableHead>Empleada</TableHead>
+                              {isAdmin && <TableHead>Sucursal</TableHead>}
+                              <TableHead className="text-right"># Servicios</TableHead>
+                              <TableHead className="text-right">Ventas Totales</TableHead>
+                              <TableHead className="text-right">Comisión (30%)</TableHead>
+                              <TableHead className="text-right">Propinas</TableHead>
+                              <TableHead className="text-right">Total a Pagar</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(() => {
+                              const propMap = new Map(
+                                propinasEmpleadas.map(p => [p.empleadoId, p.totalPropinas])
+                              )
+                              const rows = empleadosTop.map(e => ({
+                                ...e,
+                                propinas: propMap.get(
+                                  pagosBrutos
+                                    .find(p => p.empleadoNombre === `${e.nombre} ${e.apellido}`)
+                                    ?.empleadoId ?? ""
+                                ) ?? 0,
+                              }))
+                              const totalVentas    = rows.reduce((s, r) => s + r.ingresos, 0)
+                              const totalComision  = rows.reduce((s, r) => s + r.comision, 0)
+                              const totalPropinas  = rows.reduce((s, r) => s + r.propinas, 0)
+                              const totalAPagar    = totalComision + totalPropinas
+
+                              return (
+                                <>
+                                  {rows.map((e, i) => {
+                                    const totalPagar = e.comision + e.propinas
+                                    return (
+                                      <TableRow key={`${e.nombre}-${e.apellido}-${i}`}>
+                                        <TableCell className="text-muted-foreground font-mono text-xs">
+                                          {i + 1}
+                                        </TableCell>
+                                        <TableCell className="font-medium">
+                                          {e.nombre} {e.apellido}
+                                        </TableCell>
+                                        {isAdmin && (
+                                          <TableCell className="text-muted-foreground text-sm">
+                                            {e.sucursal}
+                                          </TableCell>
+                                        )}
+                                        <TableCell className="text-right tabular-nums">
+                                          {e.servicios}
+                                        </TableCell>
+                                        <TableCell className="text-right tabular-nums font-semibold">
+                                          {fmtMXN(e.ingresos)}
+                                        </TableCell>
+                                        <TableCell className="text-right tabular-nums text-blue-600 font-semibold">
+                                          {fmtMXN(e.comision)}
+                                        </TableCell>
+                                        <TableCell className="text-right tabular-nums text-green-600 font-semibold">
+                                          {e.propinas > 0 ? fmtMXN(e.propinas) : "—"}
+                                        </TableCell>
+                                        <TableCell className="text-right tabular-nums font-bold">
+                                          {fmtMXN(totalPagar)}
+                                        </TableCell>
+                                      </TableRow>
+                                    )
+                                  })}
+                                  {/* Totales */}
+                                  <TableRow className="border-t-2 border-slate-300 bg-slate-50 font-bold">
+                                    <TableCell colSpan={isAdmin ? 4 : 3} className="text-right text-sm">
+                                      Totales
+                                    </TableCell>
+                                    <TableCell className="text-right tabular-nums">
+                                      {fmtMXN(totalVentas)}
+                                    </TableCell>
+                                    <TableCell className="text-right tabular-nums text-blue-600">
+                                      {fmtMXN(totalComision)}
+                                    </TableCell>
+                                    <TableCell className="text-right tabular-nums text-green-600">
+                                      {fmtMXN(totalPropinas)}
+                                    </TableCell>
+                                    <TableCell className="text-right tabular-nums text-lg">
+                                      {fmtMXN(totalAPagar)}
+                                    </TableCell>
+                                  </TableRow>
+                                </>
+                              )
+                            })()}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-3">
+                        * Comisión calculada al 30% sobre ventas totales. Propinas tomadas de cobros registrados en el período.
+                      </p>
                     </>
                   )}
                 </CardContent>
