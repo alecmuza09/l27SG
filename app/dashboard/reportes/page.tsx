@@ -935,6 +935,86 @@ async function generarReportePdf(opts: {
   doc.save(`reporte-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.pdf`)
 }
 
+async function generarNominaPdf(opts: {
+  sucursal: string
+  periodoLabel: string
+  periodoSlug: string
+  sucSlug: string
+  empleados: Array<{
+    nombre: string
+    apellido: string
+    sucursal: string
+    servicios: number
+    ingresos: number
+    comision: number
+    propinas: number
+  }>
+}) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ])
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
+  const tableOpts = pdfTableOpts()
+
+  const totalVentas   = opts.empleados.reduce((s, e) => s + e.ingresos, 0)
+  const totalComision = opts.empleados.reduce((s, e) => s + e.comision, 0)
+  const totalPropinas = opts.empleados.reduce((s, e) => s + e.propinas, 0)
+  const totalAPagar   = totalComision + totalPropinas
+
+  pdfEncabezado(doc, {
+    sucursal: opts.sucursal,
+    periodo: opts.periodoLabel,
+    seccion: "Nómina por Empleada",
+  })
+
+  autoTable(doc, {
+    ...tableOpts,
+    startY: PDF_TABLE_START_Y,
+    head: [["#", "Empleada", "Sucursal", "Servicios", "Ventas Totales", "Comisión (30%)", "Propinas", "Total a Pagar"]],
+    body: [
+      ...opts.empleados.map((e, i) => [
+        String(i + 1),
+        `${e.nombre} ${e.apellido}`,
+        e.sucursal,
+        String(e.servicios),
+        fmtPdfMXN(e.ingresos),
+        fmtPdfMXN(e.comision),
+        e.propinas > 0 ? fmtPdfMXN(e.propinas) : "—",
+        fmtPdfMXN(e.comision + e.propinas),
+      ]),
+      ["", "TOTALES", "", "", fmtPdfMXN(totalVentas), fmtPdfMXN(totalComision), fmtPdfMXN(totalPropinas), fmtPdfMXN(totalAPagar)],
+    ],
+    didParseCell: (data: any) => {
+      if (data.section === "body" && data.row.index === opts.empleados.length) {
+        data.cell.styles.fontStyle = "bold"
+        data.cell.styles.fillColor = PDF_HEADER_BLACK
+        data.cell.styles.textColor = 255
+      }
+    },
+    columnStyles: {
+      0: { cellWidth: 8 },
+      1: { cellWidth: 38 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 16 },
+    },
+  })
+
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(7.5)
+  doc.setTextColor(120, 115, 108)
+  const finalY = (doc as any).lastAutoTable?.finalY ?? PDF_TABLE_START_Y + 10
+  doc.text(
+    "* Comisión calculada al 30% sobre ventas totales. Propinas tomadas de cobros registrados en el período.",
+    14,
+    finalY + 6,
+  )
+
+  pdfPiePagina(doc)
+  doc.save(`nomina-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.pdf`)
+}
+
 function Tendencia({ actual, anterior }: { actual: number; anterior: number }) {
   if (anterior === 0) return null
   const pct = Math.round(((actual - anterior) / anterior) * 100)
@@ -1164,6 +1244,7 @@ export default function ReportesPage() {
   const [metricasSucursales,   setMetricasSucursales]   = useState<MetricaSucursal[]>([])
   const [isExportingPdf,       setIsExportingPdf]       = useState(false)
   const [isExportingGcPdf,     setIsExportingGcPdf]     = useState(false)
+  const [isExportingNominaPdf, setIsExportingNominaPdf] = useState(false)
 
   // ── Carga inicial de sucursales ──────────────────────────────────────────
   useEffect(() => {
@@ -1402,6 +1483,38 @@ export default function ReportesPage() {
     }
   }
 
+  const handleExportNominaPdf = async () => {
+    setIsExportingNominaPdf(true)
+    try {
+      const { label } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+      const sucNombre = sucursalFilter === "all"
+        ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
+        : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
+
+      const propMap = new Map(
+        propinasEmpleadas.map(p => [p.empleadoId, p.totalPropinas])
+      )
+      const empleadosConPropinas = empleadosTop.map(e => ({
+        ...e,
+        propinas: propMap.get(
+          pagosBrutos.find(p => p.empleadoNombre === `${e.nombre} ${e.apellido}`)?.empleadoId ?? ""
+        ) ?? 0,
+      }))
+
+      await generarNominaPdf({
+        sucursal: sucNombre,
+        periodoLabel: label,
+        periodoSlug: periodoSlugFrom(periodo),
+        sucSlug: slugPdf(sucNombre),
+        empleados: empleadosConPropinas,
+      })
+    } catch (err) {
+      console.error("Error generando PDF de nómina:", err)
+    } finally {
+      setIsExportingNominaPdf(false)
+    }
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const maxVentas   = Math.max(...ventasPeriodo.map(d => Math.max(d.ventas, d.ventasAnt)), 1)
   const maxEmpleado = Math.max(...empleadosTop.map(e => e.ingresos), 1)
@@ -1624,7 +1737,7 @@ export default function ReportesPage() {
           </div>
 
           {!isManager && (
-            <div className="flex justify-end no-print">
+            <div className="flex flex-col items-end gap-1 no-print">
               <button
                 type="button"
                 onClick={handleExportGiftCardsPDF}
@@ -1636,6 +1749,18 @@ export default function ReportesPage() {
                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   : <Download className="h-3.5 w-3.5" />}
                 ↓ PDF Gift Cards
+              </button>
+              <button
+                type="button"
+                onClick={handleExportNominaPdf}
+                disabled={isExportingNominaPdf || empleadosTop.length === 0}
+                title="Descargar PDF de nómina"
+                className="inline-flex items-center gap-1 text-xs font-medium text-[#1e40af] hover:text-slate-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isExportingNominaPdf
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Download className="h-3.5 w-3.5" />}
+                ↓ PDF Nómina
               </button>
             </div>
           )}
