@@ -70,7 +70,7 @@ interface ClienteTopRow   { clienteId: string; nombre: string; visitas: number; 
 interface KpiStats        { ingresosTotales: number; totalServicios: number; ticketPromedio: number }
 interface CitasResumen    { completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }
 
-type Periodo = "semana" | "mes" | "trimestre" | "año"
+type Periodo = "semana" | "mes" | "trimestre" | "año" | "personalizado"
 
 // ─── Helpers de fecha ─────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ function localFmt(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-function calcularPeriodo(periodo: Periodo): { fechaDesde: string; fechaHasta: string; label: string } {
+function calcularPeriodo(periodo: Periodo, customDesde?: string, customHasta?: string): { fechaDesde: string; fechaHasta: string; label: string } {
   const hoy    = new Date()
   const hoyStr = localFmt(hoy)
   switch (periodo) {
@@ -100,6 +100,19 @@ function calcularPeriodo(periodo: Periodo): { fechaDesde: string; fechaHasta: st
     case "año": {
       const i = new Date(hoy.getFullYear(), 0, 1)
       return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Este Año" }
+    }
+    case "personalizado": {
+      if (!customDesde || !customHasta) {
+        const hoy = new Date()
+        const ini = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+        return { fechaDesde: localFmt(ini), fechaHasta: localFmt(hoy), label: "Personalizado" }
+      }
+      const desde = customDesde < customHasta ? customDesde : customHasta
+      const hasta  = customDesde < customHasta ? customHasta : customDesde
+      const d = new Date(desde + "T12:00:00")
+      const h = new Date(hasta + "T12:00:00")
+      const label = `${d.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} – ${h.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}`
+      return { fechaDesde: desde, fechaHasta: hasta, label }
     }
   }
 }
@@ -128,7 +141,7 @@ function calcularPropinasPorEmpleada(pagos: Pago[]): PropinaEmpleadaRow[] {
     .sort((a, b) => b.totalPropinas - a.totalPropinas)
 }
 
-function calcularPeriodoAnterior(periodo: Periodo): { fechaDesde: string; fechaHasta: string } {
+function calcularPeriodoAnterior(periodo: Periodo, customDesde?: string, customHasta?: string): { fechaDesde: string; fechaHasta: string } {
   const hoy = new Date()
   switch (periodo) {
     case "semana": {
@@ -155,6 +168,15 @@ function calcularPeriodoAnterior(periodo: Periodo): { fechaDesde: string; fechaH
     case "año": {
       const fin   = new Date(hoy.getFullYear() - 1, 11, 31)
       const ini   = new Date(hoy.getFullYear() - 1, 0, 1)
+      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+    }
+    case "personalizado": {
+      if (!customDesde || !customHasta) return { fechaDesde: "", fechaHasta: "" }
+      const dias = Math.round((new Date(customHasta).getTime() - new Date(customDesde).getTime()) / 86400000)
+      const fin = new Date(customDesde + "T12:00:00")
+      fin.setDate(fin.getDate() - 1)
+      const ini = new Date(fin)
+      ini.setDate(ini.getDate() - dias)
       return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
     }
   }
@@ -241,6 +263,7 @@ function slugPdf(texto: string): string {
 }
 
 function periodoSlugFrom(periodo: Periodo): string {
+  if (periodo === "personalizado") return "personalizado"
   return periodo === "semana" ? "esta-semana"
     : periodo === "mes" ? "este-mes"
     : periodo === "trimestre" ? "trimestre"
@@ -1045,6 +1068,8 @@ export default function ReportesPage() {
 
   // ── Filtros ──
   const [periodo,          setPeriodo]          = useState<Periodo>("mes")
+  const [fechaCustomDesde, setFechaCustomDesde] = useState<string>("")
+  const [fechaCustomHasta, setFechaCustomHasta] = useState<string>("")
   const [sucursalFilter,   setSucursalFilter]   = useState<string>("all")
   const [sucursales,       setSucursales]       = useState<Sucursal[]>([])
   const [activeTab,        setActiveTab]        = useState(isManager ? "servicios" : "ventas")
@@ -1082,8 +1107,8 @@ export default function ReportesPage() {
   const cargarDatos = useCallback(async () => {
     setIsLoading(true)
     try {
-      const { fechaDesde, fechaHasta } = calcularPeriodo(periodo)
-      const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(periodo)
+      const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+      const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(periodo, fechaCustomDesde, fechaCustomHasta)
 
       // sucursal efectiva: admin o multi-sucursal con «all» → undefined (RLS acota); una sede concreta → id
       const sucId =
@@ -1159,13 +1184,16 @@ export default function ReportesPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [periodo, sucursalFilter, sucursalFija, isAdmin, multiBranch])
+  }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch])
 
-  useEffect(() => { cargarDatos() }, [cargarDatos])
+  useEffect(() => {
+    if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
+    cargarDatos()
+  }, [cargarDatos, periodo, fechaCustomDesde, fechaCustomHasta])
 
   // ── Exportar Excel ────────────────────────────────────────────────────────
   const handleExportExcel = () => {
-    const { label } = calcularPeriodo(periodo)
+    const { label } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
     const sucNombre  = sucursalFilter === "all"
       ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
       : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
@@ -1245,7 +1273,7 @@ export default function ReportesPage() {
   const handleExportPDF = async () => {
     setIsExportingPdf(true)
     try {
-      const { label } = calcularPeriodo(periodo)
+      const { label } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
       const sucNombre = sucursalFilter === "all"
         ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
         : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
@@ -1276,7 +1304,7 @@ export default function ReportesPage() {
   const handleExportGiftCardsPDF = async () => {
     setIsExportingGcPdf(true)
     try {
-      const { fechaDesde, fechaHasta, label } = calcularPeriodo(periodo)
+      const { fechaDesde, fechaHasta, label } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
       const sucNombre = sucursalFilter === "all"
         ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
         : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
@@ -1306,7 +1334,7 @@ export default function ReportesPage() {
   // ── Derived ───────────────────────────────────────────────────────────────
   const maxVentas   = Math.max(...ventasPeriodo.map(d => Math.max(d.ventas, d.ventasAnt)), 1)
   const maxEmpleado = Math.max(...empleadosTop.map(e => e.ingresos), 1)
-  const { label: periodoLabel } = calcularPeriodo(periodo)
+  const { label: periodoLabel } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
   const sucNombreActiva = sucursalFilter === "all"
     ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
     : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? "")
@@ -1355,18 +1383,39 @@ export default function ReportesPage() {
               )}
 
               {/* Filtro período */}
-              <Select value={periodo} onValueChange={v => setPeriodo(v as Periodo)}>
-                <SelectTrigger className="w-44">
-                  <Calendar className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="semana">Esta Semana</SelectItem>
-                  <SelectItem value="mes">Este Mes</SelectItem>
-                  <SelectItem value="trimestre">Trimestre</SelectItem>
-                  <SelectItem value="año">Este Año</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select value={periodo} onValueChange={(v) => setPeriodo(v as Periodo)}>
+                  <SelectTrigger className="h-9 w-44 text-sm">
+                    <Calendar className="h-4 w-4 mr-1.5 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="semana">Esta Semana</SelectItem>
+                    <SelectItem value="mes">Este Mes</SelectItem>
+                    <SelectItem value="trimestre">Trimestre</SelectItem>
+                    <SelectItem value="año">Este Año</SelectItem>
+                    <SelectItem value="personalizado">Personalizado…</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {periodo === "personalizado" && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={fechaCustomDesde}
+                      onChange={e => setFechaCustomDesde(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <span className="text-muted-foreground text-sm">—</span>
+                    <input
+                      type="date"
+                      value={fechaCustomHasta}
+                      onChange={e => setFechaCustomHasta(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                )}
+              </div>
 
               <Button variant="outline" size="icon" onClick={cargarDatos} title="Actualizar datos">
                 <RefreshCw className="h-4 w-4" />
