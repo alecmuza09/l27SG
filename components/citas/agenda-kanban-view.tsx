@@ -1,8 +1,17 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 
 import { useState, useMemo, useEffect, useCallback } from "react"
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = React.useState(value)
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+  return debouncedValue
+}
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -415,6 +424,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const isControlledSucursal = selectedSucursalProp !== undefined && onSucursalChange !== undefined
   const selectedSucursal = isControlledSucursal ? selectedSucursalProp : selectedSucursalState
   const setSelectedSucursal = isControlledSucursal ? onSucursalChange : setSelectedSucursalState
+  const debouncedDate = useDebounce(selectedDate, 300)
+  const debouncedSucursal = useDebounce(selectedSucursal ?? "", 300)
   const [draggedCita, setDraggedCita] = useState<Cita | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ time: string; empleadoId: string } | null>(null)
@@ -510,7 +521,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       }
     }
     loadVacaciones()
-  }, [selectedDate])
+  }, [debouncedDate])
 
   useEffect(() => {
     async function loadSucursales() {
@@ -541,15 +552,15 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   useEffect(() => {
     async function loadEmpleados() {
-      if (!selectedSucursal || !selectedDate) {
+      if (!debouncedSucursal || !debouncedDate) {
         setEmpleadosSucursal([])
         setAsignacionesPorEmpleado({})
         return
       }
       try {
         const [emps, ovMap] = await Promise.all([
-          getEmpleadosParaAgendaPorSucursalYDia(selectedSucursal, selectedDate),
-          getAsignacionesPorFecha(selectedDate),
+          getEmpleadosParaAgendaPorSucursalYDia(debouncedSucursal, debouncedDate),
+          getAsignacionesPorFecha(debouncedDate),
         ])
         setEmpleadosSucursal(emps)
         setAsignacionesPorEmpleado(Object.fromEntries(ovMap))
@@ -559,7 +570,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       }
     }
     void loadEmpleados()
-  }, [selectedSucursal, selectedDate, empleadosAgendaTick])
+  }, [debouncedSucursal, debouncedDate, empleadosAgendaTick])
 
   useEffect(() => {
     if (!cambiarSucursalEmpleado || !selectedSucursal) return
@@ -580,12 +591,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   useEffect(() => {
     async function loadCitas() {
-      if (selectedSucursal && selectedDate) {
+      if (debouncedSucursal && debouncedDate) {
         setIsLoadingCitas(true)
         try {
           const [citasData, ausenciasData] = await Promise.all([
-            getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal),
-            getAusenciasFromDB({ fechaDesde: selectedDate, fechaHasta: selectedDate }),
+            getCitasByDateAndSucursalFromDB(debouncedDate, debouncedSucursal),
+            getAusenciasFromDB({ fechaDesde: debouncedDate, fechaHasta: debouncedDate }),
           ])
           setCitas(citasData)
           setAusencias(enrichAusenciasList(ausenciasData))
@@ -598,7 +609,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       }
     }
     loadCitas()
-  }, [selectedSucursal, selectedDate, refreshCitasKey, enrichAusenciasList])
+  }, [debouncedSucursal, debouncedDate, refreshCitasKey, enrichAusenciasList])
 
   useEffect(() => {
     if (!ausenciaEditando) return
@@ -689,19 +700,19 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   useEffect(() => {
     let cancelled = false
     async function loadBloques() {
-      if (!selectedSucursal || !selectedDate) {
+      if (!debouncedSucursal || !debouncedDate) {
         setBloquesAgenda([])
         return
       }
-      let list = await getAgendaBloquesFromDB(selectedSucursal, selectedDate)
+      let list = await getAgendaBloquesFromDB(debouncedSucursal, debouncedDate)
       if (!cancelled && list.length === 0 && typeof window !== "undefined") {
         try {
-          const stored = window.localStorage.getItem(`bloques_agenda_${selectedDate}`)
+          const stored = window.localStorage.getItem(`bloques_agenda_${debouncedDate}`)
           if (stored) {
             const parsed = JSON.parse(stored) as BloqueAgenda[]
             if (Array.isArray(parsed) && parsed.length > 0) {
               list = parsed
-              const mig = await saveAgendaBloquesToDB(selectedSucursal, selectedDate, parsed as AgendaBloque[])
+              const mig = await saveAgendaBloquesToDB(debouncedSucursal, debouncedDate, parsed as AgendaBloque[])
               if (!mig.ok) console.warn("Migración agenda_bloques localStorage→BD:", mig.error)
             }
           }
@@ -715,24 +726,24 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     return () => {
       cancelled = true
     }
-  }, [selectedDate, selectedSucursal])
+  }, [debouncedDate, debouncedSucursal])
 
   useEffect(() => {
-    if (!selectedSucursal || !selectedDate) return
+    if (!debouncedSucursal || !debouncedDate) return
 
     const refreshDesdeServidor = async () => {
-      const list = await getAgendaBloquesFromDB(selectedSucursal, selectedDate)
+      const list = await getAgendaBloquesFromDB(debouncedSucursal, debouncedDate)
       setBloquesAgenda(list as BloqueAgenda[])
     }
 
-    const channel = subscribeAgendaBloquesRealtime(selectedSucursal, () => {
+    const channel = subscribeAgendaBloquesRealtime(debouncedSucursal, () => {
       void refreshDesdeServidor()
     })
 
     return () => {
       void unsubscribeAgendaBloquesRealtime(channel)
     }
-  }, [selectedSucursal, selectedDate])
+  }, [debouncedSucursal, debouncedDate])
 
   const citasFiltradas = useMemo(
     () => citas.filter((c) => c.fecha === selectedDate && c.sucursalId === selectedSucursal),
@@ -819,29 +830,29 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     }).format(date)
   }
 
-  const handleDragStart = (cita: Cita) => {
+  const handleDragStart = useCallback((cita: Cita) => {
     setDraggedCita(cita)
-  }
+  }, [])
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-  }
+  }, [])
 
-  const handleDrop = (nuevoEstado: string) => {
+  const handleDrop = useCallback((nuevoEstado: string) => {
     if (draggedCita) {
       console.log(`[v0] Moviendo cita ${draggedCita.id} a estado ${nuevoEstado}`)
       setDraggedCita(null)
     }
-  }
+  }, [draggedCita])
 
-  const handleSlotClick = (time: string, empleadoId: string, isInRange: boolean) => {
+  const handleSlotClick = useCallback((time: string, empleadoId: string, isInRange: boolean) => {
     if (!isInRange) return
     if (isEmpleadoDeVacaciones(empleadoId, selectedDate)) return
     setSelectedSlot({ time, empleadoId })
     setDialogOpen(true)
-  }
+  }, [selectedDate, vacaciones])
 
-  const handleCitaCreated = async () => {
+  const handleCitaCreated = useCallback(async () => {
     // Recargar citas después de crear una nueva
     if (selectedSucursal && selectedDate) {
       setIsLoadingCitas(true)
@@ -856,9 +867,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         setIsLoadingCitas(false)
       }
     }
-  }
+  }, [selectedSucursal, selectedDate])
 
-  const handleCambiarEstado = async (citaId: string, nuevoEstadoUI: string) => {
+  const handleCambiarEstado = useCallback(async (citaId: string, nuevoEstadoUI: string) => {
     try {
       const estadoDB = mapearEstadoABD(nuevoEstadoUI) as 'pendiente' | 'confirmada' | 'en-progreso' | 'completada' | 'cancelada' | 'no-asistio'
       // Usar campo "pagado" para diferenciar "pagado" de "pendiente-por-pagar"
@@ -874,7 +885,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       console.error('Error cambiando estado:', error)
       toast.error('Error al cambiar el estado de la cita')
     }
-  }
+  }, [handleCitaCreated])
 
   // Determinar el estado UI real de una cita usando tanto "estado" como el campo "pagado"
   const getEstadoUI = (cita: Cita): string => {
@@ -997,12 +1008,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     setNuevoBloque((prev) => ({ ...prev, empleadoId: '' }))
   }
 
-  const handleEliminarBloque = async (id: string) => {
+  const handleEliminarBloque = useCallback(async (id: string) => {
     if (!selectedDate) return
     const ok = await persistBloquesForDate(selectedDate, bloquesAgenda.filter((b) => b.id !== id))
     if (!ok) return
     setBloqueEditando((cur) => (cur?.id === id ? null : cur))
-  }
+  }, [selectedDate, bloquesAgenda, selectedSucursal])
 
   const handleGuardarBloqueEditado = async (actualizado: BloqueAgenda) => {
     const next = bloquesAgenda.map((b) => (b.id === actualizado.id ? actualizado : b))
@@ -1033,7 +1044,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     }
   }
 
-  const handleEliminarAusenciaConf = async (id: string) => {
+  const handleEliminarAusenciaConf = useCallback(async (id: string) => {
     if (!confirm("¿Eliminar esta ausencia del sistema?")) return
     const r = await deleteAusencia(id)
     if (r.success) {
@@ -1041,7 +1052,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       setAusenciaEditando((cur) => (cur?.id === id ? null : cur))
       await aplicarAusenciasDelServidor()
     } else toast.error(r.error ?? "Error al eliminar")
-  }
+  }, [selectedDate, empleadosSucursal])
 
   const handleGuardarAusenciaEditada = async () => {
     if (!ausenciaEditando) return
@@ -1362,6 +1373,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       minWidth: `${[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].length * 155}px`,
                     }}
                   >
+                    {/* TODO: optimizar — extraer columna de empleada a EmpleadaColumn con React.memo (render inline ~680 líneas) */}
                     {[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].map((empleado) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                       const citasEmpleadoAgenda = citasEmpleado.filter(citaOcupaFranjaEnAgenda)
