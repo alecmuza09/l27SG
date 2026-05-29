@@ -182,6 +182,18 @@ function calcularPeriodoAnterior(periodo: Periodo, customDesde?: string, customH
   }
 }
 
+function contarDiasHabiles(fechaDesde: string, fechaHasta: string): number {
+  const ini = new Date(fechaDesde + "T12:00:00")
+  const fin = new Date(fechaHasta + "T12:00:00")
+  let dias = 0
+  const cur = new Date(ini)
+  while (cur <= fin) {
+    if (cur.getDay() !== 0) dias++ // 0 = domingo
+    cur.setDate(cur.getDate() + 1)
+  }
+  return Math.max(dias, 1)
+}
+
 function buildVentasPorPeriodo(
   pagos: Pago[], pagosAnt: Pago[], periodo: Periodo, fechaDesde: string, fechaHasta: string,
 ): VentaDia[] {
@@ -1782,6 +1794,20 @@ export default function ReportesPage() {
   // ── Derived ───────────────────────────────────────────────────────────────
   const maxVentas   = Math.max(...ventasPeriodo.map(d => Math.max(d.ventas, d.ventasAnt)), 1)
   const maxEmpleado = Math.max(...empleadosTop.map(e => e.ingresos), 1)
+
+  const { fechaDesde: fdActual, fechaHasta: fhActual } =
+    calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+  const { fechaDesde: fdAnt, fechaHasta: fhAnt } =
+    calcularPeriodoAnterior(periodo, fechaCustomDesde, fechaCustomHasta)
+
+  const diasHabilesActual  = contarDiasHabiles(fdActual, fhActual)
+  const diasHabilesAnt     = fdAnt && fhAnt ? contarDiasHabiles(fdAnt, fhAnt) : 1
+
+  const promedioDiarioActual = Math.round(statsActual.ingresosTotales / diasHabilesActual)
+  const promedioDiarioAnt    = fdAnt && fhAnt
+    ? Math.round(statsAnterior.ingresosTotales / diasHabilesAnt)
+    : 0
+
   const { label: periodoLabel } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
   const sucNombreActiva = sucursalFilter === "all"
     ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
@@ -1919,7 +1945,7 @@ export default function ReportesPage() {
         <div className="space-y-2">
           <div className={cn(
             "grid gap-3 items-start",
-            isManager ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-5" : "grid-cols-2 md:grid-cols-4 lg:grid-cols-7",
+            isManager ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-5" : "grid-cols-2 md:grid-cols-4 lg:grid-cols-8",
           )}>
             {!isManager && (
               <KpiCard
@@ -1949,6 +1975,22 @@ export default function ReportesPage() {
                 title="Ticket Promedio"
                 value={fmtMXN(statsActual.ticketPromedio)}
                 tendencia={{ actual: statsActual.ticketPromedio, anterior: statsAnterior.ticketPromedio }}
+              />
+            )}
+
+            {!isManager && (
+              <KpiCard
+                icon={TrendingUp}
+                iconBg="bg-violet-50"
+                iconColor="text-violet-500"
+                title="Promedio Diario"
+                value={fmtMXN(promedioDiarioActual)}
+                subtitle={
+                  <p className="text-[10px] text-muted-foreground leading-tight">
+                    {diasHabilesActual} días hábiles
+                  </p>
+                }
+                tendencia={{ actual: promedioDiarioActual, anterior: promedioDiarioAnt }}
               />
             )}
 
