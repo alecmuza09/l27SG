@@ -1352,6 +1352,7 @@ export default function ReportesPage() {
   const [sucursales,       setSucursales]       = useState<Sucursal[]>([])
   const [activeTab,        setActiveTab]        = useState(isManager ? "servicios" : "ventas")
   const [isLoading,        setIsLoading]        = useState(true)
+  const [isLoadingKpis,    setIsLoadingKpis]    = useState(true)
 
   // ── Datos ──
   const [pagosBrutos,          setPagosBrutos]          = useState<Pago[]>([])
@@ -1386,6 +1387,7 @@ export default function ReportesPage() {
   // ── Carga de datos reactiva ──────────────────────────────────────────────
   const cargarDatos = useCallback(async () => {
     setIsLoading(true)
+    setIsLoadingKpis(true)
     try {
       const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
       const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(periodo, fechaCustomDesde, fechaCustomHasta)
@@ -1402,6 +1404,14 @@ export default function ReportesPage() {
 
       const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
 
+      const calcStats = (lista: Pago[]): KpiStats => {
+        const comp      = lista.filter(p => p.estado === "completado")
+        const ingresos  = comp.reduce((s, p) => s + p.monto, 0)
+        const total     = comp.length
+        return { ingresosTotales: ingresos, totalServicios: total, ticketPromedio: total > 0 ? Math.round(ingresos / total) : 0 }
+      }
+
+      // FASE 1: pagos — base de todos los KPIs
       let pagos: Pago[]
       let pagosAnt: Pago[]
 
@@ -1419,8 +1429,34 @@ export default function ReportesPage() {
         ])
       }
 
+      setPagosBrutos(pagos)
+      setPagosAnteriores(pagosAnt)
+      setStatsActual(calcStats(pagos))
+      setStatsAnterior(calcStats(pagosAnt))
+      setVentasSaldoGcActual(totalizarVentasSaldoGiftCards(pagos))
+      setVentasSaldoGcAnt(totalizarVentasSaldoGiftCards(pagosAnt))
+      setPropinasEmpleadas(calcularPropinasPorEmpleada(pagos))
+      setVentasPeriodo(buildVentasPorPeriodo(pagos, pagosAnt, periodo, fechaDesde, fechaHasta))
+
+      const metodosMapFase1 = new Map<string, { monto: number; count: number }>()
+      const bump1 = (clave: string, monto: number) => {
+        if (monto <= 0.009) return
+        const prev = metodosMapFase1.get(clave) ?? { monto: 0, count: 0 }
+        metodosMapFase1.set(clave, { monto: prev.monto + monto, count: prev.count + 1 })
+      }
+      pagos.filter(p => p.estado === "completado").forEach(p => {
+        const d = distribuirMontoPago(p)
+        bump1("efectivo", d.efectivo)
+        bump1("tarjeta", d.tarjeta)
+        bump1("transferencia", d.transferencia)
+        bump1("otro", d.otro)
+      })
+      setMetodosPago(Array.from(metodosMapFase1.entries()).map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto))
+      setIsLoadingKpis(false)
+
       const sucIdParaRest = sucId
 
+      // FASE 2: resto de datos en paralelo (tabs secundarias)
       let citasRes: Awaited<ReturnType<typeof getCitasResumenPeriodo>>
       let servicios: Awaited<ReturnType<typeof getServiciosPopulares>>
       let empleados: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
@@ -1522,42 +1558,11 @@ export default function ReportesPage() {
         ])
       }
 
-      setPagosBrutos(pagos)
-      setPagosAnteriores(pagosAnt)
       setCitasResumen(citasRes)
       setClientesStats(cliStats)
       setTopClientes(topCli)
       setMetricasSucursales(metSuc)
-      setVentasPeriodo(buildVentasPorPeriodo(pagos, pagosAnt, periodo, fechaDesde, fechaHasta))
 
-      const calcStats = (lista: Pago[]): KpiStats => {
-        const comp      = lista.filter(p => p.estado === "completado")
-        const ingresos  = comp.reduce((s, p) => s + p.monto, 0)
-        const total     = comp.length
-        return { ingresosTotales: ingresos, totalServicios: total, ticketPromedio: total > 0 ? Math.round(ingresos / total) : 0 }
-      }
-      setStatsActual(calcStats(pagos))
-      setStatsAnterior(calcStats(pagosAnt))
-      setVentasSaldoGcActual(totalizarVentasSaldoGiftCards(pagos))
-      setVentasSaldoGcAnt(totalizarVentasSaldoGiftCards(pagosAnt))
-
-      // Métodos de pago (incluye desglose efectivo/tarjeta en pagos mixtos, sin duplicar montos)
-      const metodosMap = new Map<string, { monto: number; count: number }>()
-      const bump = (clave: string, monto: number) => {
-        if (monto <= 0.009) return
-        const prev = metodosMap.get(clave) ?? { monto: 0, count: 0 }
-        metodosMap.set(clave, { monto: prev.monto + monto, count: prev.count + 1 })
-      }
-      pagos.filter(p => p.estado === "completado").forEach(p => {
-        const d = distribuirMontoPago(p)
-        bump("efectivo", d.efectivo)
-        bump("tarjeta", d.tarjeta)
-        bump("transferencia", d.transferencia)
-        bump("otro", d.otro)
-      })
-      setMetodosPago(Array.from(metodosMap.entries()).map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto))
-
-      // Servicios enriquecidos
       const totalSvc = servicios.reduce((s, x) => s + x.count, 0)
       setServiciosMasVendidos(servicios.map(s => ({
         name: s.name, cantidad: s.count, ingresos: s.revenue,
@@ -1578,11 +1583,11 @@ export default function ReportesPage() {
         comision: Math.round(e.ingresos * 0.3),
         ocupacion: e.ocupacion,
       })))
-      setPropinasEmpleadas(calcularPropinasPorEmpleada(pagos))
     } catch (err) {
       console.error("Error cargando reportes:", err)
     } finally {
       setIsLoading(false)
+      setIsLoadingKpis(false)
     }
   }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
 
@@ -1813,17 +1818,6 @@ export default function ReportesPage() {
     ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
     : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? "")
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Cargando reportes…</p>
-        </div>
-      </div>
-    )
-  }
-
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
@@ -1943,6 +1937,18 @@ export default function ReportesPage() {
 
         {/* ── KPIs ── */}
         <div className="space-y-2">
+          {isLoadingKpis ? (
+            <div className={cn(
+              "grid gap-3",
+              isManager
+                ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-5"
+                : "grid-cols-2 md:grid-cols-4 lg:grid-cols-8",
+            )}>
+              {Array.from({ length: isManager ? 5 : 8 }).map((_, i) => (
+                <div key={i} className="h-[140px] rounded-lg bg-muted animate-pulse" />
+              ))}
+            </div>
+          ) : (
           <div className={cn(
             "grid gap-3 items-start",
             isManager ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-5" : "grid-cols-2 md:grid-cols-4 lg:grid-cols-8",
@@ -2041,6 +2047,7 @@ export default function ReportesPage() {
               subtitle={<p className="text-[10px] text-muted-foreground leading-tight">Últimos 30 días</p>}
             />
           </div>
+          )}
 
           {!isManager && (
             <div className="flex flex-col items-end gap-1 no-print">
@@ -2250,7 +2257,13 @@ export default function ReportesPage() {
                 <CardDescription>Top 10 · {periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {serviciosMasVendidos.length === 0 ? (
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                    ))}
+                  </div>
+                ) : serviciosMasVendidos.length === 0 ? (
                   <p className="text-center py-8 text-sm text-muted-foreground">Sin datos en este período</p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2299,7 +2312,13 @@ export default function ReportesPage() {
                 <CardDescription>Top 10 · {periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {empleadosTop.length === 0 ? (
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                    ))}
+                  </div>
+                ) : empleadosTop.length === 0 ? (
                   <p className="text-center py-8 text-sm text-muted-foreground">Sin datos en este período</p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2364,7 +2383,13 @@ export default function ReportesPage() {
                 <CardDescription>{periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {propinasEmpleadas.length === 0 ? (
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                    ))}
+                  </div>
+                ) : propinasEmpleadas.length === 0 ? (
                   <p className="text-center py-8 text-sm text-muted-foreground">Sin propinas registradas en este período</p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2409,16 +2434,26 @@ export default function ReportesPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <DonutDistribucionClientes
-                    vip={clientesStats.vip}
-                    activos={clientesStats.activos}
-                    nuevos={clientesStats.nuevos}
-                    total={clientesStats.total}
-                  />
-                  <div className="text-center p-4 rounded-lg bg-slate-50 border border-slate-200 mt-4">
-                    <div className="text-3xl font-bold text-slate-700">{clientesStats.total}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Total de clientes registrados</p>
-                  </div>
+                  {isLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <DonutDistribucionClientes
+                        vip={clientesStats.vip}
+                        activos={clientesStats.activos}
+                        nuevos={clientesStats.nuevos}
+                        total={clientesStats.total}
+                      />
+                      <div className="text-center p-4 rounded-lg bg-slate-50 border border-slate-200 mt-4">
+                        <div className="text-3xl font-bold text-slate-700">{clientesStats.total}</div>
+                        <p className="text-xs text-muted-foreground mt-1">Total de clientes registrados</p>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -2431,7 +2466,13 @@ export default function ReportesPage() {
                   <CardDescription>{periodoLabel}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {topClientes.length === 0 ? (
+                  {isLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                      ))}
+                    </div>
+                  ) : topClientes.length === 0 ? (
                     <p className="text-center py-6 text-sm text-muted-foreground">Sin visitas en este período</p>
                   ) : (
                     <div className="space-y-2">
@@ -2461,7 +2502,13 @@ export default function ReportesPage() {
                   <CardDescription>{periodoLabel}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {metricasSucursales.length === 0 ? (
+                  {isLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                      ))}
+                    </div>
+                  ) : metricasSucursales.length === 0 ? (
                     <div className="text-center py-8 text-sm text-muted-foreground">
                       <Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
                       <p>Selecciona "Todas las sucursales" para ver la comparativa</p>
@@ -2559,7 +2606,13 @@ export default function ReportesPage() {
                   <CardDescription>{periodoLabel}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {empleadosTop.length === 0 ? (
+                  {isLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                      ))}
+                    </div>
+                  ) : empleadosTop.length === 0 ? (
                     <p className="text-center py-8 text-sm text-muted-foreground">
                       Sin datos en este período
                     </p>
