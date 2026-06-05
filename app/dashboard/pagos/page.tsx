@@ -247,7 +247,16 @@ export default function PagosPage() {
   const cobrosCompletadosCount = pagos.filter(p => p.estado === "completado").length
 
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
-  const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf + totalOtro
+  const totalPropinas   = pagos
+    .filter(p => p.estado === "completado")
+    .reduce((s, p) => s + (p.propina ?? 0), 0)
+  const totalDescuentos = pagos
+    .filter(p => p.estado === "completado")
+    .reduce((s, p) => s + (p.descuentoMonto ?? 0), 0)
+
+  // totalEfectivo/Tarjeta/Transf ya incluyen propina en el monto,
+  // hay que restarla para obtener solo servicios
+  const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf + totalOtro - totalPropinas
   const totalNeto       = totalGeneral - totalGastos
 
   // ── helpers de selección ────────────────────────────────────────────────────
@@ -639,8 +648,8 @@ export default function PagosPage() {
           {totalOtro > 0 && (
             <StatRow label="Otros medios / mixto" value={fmtMXN(totalOtro)} />
           )}
-          <StatRow label="Propinas" value={fmtMXN(resumen?.totalPropinas ?? 0)} />
-          <StatRow label="Descuentos" value={fmtMXN(resumen?.totalDescuentos ?? 0)} />
+          <StatRow label="Propinas" value={fmtMXN(totalPropinas)} />
+          <StatRow label="Descuentos" value={fmtMXN(totalDescuentos)} />
 
           <Separator className="my-2" />
 
