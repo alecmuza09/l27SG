@@ -12,6 +12,26 @@ function localFmt(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** Días laborales de un empleado en un período según su diasTrabajo (0=Dom … 6=Sáb). */
+function contarDiasLaboralesEmpleado(
+  desde: string,
+  hasta: string,
+  diasTrabajo: number[],
+): number {
+  if (!diasTrabajo || diasTrabajo.length === 0) {
+    diasTrabajo = [1, 2, 3, 4, 5, 6]
+  }
+  const ini = new Date(desde + 'T12:00:00')
+  const fin = new Date(hasta + 'T12:00:00')
+  let dias = 0
+  const cur = new Date(ini)
+  while (cur <= fin) {
+    if (diasTrabajo.includes(cur.getDay())) dias++
+    cur.setDate(cur.getDate() + 1)
+  }
+  return Math.max(dias, 1)
+}
+
 /** Rango «Este Mes» y mes anterior (alineado con Reportes → calcularPeriodo / calcularPeriodoAnterior). */
 function rangosMesReportes(): {
   fechaDesde: string
@@ -494,11 +514,24 @@ export async function getTopEmpleadosFromDB(
         const serviciosCompletados = citas
         const promedioTicket = citas > 0 ? Math.round(ingresos / citas) : 0
         
-        // Calcular ocupación (horas trabajadas vs horas ocupadas)
-        const horasOcupadas = citasMes?.reduce((sum, c: Pick<CitaRow, 'duracion'>) => sum + (Number(c.duracion || 0) / 60), 0) || 0
-        const horasTrabajadas = 8 * 30 // 8 horas/día * 30 días del mes
-        const ocupacion = horasTrabajadas > 0
-          ? Math.min(100, Math.round((horasOcupadas / horasTrabajadas) * 100))
+        const diasLaborales = contarDiasLaboralesEmpleado(desde, hasta, empleado.diasTrabajo)
+
+        const [hIni, mIni] = (empleado.horarioInicio || '09:00').split(':').map(Number)
+        const [hFin, mFin] = (empleado.horarioFin || '18:00').split(':').map(Number)
+        const horasPorDia = Math.max(1, (hFin * 60 + mFin - hIni * 60 - mIni) / 60)
+        const horasDisponibles = diasLaborales * horasPorDia
+
+        const horasOcupadas = citasMes?.reduce(
+          (sum, c: Pick<CitaRow, 'duracion'>) => sum + (Number(c.duracion || 0) / 60),
+          0,
+        ) || 0
+
+        const horasOcupadasReal = horasOcupadas > 0
+          ? horasOcupadas
+          : citas * 1 // 1 hora por cita como fallback
+
+        const ocupacion = horasDisponibles > 0
+          ? Math.min(100, Math.round((horasOcupadasReal / horasDisponibles) * 100))
           : 0
         
         // Rating simulado (puede ser reemplazado por datos reales si existe tabla de ratings)
