@@ -467,14 +467,6 @@ async function fetchCanjesParaPdf(
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1)
 
-    // Filtrar por la sucursal donde ocurrió el canje (en el pago),
-    // NO por la sucursal donde se emitió la GC
-    if (sucursalId) {
-      query = query.or(
-        `pago.sucursal_id.eq.${sucursalId},and(venta_id.is.null,gift_card.sucursal_id.eq.${sucursalId})`
-      )
-    }
-
     const { data, error } = await query
     if (error) throw new Error(error.message)
     if (!data?.length) break
@@ -483,7 +475,16 @@ async function fetchCanjesParaPdf(
     offset += PAGE
   }
 
-  return rows
+  const rowsFiltrados = sucursalId
+    ? rows.filter((t: any) => {
+        const pagoSucursal = t.pago?.sucursal_id
+        const gcSucursal = t.gift_card?.sucursal_id
+        if (pagoSucursal) return pagoSucursal === sucursalId
+        return gcSucursal === sucursalId
+      })
+    : rows
+
+  return rowsFiltrados
     .map((t: any): CanjeGcPdfRow | null => {
       const gc = t.gift_card
       if (!gc) return null
