@@ -406,10 +406,12 @@ async function fetchGiftCardsParaPdf(
       .order("fecha_emision", { ascending: true })
       .range(offset, offset + PAGE - 1)
 
+    // Excluir SIEMPRE las GC de tienda en línea de la sección de emitidas
     query = query.not("metodo_pago", "ilike", "%linea%")
     query = query.not("metodo_pago", "ilike", "%online%")
     query = query.not("metodo_pago", "ilike", "%en line%")
 
+    // Si hay filtro por sucursal, mostrar solo las que ESA sucursal vendió
     if (sucursalId) {
       query = query.eq("sucursal_id", sucursalId)
     }
@@ -465,6 +467,8 @@ async function fetchCanjesParaPdf(
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1)
 
+    // Filtrar por la sucursal donde ocurrió el canje (en el pago),
+    // NO por la sucursal donde se emitió la GC
     if (sucursalId) query = query.eq("pago.sucursal_id", sucursalId)
 
     const { data, error } = await query
@@ -496,6 +500,123 @@ async function fetchCanjesParaPdf(
           || gc.sucursal?.nombre
           || gc.sucursal_id
           || "—",
+      }
+    })
+    .filter((r): r is CanjeGcPdfRow => r !== null)
+}
+
+async function fetchGiftCardsOnlineParaPdf(
+  fechaDesde: string,
+  fechaHasta: string,
+): Promise<GiftCardDetallePdfRow[]> {
+  const PAGE = 1000
+  const rows: Record<string, unknown>[] = []
+  let offset = 0
+
+  for (;;) {
+    const { data, error } = await (supabase as any)
+      .from("gift_cards")
+      .select(GC_SELECT_PDF)
+      .gte("fecha_emision", fechaDesde)
+      .lte("fecha_emision", fechaHasta)
+      .or("metodo_pago.ilike.%linea%,metodo_pago.ilike.%online%,metodo_pago.ilike.%en line%")
+      .order("fecha_emision", { ascending: true })
+      .range(offset, offset + PAGE - 1)
+
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+
+  return rows.map((gc: any) => {
+    const montoInicial = Number(gc.monto_inicial) || 0
+    const saldoActual = Number(gc.saldo_actual) || 0
+    return {
+      id: gc.id as string,
+      codigo: gc.codigo,
+      cliente: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : "Sin cliente",
+      fechaEmision: normalizarFechaGc(gc.fecha_emision || gc.created_at),
+      montoInicial,
+      saldoActual,
+      metodoPago: labelMetodoPagoGc(gc.metodo_pago),
+      saldoUsado: Math.max(0, montoInicial - saldoActual),
+      saldoDisponible: saldoActual,
+      estado: labelEstadoGc(gc.estado),
+      sucursal: "Tienda en Línea",
+    }
+  })
+}
+
+async function fetchCanjesOnlineParaPdf(
+  fechaDesde: string,
+  fechaHasta: string,
+  sucursalIdsExcluir: string[],
+): Promise<CanjeGcPdfRow[]> {
+  // Canjes de GC online que NO ocurrieron en ninguna sucursal física
+  // (pago.sucursal_id no está en la lista de sucursales, o venta_id es null)
+  const PAGE = 1000
+  const rows: Record<string, unknown>[] = []
+  let offset = 0
+
+  for (;;) {
+    const { data, error } = await (supabase as any)
+      .from("gift_card_transacciones")
+      .select(`
+        *,
+        empleado:empleados(nombre, apellido),
+        pago:pagos(sucursal_id, sucursal:sucursales(nombre)),
+        gift_card:gift_cards(
+          codigo, sucursal_id, metodo_pago,
+          cliente:clientes(nombre, apellido),
+          sucursal:sucursales(nombre)
+        )
+      `)
+      .in("tipo", ["canje", "uso", "descuento", "cobro", "vip_pass"])
+      .gte("created_at", fechaDesde + "T00:00:00")
+      .lte("created_at", fechaHasta + "T23:59:59")
+      .or("venta_id.is.null")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + PAGE - 1)
+
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+
+  return rows
+    .filter((t: any) => {
+      const gc = t.gift_card
+      if (!gc) return false
+      const metodo = (gc.metodo_pago ?? "").toLowerCase()
+      const esOnline = metodo.includes("linea") ||
+                       metodo.includes("online") ||
+                       metodo.includes("en line")
+      if (!esOnline) return false
+      const sucursalPago = (t.pago as any)?.sucursal_id as string | undefined
+      if (sucursalPago && sucursalIdsExcluir.includes(sucursalPago)) return false
+      return true
+    })
+    .map((t: any): CanjeGcPdfRow | null => {
+      const gc = t.gift_card
+      if (!gc) return null
+      const empleadaJoin = t.empleado
+        ? `${t.empleado.nombre ?? ""} ${t.empleado.apellido ?? ""}`.trim()
+        : ""
+      const empleadaDirecta = String(t.empleado_nombre ?? t.empleada ?? "").trim()
+      const clienteNombre = gc.cliente
+        ? `${gc.cliente.nombre} ${gc.cliente.apellido}`
+        : "Sin cliente"
+      return {
+        fecha: normalizarFechaGc(t.fecha || t.created_at),
+        codigo: gc.codigo,
+        cliente: clienteNombre,
+        monto: Number(t.monto) || 0,
+        empleada: empleadaJoin || empleadaDirecta || "—",
+        sucursal: "Tienda en Línea",
       }
     })
     .filter((r): r is CanjeGcPdfRow => r !== null)
@@ -681,56 +802,76 @@ function pdfEncabezadoGiftCards(
   pdfEncabezadoBase(doc, opts, "Reporte de Gift Cards")
 }
 
-async function generarGiftCardsPdf(opts: {
-  sucursal: string
-  periodoLabel: string
-  periodoSlug: string
-  sucSlug: string
-  cards: GiftCardDetallePdfRow[]
-  canjes: CanjeGcPdfRow[]
-}) {
-  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-    import("jspdf"),
-    import("jspdf-autotable"),
-  ])
-
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
-  const tableOpts = pdfTableOpts()
-
-  const totalEmitidas = opts.cards.length
-  const totalVendido = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
-  const totalSaldoUsado = opts.cards.reduce((sum, c) => sum + c.saldoUsado, 0)
+function calcularResumenGcSeccion(
+  cards: GiftCardDetallePdfRow[],
+  canjes: CanjeGcPdfRow[],
+): { totalEmitidas: number; totalVendido: number; totalSaldoUsado: number; diferencia: number; favorLabel: string; favorMonto: number; esGisman: boolean } {
+  const totalEmitidas = cards.length
+  const totalVendido = cards.reduce((s, c) => s + c.montoInicial, 0)
+  const totalSaldoUsado = canjes.reduce((s, c) => s + c.monto, 0)
   const diferencia = totalVendido - totalSaldoUsado
-  const favorLabel = diferencia >= 0 ? "Favor a Gisman" : "Favor a Sucursal"
-  const favorMonto = Math.abs(diferencia)
+  const esGisman = diferencia >= 0
+  return {
+    totalEmitidas,
+    totalVendido,
+    totalSaldoUsado,
+    diferencia,
+    favorLabel: esGisman ? "Favor a Gisman" : "Favor a Sucursal",
+    favorMonto: Math.abs(diferencia),
+    esGisman,
+  }
+}
 
-  pdfEncabezadoGiftCards(doc, { sucursal: opts.sucursal, periodo: opts.periodoLabel, seccion: "Resumen" })
+async function renderSeccionGcPdf(
+  doc: import("jspdf").jsPDF,
+  autoTable: any,
+  opts: {
+    tituloSucursal: string
+    periodoLabel: string
+    cards: GiftCardDetallePdfRow[]
+    canjes: CanjeGcPdfRow[]
+    esSegundaPaginaEnAdelante: boolean
+  }
+) {
+  const tableOpts = pdfTableOpts()
+  const resumen = calcularResumenGcSeccion(opts.cards, opts.canjes)
+
+  if (opts.esSegundaPaginaEnAdelante) doc.addPage()
+
+  // Página resumen de la sección
+  pdfEncabezadoGiftCards(doc, {
+    sucursal: opts.tituloSucursal,
+    periodo: opts.periodoLabel,
+    seccion: "Resumen",
+  })
+
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
     head: [["Indicador", "Valor"]],
     body: [
-      ["Gift cards emitidas en el período", String(totalEmitidas)],
-      ["Total vendido en el período", fmtPdfMXN(totalVendido)],
-      ["Total de saldo usado (canjes)", fmtPdfMXN(totalSaldoUsado)],
-      [favorLabel, fmtPdfMXN(favorMonto)],
+      ["Gift cards emitidas en el período", String(resumen.totalEmitidas)],
+      ["Total vendido en el período", fmtPdfMXN(resumen.totalVendido)],
+      ["Total de saldo usado (canjes)", fmtPdfMXN(resumen.totalSaldoUsado)],
+      [resumen.favorLabel, fmtPdfMXN(resumen.favorMonto)],
     ],
     didParseCell: (data: any) => {
       if (data.section === "body" && data.row.index === 3) {
         data.cell.styles.fontStyle = "bold"
-        data.cell.styles.fillColor = diferencia >= 0
+        data.cell.styles.fillColor = resumen.esGisman
           ? [220, 240, 220]
-          : [240, 220, 220]
-        data.cell.styles.textColor = diferencia >= 0
+          : [220, 230, 255]
+        data.cell.styles.textColor = resumen.esGisman
           ? [30, 100, 30]
-          : [140, 30, 30]
+          : [30, 60, 140]
       }
     },
   })
 
+  // Página detalle de GC emitidas
   doc.addPage()
   pdfEncabezadoGiftCards(doc, {
-    sucursal: opts.sucursal,
+    sucursal: opts.tituloSucursal,
     periodo: opts.periodoLabel,
     seccion: "Detalle de Gift Cards emitidas en el período",
   })
@@ -739,7 +880,7 @@ async function generarGiftCardsPdf(opts: {
     startY: PDF_TABLE_START_Y,
     head: [[
       "Código", "Cliente", "Emisión", "Monto inicial", "Método",
-      "Saldo usado", "Saldo disp.", "Estado", "Sucursal",
+      "Saldo usado", "Saldo disp.", "Estado",
     ]],
     body: opts.cards.length > 0
       ? opts.cards.map(c => [
@@ -751,21 +892,21 @@ async function generarGiftCardsPdf(opts: {
           fmtPdfMXN(c.saldoUsado),
           fmtPdfMXN(c.saldoDisponible),
           c.estado,
-          c.sucursal,
         ])
-      : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—", "—", "—"]],
+      : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—", "—"]],
   })
 
+  // Página canjes de la sección
   doc.addPage()
   pdfEncabezadoGiftCards(doc, {
-    sucursal: opts.sucursal,
+    sucursal: opts.tituloSucursal,
     periodo: opts.periodoLabel,
     seccion: "Movimientos / Canjes del período",
   })
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
-    head: [["Fecha", "Código GC", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
+    head: [["Fecha", "Código GC", "Cliente", "Monto usado", "Empleada", "Sucursal GC"]],
     body: opts.canjes.length > 0
       ? opts.canjes.map(c => [
           c.fecha,
@@ -777,6 +918,114 @@ async function generarGiftCardsPdf(opts: {
         ])
       : [["Sin canjes en este período", "—", "—", "—", "—", "—"]],
   })
+}
+
+async function generarGiftCardsPdf(opts: {
+  sucursal: string
+  periodoLabel: string
+  periodoSlug: string
+  sucSlug: string
+  cards: GiftCardDetallePdfRow[]
+  canjes: CanjeGcPdfRow[]
+  porSucursal?: Array<{
+    nombre: string
+    cards: GiftCardDetallePdfRow[]
+    canjes: CanjeGcPdfRow[]
+  }>
+  tiendaEnLinea?: {
+    cards: GiftCardDetallePdfRow[]
+    canjes: CanjeGcPdfRow[]
+  }
+}) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ])
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
+
+  if (opts.porSucursal && opts.porSucursal.length > 0) {
+    // Modo "Todas las sucursales" — una sección por sucursal
+    let primera = true
+    for (const sec of opts.porSucursal) {
+      await renderSeccionGcPdf(doc, autoTable, {
+        tituloSucursal: sec.nombre,
+        periodoLabel: opts.periodoLabel,
+        cards: sec.cards,
+        canjes: sec.canjes,
+        esSegundaPaginaEnAdelante: !primera,
+      })
+      primera = false
+    }
+
+    // Sección Tienda en Línea
+    if (opts.tiendaEnLinea) {
+      await renderSeccionGcPdf(doc, autoTable, {
+        tituloSucursal: "Tienda en Línea",
+        periodoLabel: opts.periodoLabel,
+        cards: opts.tiendaEnLinea.cards,
+        canjes: opts.tiendaEnLinea.canjes,
+        esSegundaPaginaEnAdelante: true,
+      })
+    }
+
+    // Página final: resumen general de todas las sucursales
+    doc.addPage()
+    const tableOpts = pdfTableOpts()
+    const todasSecs = [
+      ...opts.porSucursal,
+      ...(opts.tiendaEnLinea ? [{ nombre: "Tienda en Línea", ...opts.tiendaEnLinea }] : []),
+    ]
+    const resumenGlobal = calcularResumenGcSeccion(opts.cards, opts.canjes)
+
+    pdfEncabezadoGiftCards(doc, {
+      sucursal: opts.sucursal,
+      periodo: opts.periodoLabel,
+      seccion: "Resumen General — Todas las Sucursales",
+    })
+
+    autoTable(doc, {
+      ...tableOpts,
+      startY: PDF_TABLE_START_Y,
+      head: [["Sucursal", "GC Emitidas", "Total Vendido", "Total Canjeado", "Favor a"]],
+      body: [
+        ...todasSecs.map(sec => {
+          const r = calcularResumenGcSeccion(sec.cards, sec.canjes)
+          return [
+            sec.nombre,
+            String(r.totalEmitidas),
+            fmtPdfMXN(r.totalVendido),
+            fmtPdfMXN(r.totalSaldoUsado),
+            `${r.favorLabel}: ${fmtPdfMXN(r.favorMonto)}`,
+          ]
+        }),
+        [
+          "TOTAL GENERAL",
+          String(resumenGlobal.totalEmitidas),
+          fmtPdfMXN(resumenGlobal.totalVendido),
+          fmtPdfMXN(resumenGlobal.totalSaldoUsado),
+          `${resumenGlobal.favorLabel}: ${fmtPdfMXN(resumenGlobal.favorMonto)}`,
+        ],
+      ],
+      didParseCell: (data: any) => {
+        if (data.section === "body" && data.row.index === todasSecs.length) {
+          data.cell.styles.fontStyle = "bold"
+          data.cell.styles.fillColor = PDF_HEADER_BLACK
+          data.cell.styles.textColor = 255
+        }
+      },
+    })
+
+  } else {
+    // Modo sucursal individual — comportamiento original
+    await renderSeccionGcPdf(doc, autoTable, {
+      tituloSucursal: opts.sucursal,
+      periodoLabel: opts.periodoLabel,
+      cards: opts.cards,
+      canjes: opts.canjes,
+      esSegundaPaginaEnAdelante: false,
+    })
+  }
 
   pdfPiePagina(doc)
   doc.save(`gift-cards-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.pdf`)
@@ -1730,30 +1979,59 @@ export default function ReportesPage() {
             ? sucursalFilter
             : sucursalFija
 
-      const esMultiBranchAllGc = !isAdmin && multiBranch && sucursalFilter === "all"
+      const esAll = (isAdmin || multiBranch) && sucursalFilter === "all"
 
-      let cards: GiftCardDetallePdfRow[]
-      let canjes: CanjeGcPdfRow[]
-      if (esMultiBranchAllGc) {
+      if (esAll) {
+        // Cargar todas las sucursales
+        const sucursalesLista = sucursales
+
+        // Cargar GC y canjes por sucursal en paralelo
         const [cardsPorSuc, canjesPorSuc] = await Promise.all([
-          Promise.all(branchIds.map(id => fetchGiftCardsParaPdf(fechaDesde, fechaHasta, id))),
-          Promise.all(branchIds.map(id => fetchCanjesParaPdf(fechaDesde, fechaHasta, id))),
+          Promise.all(sucursalesLista.map(s => fetchGiftCardsParaPdf(fechaDesde, fechaHasta, s.id))),
+          Promise.all(sucursalesLista.map(s => fetchCanjesParaPdf(fechaDesde, fechaHasta, s.id))),
         ])
-        cards = cardsPorSuc.flat()
-        canjes = canjesPorSuc.flat()
-      } else {
-        cards = await fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId)
-        canjes = await fetchCanjesParaPdf(fechaDesde, fechaHasta, sucId)
-      }
 
-      await generarGiftCardsPdf({
-        sucursal: sucNombre,
-        periodoLabel: label,
-        periodoSlug: periodoSlugFrom(periodo),
-        sucSlug: slugPdf(sucNombre),
-        cards,
-        canjes,
-      })
+        // GC de tienda en línea (sin filtro de sucursal, solo las online)
+        const [cardsOnline, canjesOnline] = await Promise.all([
+          fetchGiftCardsOnlineParaPdf(fechaDesde, fechaHasta),
+          fetchCanjesOnlineParaPdf(fechaDesde, fechaHasta, sucursalesLista.map(s => s.id)),
+        ])
+
+        const porSucursal = sucursalesLista.map((s, i) => ({
+          nombre: s.nombre,
+          cards: cardsPorSuc[i],
+          canjes: canjesPorSuc[i],
+        })).filter(s => s.cards.length > 0 || s.canjes.length > 0)
+
+        // Todas las cards y canjes para el resumen global
+        const todasCards = [...cardsPorSuc.flat(), ...cardsOnline]
+        const todosCanjes = [...canjesPorSuc.flat(), ...canjesOnline]
+
+        await generarGiftCardsPdf({
+          sucursal: sucNombre,
+          periodoLabel: label,
+          periodoSlug: periodoSlugFrom(periodo),
+          sucSlug: slugPdf(sucNombre),
+          cards: todasCards,
+          canjes: todosCanjes,
+          porSucursal,
+          tiendaEnLinea: { cards: cardsOnline, canjes: canjesOnline },
+        })
+      } else {
+        // Sucursal individual
+        const [cards, canjes] = await Promise.all([
+          fetchGiftCardsParaPdf(fechaDesde, fechaHasta, sucId),
+          fetchCanjesParaPdf(fechaDesde, fechaHasta, sucId),
+        ])
+        await generarGiftCardsPdf({
+          sucursal: sucNombre,
+          periodoLabel: label,
+          periodoSlug: periodoSlugFrom(periodo),
+          sucSlug: slugPdf(sucNombre),
+          cards,
+          canjes,
+        })
+      }
     } catch (err) {
       console.error("Error generando PDF de gift cards:", err)
     } finally {
