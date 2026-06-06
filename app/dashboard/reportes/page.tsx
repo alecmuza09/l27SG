@@ -469,7 +469,11 @@ async function fetchCanjesParaPdf(
 
     // Filtrar por la sucursal donde ocurrió el canje (en el pago),
     // NO por la sucursal donde se emitió la GC
-    if (sucursalId) query = query.eq("pago.sucursal_id", sucursalId)
+    if (sucursalId) {
+      query = query.or(
+        `pago.sucursal_id.eq.${sucursalId},and(venta_id.is.null,gift_card.sucursal_id.eq.${sucursalId})`
+      )
+    }
 
     const { data, error } = await query
     if (error) throw new Error(error.message)
