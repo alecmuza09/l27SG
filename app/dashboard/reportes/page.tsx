@@ -903,12 +903,22 @@ async function renderSeccionGcPdf(
     periodo: opts.periodoLabel,
     seccion: "Movimientos / Canjes del período",
   })
+
+  // Separar canjes normales de VIP Pass
+  const canjesNormales = opts.canjes.filter(c =>
+    !c.codigo.toUpperCase().endsWith("PASS")
+  )
+  const canjesVipPass = opts.canjes.filter(c =>
+    c.codigo.toUpperCase().endsWith("PASS")
+  )
+
+  // Tabla canjes GC normales
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
     head: [["Fecha", "Código GC", "Cliente", "Monto usado", "Empleada", "Sucursal GC"]],
-    body: opts.canjes.length > 0
-      ? opts.canjes.map(c => [
+    body: canjesNormales.length > 0
+      ? canjesNormales.map(c => [
           c.fecha,
           c.codigo,
           c.cliente,
@@ -916,8 +926,39 @@ async function renderSeccionGcPdf(
           c.empleada,
           c.sucursal,
         ])
-      : [["Sin canjes en este período", "—", "—", "—", "—", "—"]],
+      : [["Sin canjes de gift cards en este período", "—", "—", "—", "—", "—"]],
   })
+
+  // Tabla canjes VIP Pass (solo si hay)
+  if (canjesVipPass.length > 0 || true) {
+    const startYVip = (doc as any).lastAutoTable?.finalY
+      ? (doc as any).lastAutoTable.finalY + 10
+      : PDF_TABLE_START_Y + 40
+
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(11)
+    doc.setTextColor(10, 10, 10)
+    doc.text("Canjes VIP Pass", 14, startYVip)
+    doc.setDrawColor(10, 10, 10)
+    doc.setLineWidth(0.4)
+    doc.line(14, startYVip + 3, doc.internal.pageSize.getWidth() - 14, startYVip + 3)
+
+    autoTable(doc, {
+      ...tableOpts,
+      startY: startYVip + 6,
+      head: [["Fecha", "Código VIP Pass", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
+      body: canjesVipPass.length > 0
+        ? canjesVipPass.map(c => [
+            c.fecha,
+            c.codigo,
+            c.cliente,
+            fmtPdfMXN(c.monto),
+            c.empleada,
+            c.sucursal,
+          ])
+        : [["Sin canjes de VIP Pass en este período", "—", "—", "—", "—", "—"]],
+    })
+  }
 }
 
 async function generarGiftCardsPdf(opts: {
