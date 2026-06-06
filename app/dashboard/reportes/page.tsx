@@ -406,7 +406,13 @@ async function fetchGiftCardsParaPdf(
       .order("fecha_emision", { ascending: true })
       .range(offset, offset + PAGE - 1)
 
-    if (sucursalId) query = query.eq("sucursal_id", sucursalId)
+    query = query.not("metodo_pago", "ilike", "%linea%")
+    query = query.not("metodo_pago", "ilike", "%online%")
+    query = query.not("metodo_pago", "ilike", "%en line%")
+
+    if (sucursalId) {
+      query = query.eq("sucursal_id", sucursalId)
+    }
 
     const { data, error } = await query
     if (error) throw new Error(error.message)
@@ -450,6 +456,7 @@ async function fetchCanjesParaPdf(
       .select(`
         *,
         empleado:empleados(nombre, apellido),
+        pago:pagos(sucursal_id, sucursal:sucursales(nombre)),
         gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
       `)
       .in("tipo", ["canje", "uso", "descuento", "cobro", "vip_pass"])
@@ -458,7 +465,7 @@ async function fetchCanjesParaPdf(
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1)
 
-    if (sucursalId) query = query.eq("gift_card.sucursal_id", sucursalId)
+    if (sucursalId) query = query.eq("pago.sucursal_id", sucursalId)
 
     const { data, error } = await query
     if (error) throw new Error(error.message)
@@ -485,7 +492,10 @@ async function fetchCanjesParaPdf(
         cliente: clienteNombre,
         monto: Number(t.monto) || 0,
         empleada: empleadaJoin || empleadaDirecta || "—",
-        sucursal: gc.sucursal?.nombre || gc.sucursal_id || "—",
+        sucursal: (t.pago as any)?.sucursal?.nombre
+          || gc.sucursal?.nombre
+          || gc.sucursal_id
+          || "—",
       }
     })
     .filter((r): r is CanjeGcPdfRow => r !== null)
