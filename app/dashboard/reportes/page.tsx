@@ -889,18 +889,36 @@ async function renderSeccionGcPdf(
     startY: y1 + 13,
     head: [["Código", "Cliente", "Emisión", "Monto vendido", "Método de pago", "Sucursal", "Estado"]],
     body: opts.cards.length > 0
-      ? opts.cards.map(c => [
-          c.codigo,
-          c.cliente,
-          c.fechaEmision,
-          fmtPdfMXN(c.montoInicial),
-          c.metodoPago,
-          c.sucursal,
-          c.estado,
-        ])
+      ? [
+          ...opts.cards.map(c => [
+            c.codigo,
+            c.cliente,
+            c.fechaEmision,
+            fmtPdfMXN(c.montoInicial),
+            c.metodoPago,
+            c.sucursal,
+            c.estado,
+          ]),
+          [
+            `${opts.cards.length} GC`,
+            "TOTAL",
+            "",
+            fmtPdfMXN(opts.cards.reduce((s, c) => s + c.montoInicial, 0)),
+            "",
+            "",
+            "",
+          ],
+        ]
       : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—"]],
     styles: { ...tableOpts.styles, fontSize: 6.5 },
     headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
+    didParseCell: (data: any) => {
+      if (data.section === "body" && opts.cards.length > 0 && data.row.index === opts.cards.length) {
+        data.cell.styles.fontStyle = "bold"
+        data.cell.styles.fillColor = PDF_HEADER_BLACK
+        data.cell.styles.textColor = 255
+      }
+    },
     columnStyles: {
       0: { cellWidth: 22 },
       1: { cellWidth: 28 },
@@ -932,17 +950,34 @@ async function renderSeccionGcPdf(
     startY: y2 + 13,
     head: [["Fecha", "Código GC", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
     body: canjesNormales.length > 0
-      ? canjesNormales.map(c => [
-          c.fecha,
-          c.codigo,
-          c.cliente,
-          fmtPdfMXN(c.monto),
-          c.empleada,
-          c.sucursal,
-        ])
+      ? [
+          ...canjesNormales.map(c => [
+            c.fecha,
+            c.codigo,
+            c.cliente,
+            fmtPdfMXN(c.monto),
+            c.empleada,
+            c.sucursal,
+          ]),
+          [
+            `${canjesNormales.length} canjes`,
+            "TOTAL",
+            "",
+            fmtPdfMXN(canjesNormales.reduce((s, c) => s + c.monto, 0)),
+            "",
+            "",
+          ],
+        ]
       : [["Sin canjes en este período", "—", "—", "—", "—", "—"]],
     styles: { ...tableOpts.styles, fontSize: 6.5 },
     headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
+    didParseCell: (data: any) => {
+      if (data.section === "body" && canjesNormales.length > 0 && data.row.index === canjesNormales.length) {
+        data.cell.styles.fontStyle = "bold"
+        data.cell.styles.fillColor = PDF_HEADER_BLACK
+        data.cell.styles.textColor = 255
+      }
+    },
   })
 
   // Título canjes VIP Pass
@@ -960,17 +995,34 @@ async function renderSeccionGcPdf(
     startY: y3 + 13,
     head: [["Fecha", "Código VIP Pass", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
     body: canjesVipPass.length > 0
-      ? canjesVipPass.map(c => [
-          c.fecha,
-          c.codigo,
-          c.cliente,
-          fmtPdfMXN(c.monto),
-          c.empleada,
-          c.sucursal,
-        ])
+      ? [
+          ...canjesVipPass.map(c => [
+            c.fecha,
+            c.codigo,
+            c.cliente,
+            fmtPdfMXN(c.monto),
+            c.empleada,
+            c.sucursal,
+          ]),
+          [
+            `${canjesVipPass.length} canjes`,
+            "TOTAL",
+            "",
+            fmtPdfMXN(canjesVipPass.reduce((s, c) => s + c.monto, 0)),
+            "",
+            "",
+          ],
+        ]
       : [["Sin canjes de VIP Pass en este período", "—", "—", "—", "—", "—"]],
     styles: { ...tableOpts.styles, fontSize: 6.5 },
     headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
+    didParseCell: (data: any) => {
+      if (data.section === "body" && canjesVipPass.length > 0 && data.row.index === canjesVipPass.length) {
+        data.cell.styles.fontStyle = "bold"
+        data.cell.styles.fillColor = PDF_HEADER_BLACK
+        data.cell.styles.textColor = 255
+      }
+    },
   })
 }
 
