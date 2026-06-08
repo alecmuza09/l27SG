@@ -887,7 +887,7 @@ async function renderSeccionGcPdf(
   autoTable(doc, {
     ...tableOpts,
     startY: y1 + 13,
-    head: [["Código", "Cliente", "Emisión", "Monto", "Método", "Usado", "Disp.", "Estado"]],
+    head: [["Código", "Cliente", "Emisión", "Monto vendido", "Método de pago", "Sucursal", "Estado"]],
     body: opts.cards.length > 0
       ? opts.cards.map(c => [
           c.codigo,
@@ -895,11 +895,10 @@ async function renderSeccionGcPdf(
           c.fechaEmision,
           fmtPdfMXN(c.montoInicial),
           c.metodoPago,
-          fmtPdfMXN(c.saldoUsado),
-          fmtPdfMXN(c.saldoDisponible),
+          c.sucursal,
           c.estado,
         ])
-      : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—", "—"]],
+      : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—"]],
     styles: { ...tableOpts.styles, fontSize: 6.5 },
     headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
     columnStyles: {
