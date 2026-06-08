@@ -406,8 +406,9 @@ async function fetchGiftCardsParaPdf(
       .order("fecha_emision", { ascending: true })
       .range(offset, offset + PAGE - 1)
 
-    // Excluir SIEMPRE las GC de tienda en línea de la sección de emitidas
+    // Excluir GC de tienda en línea y VIP Pass de la sección de emitidas
     query = query.neq("origen", "en_linea")
+    query = query.not("codigo", "ilike", "%PASS")
 
     // Si hay filtro por sucursal, mostrar solo las que ESA sucursal vendió
     if (sucursalId) {
@@ -841,13 +842,13 @@ async function renderSeccionGcPdf(
 
   if (opts.esSegundaPaginaEnAdelante) doc.addPage()
 
-  // Página resumen de la sección
   pdfEncabezadoGiftCards(doc, {
     sucursal: opts.tituloSucursal,
     periodo: opts.periodoLabel,
     seccion: "Resumen",
   })
 
+  // Tabla resumen
   autoTable(doc, {
     ...tableOpts,
     startY: PDF_TABLE_START_Y,
@@ -869,22 +870,24 @@ async function renderSeccionGcPdf(
           : [30, 60, 140]
       }
     },
+    tableWidth: 80,
   })
 
-  // Página detalle de GC emitidas
-  doc.addPage()
-  pdfEncabezadoGiftCards(doc, {
-    sucursal: opts.tituloSucursal,
-    periodo: opts.periodoLabel,
-    seccion: "Detalle de Gift Cards emitidas en el período",
-  })
+  // Título detalle emitidas
+  const y1 = (doc as any).lastAutoTable?.finalY ?? PDF_TABLE_START_Y + 30
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(9)
+  doc.setTextColor(10, 10, 10)
+  doc.text("Gift Cards emitidas en el período", 14, y1 + 8)
+  doc.setDrawColor(10, 10, 10)
+  doc.setLineWidth(0.3)
+  doc.line(14, y1 + 10, doc.internal.pageSize.getWidth() - 14, y1 + 10)
+
+  // Tabla emitidas
   autoTable(doc, {
     ...tableOpts,
-    startY: PDF_TABLE_START_Y,
-    head: [[
-      "Código", "Cliente", "Emisión", "Monto inicial", "Método",
-      "Saldo usado", "Saldo disp.", "Estado",
-    ]],
+    startY: y1 + 13,
+    head: [["Código", "Cliente", "Emisión", "Monto", "Método", "Usado", "Disp.", "Estado"]],
     body: opts.cards.length > 0
       ? opts.cards.map(c => [
           c.codigo,
@@ -897,14 +900,14 @@ async function renderSeccionGcPdf(
           c.estado,
         ])
       : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—", "—"]],
-  })
-
-  // Página canjes de la sección
-  doc.addPage()
-  pdfEncabezadoGiftCards(doc, {
-    sucursal: opts.tituloSucursal,
-    periodo: opts.periodoLabel,
-    seccion: "Movimientos / Canjes del período",
+    styles: { ...tableOpts.styles, fontSize: 6.5 },
+    headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
+    columnStyles: {
+      0: { cellWidth: 22 },
+      1: { cellWidth: 28 },
+      2: { cellWidth: 18 },
+      4: { cellWidth: 20 },
+    },
   })
 
   // Separar canjes normales de VIP Pass
@@ -915,11 +918,20 @@ async function renderSeccionGcPdf(
     c.codigo.toUpperCase().endsWith("PASS")
   )
 
-  // Tabla canjes GC normales
+  // Título canjes GC normales
+  const y2 = (doc as any).lastAutoTable?.finalY ?? y1 + 40
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(9)
+  doc.setTextColor(10, 10, 10)
+  doc.text("Movimientos / Canjes del período", 14, y2 + 8)
+  doc.setDrawColor(10, 10, 10)
+  doc.setLineWidth(0.3)
+  doc.line(14, y2 + 10, doc.internal.pageSize.getWidth() - 14, y2 + 10)
+
   autoTable(doc, {
     ...tableOpts,
-    startY: PDF_TABLE_START_Y,
-    head: [["Fecha", "Código GC", "Cliente", "Monto usado", "Empleada", "Sucursal GC"]],
+    startY: y2 + 13,
+    head: [["Fecha", "Código GC", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
     body: canjesNormales.length > 0
       ? canjesNormales.map(c => [
           c.fecha,
@@ -929,39 +941,38 @@ async function renderSeccionGcPdf(
           c.empleada,
           c.sucursal,
         ])
-      : [["Sin canjes de gift cards en este período", "—", "—", "—", "—", "—"]],
+      : [["Sin canjes en este período", "—", "—", "—", "—", "—"]],
+    styles: { ...tableOpts.styles, fontSize: 6.5 },
+    headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
   })
 
-  // Tabla canjes VIP Pass (solo si hay)
-  if (canjesVipPass.length > 0 || true) {
-    const startYVip = (doc as any).lastAutoTable?.finalY
-      ? (doc as any).lastAutoTable.finalY + 10
-      : PDF_TABLE_START_Y + 40
+  // Título canjes VIP Pass
+  const y3 = (doc as any).lastAutoTable?.finalY ?? y2 + 30
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(9)
+  doc.setTextColor(10, 10, 10)
+  doc.text("Canjes VIP Pass", 14, y3 + 8)
+  doc.setDrawColor(10, 10, 10)
+  doc.setLineWidth(0.3)
+  doc.line(14, y3 + 10, doc.internal.pageSize.getWidth() - 14, y3 + 10)
 
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(11)
-    doc.setTextColor(10, 10, 10)
-    doc.text("Canjes VIP Pass", 14, startYVip)
-    doc.setDrawColor(10, 10, 10)
-    doc.setLineWidth(0.4)
-    doc.line(14, startYVip + 3, doc.internal.pageSize.getWidth() - 14, startYVip + 3)
-
-    autoTable(doc, {
-      ...tableOpts,
-      startY: startYVip + 6,
-      head: [["Fecha", "Código VIP Pass", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
-      body: canjesVipPass.length > 0
-        ? canjesVipPass.map(c => [
-            c.fecha,
-            c.codigo,
-            c.cliente,
-            fmtPdfMXN(c.monto),
-            c.empleada,
-            c.sucursal,
-          ])
-        : [["Sin canjes de VIP Pass en este período", "—", "—", "—", "—", "—"]],
-    })
-  }
+  autoTable(doc, {
+    ...tableOpts,
+    startY: y3 + 13,
+    head: [["Fecha", "Código VIP Pass", "Cliente", "Monto usado", "Empleada", "Sucursal"]],
+    body: canjesVipPass.length > 0
+      ? canjesVipPass.map(c => [
+          c.fecha,
+          c.codigo,
+          c.cliente,
+          fmtPdfMXN(c.monto),
+          c.empleada,
+          c.sucursal,
+        ])
+      : [["Sin canjes de VIP Pass en este período", "—", "—", "—", "—", "—"]],
+    styles: { ...tableOpts.styles, fontSize: 6.5 },
+    headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
+  })
 }
 
 async function generarGiftCardsPdf(opts: {
@@ -2045,7 +2056,14 @@ export default function ReportesPage() {
           nombre: s.nombre,
           cards: cardsPorSuc[i],
           canjes: canjesPorSuc[i],
-        })).filter(s => s.cards.length > 0 || s.canjes.length > 0)
+        }))
+        // Incluir todas las sucursales, incluso sin actividad
+
+        console.log("Sucursales lista:", sucursalesLista.map(s => s.nombre))
+        console.log("Cards por suc:", cardsPorSuc.map((c, i) =>
+          `${sucursalesLista[i].nombre}: ${c.length} cards`))
+        console.log("Canjes por suc:", canjesPorSuc.map((c, i) =>
+          `${sucursalesLista[i].nombre}: ${c.length} canjes`))
 
         // Todas las cards y canjes para el resumen global
         const todasCards = [...cardsPorSuc.flat(), ...cardsOnline]
