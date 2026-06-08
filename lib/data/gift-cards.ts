@@ -475,6 +475,8 @@ export async function crearGiftCard(datos: {
 
     const hoy = fechaLocal()
 
+    const esOrigenLinea = servicioTiendaLinea !== null
+
     const insertPayload: Record<string, any> = {
       codigo,
       monto_inicial: montoInicialFinal,
@@ -486,6 +488,7 @@ export async function crearGiftCard(datos: {
       fecha_emision: hoy,
       fecha_activacion: hoy,
       fecha_vencimiento: datos.fechaVencimiento || null,
+      origen: esOrigenLinea ? 'en_linea' : 'sucursal',
     }
     if (datos.metodoPago) insertPayload.metodo_pago = datos.metodoPago
 
