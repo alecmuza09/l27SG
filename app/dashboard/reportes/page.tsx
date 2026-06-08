@@ -407,9 +407,7 @@ async function fetchGiftCardsParaPdf(
       .range(offset, offset + PAGE - 1)
 
     // Excluir SIEMPRE las GC de tienda en línea de la sección de emitidas
-    query = query.not("metodo_pago", "ilike", "%linea%")
-    query = query.not("metodo_pago", "ilike", "%online%")
-    query = query.not("metodo_pago", "ilike", "%en line%")
+    query = query.neq("origen", "en_linea")
 
     // Si hay filtro por sucursal, mostrar solo las que ESA sucursal vendió
     if (sucursalId) {
@@ -524,7 +522,7 @@ async function fetchGiftCardsOnlineParaPdf(
       .select(GC_SELECT_PDF)
       .gte("fecha_emision", fechaDesde)
       .lte("fecha_emision", fechaHasta)
-      .or("metodo_pago.ilike.%linea%,metodo_pago.ilike.%online%,metodo_pago.ilike.%en line%")
+      .eq("origen", "en_linea")
       .order("fecha_emision", { ascending: true })
       .range(offset, offset + PAGE - 1)
 
