@@ -586,6 +586,49 @@ export function CajaDialog({
       citasIds.map(id => updateCitaEstado(id, "completada", true))
     )
 
+    // Registrar transacción de VIP Pass si se usó uno
+    if (vipNum > 0 && vipPassId) {
+      const hoy = new Date()
+      const fechaLocal = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`
+      
+      // Obtener saldo actual del VIP Pass
+      const { data: gcData } = await (supabase as any)
+        .from("gift_cards")
+        .select("saldo_actual")
+        .eq("id", vipPassId)
+        .single()
+
+      if (gcData) {
+        const saldoAnterior = Number(gcData.saldo_actual)
+        const saldoNuevo = Math.max(0, saldoAnterior - vipNum)
+        const nuevoEstado = saldoNuevo <= 0 ? "agotada" : "activa"
+
+        // Actualizar saldo del VIP Pass
+        await (supabase as any)
+          .from("gift_cards")
+          .update({ 
+            saldo_actual: saldoNuevo, 
+            estado: nuevoEstado,
+            updated_at: new Date().toISOString() 
+          })
+          .eq("id", vipPassId)
+
+        // Registrar transacción
+        await (supabase as any)
+          .from("gift_card_transacciones")
+          .insert({
+            gift_card_id: vipPassId,
+            tipo: "vip_pass",
+            monto: vipNum,
+            saldo_anterior: saldoAnterior,
+            saldo_nuevo: saldoNuevo,
+            venta_id: res.pagoId ?? null,
+            fecha: fechaLocal,
+            notas: `VIP Pass usado · descuento $${descuento} · cobro al saldo $${vipNum}`,
+          })
+      }
+    }
+
     toast.success("¡Cobro registrado!", {
       description: `Total ${fmtMXN(total)}${cambio > 0 ? ` · Cambio: ${fmtMXN(cambio)}` : ""}`,
     })

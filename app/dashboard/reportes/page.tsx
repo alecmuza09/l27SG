@@ -461,8 +461,8 @@ async function fetchCanjesParaPdf(
         gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
       `)
       .in("tipo", ["canje", "uso", "descuento", "cobro", "vip_pass"])
-      .gte("created_at", fechaDesde + "T00:00:00")
-      .lte("created_at", fechaHasta + "T23:59:59")
+      .gte("fecha", fechaDesde)
+      .lte("fecha", fechaHasta)
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1)
 
