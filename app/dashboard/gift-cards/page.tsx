@@ -703,7 +703,7 @@ export default function GiftCardsPage() {
       .update({
         cliente_id: editSelectedCliente?.id ?? null,
         sucursal_id: editSucursalId || null,
-        fecha_expiracion: editFechaExpiracion || null,
+        fecha_vencimiento: editFechaExpiracion || null,
         ...(editNotas.trim() ? { notas: editNotas.trim() } : {}),
       })
       .eq('id', selectedCard.id)
