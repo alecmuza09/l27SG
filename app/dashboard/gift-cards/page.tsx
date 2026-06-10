@@ -51,6 +51,7 @@ import {
   Calendar,
   BadgeCheck,
   AlertTriangle,
+  Pencil,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
@@ -185,6 +186,16 @@ export default function GiftCardsPage() {
   const [isCancelOpen,   setIsCancelOpen]   = useState(false)
   const [isDeleteOpen,   setIsDeleteOpen]   = useState(false)
   const [selectedCard,   setSelectedCard]   = useState<GiftCard | null>(null)
+
+  // ── Modal Editar (solo admin) ──────────────────────────────────────────
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [editClienteMode, setEditClienteMode] = useState<"existing" | "new">("existing")
+  const [editClienteSearchQuery, setEditClienteSearchQuery] = useState("")
+  const [editClientesBusqueda, setEditClientesBusqueda] = useState<Cliente[]>([])
+  const [editSelectedCliente, setEditSelectedCliente] = useState<Cliente | null>(null)
+  const [editSucursalId, setEditSucursalId] = useState("")
+  const [editFechaExpiracion, setEditFechaExpiracion] = useState("")
+  const [editNotas, setEditNotas] = useState("")
 
   // ── Formulario Crear ───────────────────────────────────────────────────
   const [newMonto,           setNewMonto]          = useState("")
@@ -344,6 +355,21 @@ export default function GiftCardsPage() {
     }, 300)
     return () => clearTimeout(timer)
   }, [isCreateOpen, clienteMode, clienteSearchQuery])
+
+  // ── Búsqueda de clientes (modal Editar) ───────────────────────────────
+  useEffect(() => {
+    if (!isEditOpen || editClienteMode !== "existing") return
+    const trimmed = editClienteSearchQuery.trim()
+    if (!trimmed) { setEditClientesBusqueda([]); return }
+    const timer = setTimeout(async () => {
+      try {
+        setEditClientesBusqueda(await searchClientes(trimmed, 100))
+      } catch {
+        toast.error("Error al buscar clientes")
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [isEditOpen, editClienteMode, editClienteSearchQuery])
 
   // Los filtros son server-side; la tabla muestra la página actual tal cual
   const filtered = giftCards
@@ -665,6 +691,29 @@ export default function GiftCardsPage() {
     if (!res.success) { toast.error(`Error al eliminar: ${res.error}`); return }
     toast.success(`Gift card ${selectedCard.codigo} eliminada`)
     setIsDeleteOpen(false); setSelectedCard(null)
+    await reload()
+  }
+
+  const handleEditarGiftCard = async () => {
+    if (!selectedCard) return
+    setIsSubmitting(true)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
+      .from('gift_cards')
+      .update({
+        cliente_id: editSelectedCliente?.id ?? null,
+        sucursal_id: editSucursalId || null,
+        fecha_expiracion: editFechaExpiracion || null,
+        ...(editNotas.trim() ? { notas: editNotas.trim() } : {}),
+      })
+      .eq('id', selectedCard.id)
+    setIsSubmitting(false)
+    if (error) {
+      toast.error(`Error al guardar: ${error.message}`)
+      return
+    }
+    toast.success(`Gift card ${selectedCard.codigo} actualizada`)
+    setIsEditOpen(false)
     await reload()
   }
 
@@ -1167,6 +1216,21 @@ export default function GiftCardsPage() {
 
                           {currentUser?.role === "admin" && (
                             <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => {
+                                setSelectedCard(card)
+                                setEditSucursalId(card.sucursalId || "")
+                                setEditFechaExpiracion(card.fechaExpiracion || "")
+                                setEditSelectedCliente(card.clienteNombre ? { id: card.clienteId ?? "", nombre: card.clienteNombre, apellido: "", telefono: "" } as Cliente : null)
+                                setEditNotas("")
+                                setEditClienteMode("existing")
+                                setEditClienteSearchQuery("")
+                                setEditClientesBusqueda([])
+                                setIsEditOpen(true)
+                              }}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar datos
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={() => { setSelectedCard(card); setIsDeleteOpen(true) }}
@@ -1712,6 +1776,203 @@ export default function GiftCardsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Editar datos (solo admin) */}
+      <Dialog open={isEditOpen} onOpenChange={(open) => {
+        if (!open) {
+          setEditClienteSearchQuery("")
+          setEditClientesBusqueda([])
+        }
+        setIsEditOpen(open)
+      }}>
+        <DialogContent
+          showCloseButton
+          className={cn(
+            "max-w-md gap-0 p-0 sm:max-w-lg",
+            "flex max-h-[min(90dvh,calc(100dvh-2rem))] flex-col overflow-hidden",
+          )}
+        >
+          <DialogHeader className="shrink-0 space-y-2 border-border border-b px-6 pb-4 pt-6 pr-14 text-center sm:text-left">
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-4 w-4" />
+              Editar Gift Card
+            </DialogTitle>
+            <DialogDescription>
+              {selectedCard?.codigo} — modifica los datos editables de esta tarjeta
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-2 pt-4">
+            <div className="grid gap-4 pb-4">
+
+              {/* Cliente */}
+              <div className="grid gap-2">
+                <Label>Cliente</Label>
+                <Tabs
+                  value={editClienteMode}
+                  onValueChange={(v) => {
+                    setEditClienteMode(v as "existing" | "new")
+                    setEditClienteSearchQuery("")
+                    setEditClientesBusqueda([])
+                  }}
+                >
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="existing">Cliente existente</TabsTrigger>
+                    <TabsTrigger value="new">Sin cliente</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="existing" className="space-y-2 mt-2">
+                    {editSelectedCliente ? (
+                      <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-primary/5 border border-primary/20">
+                        <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{editSelectedCliente.nombre} {editSelectedCliente.apellido}</p>
+                          <p className="text-xs text-muted-foreground">{editSelectedCliente.telefono}</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => { setEditSelectedCliente(null); setEditClienteSearchQuery("") }}
+                        >
+                          Cambiar
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Buscar por nombre, teléfono o email..."
+                            value={editClienteSearchQuery}
+                            onChange={(e) => setEditClienteSearchQuery(e.target.value)}
+                            className="pl-9"
+                          />
+                        </div>
+                        <div className="border rounded-md">
+                          <ScrollArea className="h-[140px]">
+                            <div className="p-2 space-y-1">
+                              {editClienteSearchQuery.trim() === "" ? (
+                                <p className="p-3 text-sm text-muted-foreground text-center">
+                                  Escribe para buscar clientes
+                                </p>
+                              ) : editClientesBusqueda.length === 0 ? (
+                                <p className="p-3 text-sm text-muted-foreground text-center">
+                                  Sin resultados. Prueba otro término.
+                                </p>
+                              ) : editClientesBusqueda.map((c) => (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  onClick={() => setEditSelectedCliente(c)}
+                                  className="w-full text-left px-3 py-2 rounded-md hover:bg-accent transition-colors flex items-center gap-3"
+                                >
+                                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                    <UserIcon className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium">{c.nombre} {c.apellido}</p>
+                                    <p className="text-xs text-muted-foreground">{c.telefono}{c.email ? ` · ${c.email}` : ""}</p>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      </>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="new" className="mt-2">
+                    <div className="flex flex-col items-center gap-3 py-4 border rounded-md bg-muted/20">
+                      <UserIcon className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground text-center">
+                        La gift card quedará sin cliente asignado
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditSelectedCliente(null)}
+                      >
+                        Confirmar "Sin cliente"
+                      </Button>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </div>
+
+              {/* Sucursal */}
+              <div className="grid gap-2">
+                <Label>Sucursal</Label>
+                <Select value={editSucursalId} onValueChange={setEditSucursalId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar sucursal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sucursales.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Fecha de expiración */}
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Fecha de expiración
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={editFechaExpiracion}
+                    onChange={(e) => setEditFechaExpiracion(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditFechaExpiracion("")}
+                    className="shrink-0"
+                  >
+                    Sin vencimiento
+                  </Button>
+                </div>
+                {!editFechaExpiracion && (
+                  <p className="text-xs text-muted-foreground">La tarjeta no tendrá fecha de vencimiento</p>
+                )}
+              </div>
+
+              {/* Notas */}
+              <div className="grid gap-2">
+                <Label>Notas (opcional)</Label>
+                <Textarea
+                  placeholder="Observaciones sobre esta gift card..."
+                  value={editNotas}
+                  onChange={(e) => setEditNotas(e.target.value)}
+                  rows={2}
+                />
+              </div>
+
+            </div>
+          </div>
+
+          <DialogFooter className="shrink-0 gap-3 border-border border-t bg-background px-6 py-4">
+            <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={isSubmitting}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditarGiftCard} disabled={isSubmitting || !editSucursalId}>
+              {isSubmitting
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Guardando...</>
+                : <><Pencil className="h-4 w-4 mr-2" />Guardar cambios</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Ver Detalles + Historial */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
