@@ -629,6 +629,46 @@ export function CajaDialog({
       }
     }
 
+    // Registrar transacción de Gift Card si se usó como descuento
+    if (descuentoAplicado?.tipo === "gift_card" && descuentoAplicado.gcId && descuento > 0) {
+      const hoy = new Date()
+      const fechaLocal = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`
+
+      const { data: gcData } = await (supabase as any)
+        .from("gift_cards")
+        .select("saldo_actual")
+        .eq("id", descuentoAplicado.gcId)
+        .single()
+
+      if (gcData) {
+        const saldoAnterior = Number(gcData.saldo_actual)
+        const saldoNuevo = Math.max(0, saldoAnterior - descuento)
+        const nuevoEstado = saldoNuevo <= 0 ? "agotada" : "activa"
+
+        await (supabase as any)
+          .from("gift_cards")
+          .update({
+            saldo_actual: saldoNuevo,
+            estado: nuevoEstado,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", descuentoAplicado.gcId)
+
+        await (supabase as any)
+          .from("gift_card_transacciones")
+          .insert({
+            gift_card_id: descuentoAplicado.gcId,
+            tipo: "canje",
+            monto: descuento,
+            saldo_anterior: saldoAnterior,
+            saldo_nuevo: saldoNuevo,
+            venta_id: res.pagoId ?? null,
+            fecha: fechaLocal,
+            notas: `Canje como descuento · ${descuentoAplicado.codigo}`,
+          })
+      }
+    }
+
     toast.success("¡Cobro registrado!", {
       description: `Total ${fmtMXN(total)}${cambio > 0 ? ` · Cambio: ${fmtMXN(cambio)}` : ""}`,
     })
