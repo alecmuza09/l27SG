@@ -908,15 +908,9 @@ export default function EmpleadosPage() {
         <CardContent>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "activos" | "eliminados" | "inactivas")} className="mb-4">
             <TabsList>
-              <TabsTrigger value="activos">
-                Activos ({empleados.length})
-              </TabsTrigger>
-              <TabsTrigger value="inactivas">
-                Inactivas ({empleadasInactivas.length})
-              </TabsTrigger>
-              <TabsTrigger value="eliminados">
-                Eliminados ({empleadosEliminados.length})
-              </TabsTrigger>
+              <TabsTrigger value="activos">Activos ({empleados.length})</TabsTrigger>
+              <TabsTrigger value="inactivas">Inactivas ({empleadasInactivas.length})</TabsTrigger>
+              <TabsTrigger value="eliminados">Eliminados ({empleadosEliminados.length})</TabsTrigger>
             </TabsList>
           </Tabs>
           <div className="mb-4 flex gap-4">
