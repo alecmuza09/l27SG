@@ -7,7 +7,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
-  Download, FileSpreadsheet, FileText, TrendingUp, TrendingDown,
+  Download, FileText, TrendingUp, TrendingDown,
   Users, Calendar, Loader2, RefreshCw, Building2,
   CheckCircle2, XCircle, Clock, AlertCircle, DollarSign,
   BarChart3, Star, Gift, Receipt, UserPlus,
@@ -35,8 +35,6 @@ import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
-import * as XLSX from "xlsx"
-
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
 interface VentaDia        { etiqueta: string; fecha: string; ventas: number; ventasAnt: number }
@@ -1961,84 +1959,6 @@ export default function ReportesPage() {
     cargarDatos()
   }, [cargarDatos, periodo, fechaCustomDesde, fechaCustomHasta])
 
-  // ── Exportar Excel ────────────────────────────────────────────────────────
-  const handleExportExcel = () => {
-    const { label } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
-    const sucNombre  = sucursalFilter === "all"
-      ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
-      : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
-    const wb = XLSX.utils.book_new()
-
-    // Resumen KPIs
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["Reporte de Resultados"],
-      ["Período", label],
-      ["Sucursal", sucNombre],
-      ["Generado el", new Date().toLocaleDateString("es-MX", { dateStyle: "full" })],
-      [],
-      ["KPI", "Período Actual", "Período Anterior", "Variación %"],
-      ["Ingresos Totales",  statsActual.ingresosTotales,  statsAnterior.ingresosTotales,  statsAnterior.ingresosTotales > 0 ? `${Math.round(((statsActual.ingresosTotales - statsAnterior.ingresosTotales) / statsAnterior.ingresosTotales) * 100)}%` : "—"],
-      ["Total Servicios",   statsActual.totalServicios,   statsAnterior.totalServicios,   statsAnterior.totalServicios  > 0 ? `${Math.round(((statsActual.totalServicios  - statsAnterior.totalServicios)  / statsAnterior.totalServicios)  * 100)}%` : "—"],
-      ["Ticket Promedio",   statsActual.ticketPromedio,   statsAnterior.ticketPromedio,   statsAnterior.ticketPromedio  > 0 ? `${Math.round(((statsActual.ticketPromedio  - statsAnterior.ticketPromedio)  / statsAnterior.ticketPromedio)  * 100)}%` : "—"],
-      ["Ventas saldo gift cards ($)", ventasSaldoGcActual.monto, ventasSaldoGcAnt.monto, ventasSaldoGcAnt.monto > 0 ? `${Math.round(((ventasSaldoGcActual.monto - ventasSaldoGcAnt.monto) / ventasSaldoGcAnt.monto) * 100)}%` : "—"],
-      ["Cantidad ventas saldo GC", ventasSaldoGcActual.transacciones, ventasSaldoGcAnt.transacciones, ventasSaldoGcAnt.transacciones > 0 ? `${Math.round(((ventasSaldoGcActual.transacciones - ventasSaldoGcAnt.transacciones) / ventasSaldoGcAnt.transacciones) * 100)}%` : "—"],
-      ["Citas Completadas", citasResumen.completadas, "", ""],
-      ["Tasa de Cancelación", `${citasResumen.tasaCancelacion}%`, "", ""],
-    ]), "Resumen")
-
-    // Ventas por período
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["Etiqueta", "Fecha", "Ingresos ($)", "Período Anterior ($)"],
-      ...ventasPeriodo.map(v => [v.etiqueta, v.fecha, v.ventas, v.ventasAnt]),
-    ]), "Ventas por Período")
-
-    // Citas por estado
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["Estado", "Cantidad"],
-      ["Completadas", citasResumen.completadas],
-      ["Canceladas",  citasResumen.canceladas],
-      ["Pendientes",  citasResumen.pendientes],
-      ["No Show",     citasResumen.noShow],
-      ["Total",       citasResumen.total],
-      ["Tasa cancelación", `${citasResumen.tasaCancelacion}%`],
-    ]), "Citas por Estado")
-
-    // Servicios
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["Servicio", "# Citas", "Ingresos ($)", "Ticket Promedio ($)", "% del Total"],
-      ...serviciosMasVendidos.map(s => [s.name, s.cantidad, s.ingresos, s.cantidad > 0 ? Math.round(s.ingresos / s.cantidad) : 0, `${s.pctTotal}%`]),
-    ]), "Servicios")
-
-    // Empleados
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["Nombre", "Apellido", "Sucursal", "Servicios", "Ingresos ($)", "Comisión 30% ($)", "Ocupación %"],
-      ...empleadosTop.map(e => [e.nombre, e.apellido, e.sucursal, e.servicios, e.ingresos, e.comision, `${e.ocupacion}%`]),
-    ]), "Empleados")
-
-    // Top Clientes
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["Nombre", "Visitas", "Total Gastado ($)", "Última Visita"],
-      ...topClientes.map(c => [c.nombre, c.visitas, c.totalGastado, c.ultimaVisita]),
-    ]), "Top Clientes")
-
-    // Métodos de pago
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["Método", "Cobros", "Monto ($)"],
-      ...metodosPago.map(m => [m.metodo, m.count, m.monto]),
-    ]), "Métodos de Pago")
-
-    // Sucursales (admin, todas)
-    if (isAdmin && metricasSucursales.length > 0) {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ["Sucursal", "Ingresos ($)", "Citas", "Ticket Promedio ($)", "Top Servicio"],
-        ...metricasSucursales.map(s => [s.nombre, s.ingresos, s.totalCitas, s.ticketPromedio, s.topServicio]),
-      ]), "Sucursales")
-    }
-
-    const slug = periodo === "semana" ? "esta-semana" : periodo === "mes" ? "este-mes" : periodo === "trimestre" ? "trimestre" : "este-año"
-    XLSX.writeFile(wb, `reporte-${slug}.xlsx`)
-  }
-
   // ── Exportar PDF ──────────────────────────────────────────────────────────
   const handleExportPDF = async () => {
     setIsExportingPdf(true)
@@ -2298,18 +2218,26 @@ export default function ReportesPage() {
                     disabled={isExportingPdf}
                     className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-[#1e40af] font-medium shadow-sm"
                   >
-                    {isExportingPdf
-                      ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      : <FileText className="mr-2 h-4 w-4" />}
-                    Exportar PDF
+                    {isExportingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                    PDF Reportes
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={handleExportExcel}
-                    className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-medium shadow-sm"
+                    onClick={handleExportGiftCardsPDF}
+                    disabled={isExportingGcPdf}
+                    className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-[#0ea5e9] font-medium shadow-sm"
                   >
-                    <FileSpreadsheet className="mr-2 h-4 w-4" />
-                    Exportar Excel
+                    {isExportingGcPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Gift className="mr-2 h-4 w-4" />}
+                    PDF Gift Cards
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleExportNominaPdf}
+                    disabled={isExportingNominaPdf || empleadosTop.length === 0}
+                    className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-[#1e40af] font-medium shadow-sm"
+                  >
+                    {isExportingNominaPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Receipt className="mr-2 h-4 w-4" />}
+                    PDF Nómina
                   </Button>
                 </>
               )}
@@ -2450,34 +2378,6 @@ export default function ReportesPage() {
           </div>
           )}
 
-          {!isManager && (
-            <div className="flex flex-col items-end gap-1 no-print">
-              <button
-                type="button"
-                onClick={handleExportGiftCardsPDF}
-                disabled={isExportingGcPdf}
-                title="Descargar reporte PDF de gift cards"
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#0ea5e9] hover:text-slate-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isExportingGcPdf
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <Download className="h-3.5 w-3.5" />}
-                ↓ PDF Gift Cards
-              </button>
-              <button
-                type="button"
-                onClick={handleExportNominaPdf}
-                disabled={isExportingNominaPdf || empleadosTop.length === 0}
-                title="Descargar PDF de nómina"
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#1e40af] hover:text-slate-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isExportingNominaPdf
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <Download className="h-3.5 w-3.5" />}
-                ↓ PDF Nómina
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ── Tabs ── */}
