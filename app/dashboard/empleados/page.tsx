@@ -21,6 +21,8 @@ import {
   Building2,
   ChevronsUpDown,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 import {
   guardarAsignacionSucursalDia,
@@ -138,6 +140,9 @@ export default function EmpleadosPage() {
   const [loadingHistorialSucursal, setLoadingHistorialSucursal] = useState(false)
   const [guardandoAsignacionDia, setGuardandoAsignacionDia] = useState(false)
   const [empleadoAsignPopoverOpen, setEmpleadoAsignPopoverOpen] = useState(false)
+  const [historialExpandido, setHistorialExpandido] = useState(false)
+  const [listaExpandida, setListaExpandida] = useState(false)
+  const [especialidadesExpandidas, setEspecialidadesExpandidas] = useState(false)
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
@@ -800,7 +805,9 @@ export default function EmpleadosPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      historialSucursalDia.map((row) => (
+                      (() => {
+                        const historialVisible = historialExpandido ? historialSucursalDia : historialSucursalDia.slice(0, 7)
+                        return historialVisible.map((row) => (
                         <TableRow key={row.id}>
                           <TableCell className="text-xs whitespace-nowrap">
                             {new Date(row.createdAt).toLocaleString("es-MX", {
@@ -825,9 +832,22 @@ export default function EmpleadosPage() {
                           </TableCell>
                         </TableRow>
                       ))
+                      })()
                     )}
                   </TableBody>
                 </Table>
+                {historialSucursalDia.length > 7 && (
+                  <button
+                    type="button"
+                    onClick={() => setHistorialExpandido(!historialExpandido)}
+                    className="w-full py-2 text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 border-t"
+                  >
+                    {historialExpandido
+                      ? <><ChevronUp className="h-3.5 w-3.5" /> Ver menos</>
+                      : <><ChevronDown className="h-3.5 w-3.5" /> Ver {historialSucursalDia.length - 7} más</>
+                    }
+                  </button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -892,7 +912,9 @@ export default function EmpleadosPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredEmpleados.map((empleado) => (
+                  (() => {
+                    const empleadosVisibles = listaExpandida ? filteredEmpleados : filteredEmpleados.slice(0, 7)
+                    return empleadosVisibles.map((empleado) => (
                   <TableRow key={empleado.id}>
                     <TableCell>
                       <div className="flex items-start gap-1">
@@ -1005,9 +1027,22 @@ export default function EmpleadosPage() {
                     </TableCell>
                   </TableRow>
                   ))
+                  })()
                 )}
               </TableBody>
             </Table>
+            {filteredEmpleados.length > 7 && (
+              <button
+                type="button"
+                onClick={() => setListaExpandida(!listaExpandida)}
+                className="w-full py-2 text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 border-t"
+              >
+                {listaExpandida
+                  ? <><ChevronUp className="h-3.5 w-3.5" /> Ver menos</>
+                  : <><ChevronDown className="h-3.5 w-3.5" /> Ver {filteredEmpleados.length - 7} más</>
+                }
+              </button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1020,7 +1055,9 @@ export default function EmpleadosPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {empleados.map((empleado) => (
+              {(() => {
+                const empleadosEspVisibles = especialidadesExpandidas ? empleados : empleados.slice(0, 7)
+                return empleadosEspVisibles.map((empleado) => (
                 <div key={empleado.id} className="flex items-center justify-between gap-4 p-4 rounded-lg bg-muted/50">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1063,8 +1100,21 @@ export default function EmpleadosPage() {
                     )}
                   </div>
                 </div>
-              ))}
+              ))
+              })()}
             </div>
+            {empleados.length > 7 && (
+              <button
+                type="button"
+                onClick={() => setEspecialidadesExpandidas(!especialidadesExpandidas)}
+                className="w-full py-2 text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 border-t mt-2"
+              >
+                {especialidadesExpandidas
+                  ? <><ChevronUp className="h-3.5 w-3.5" /> Ver menos</>
+                  : <><ChevronDown className="h-3.5 w-3.5" /> Ver {empleados.length - 7} más</>
+                }
+              </button>
+            )}
           </CardContent>
         </Card>
       )}
