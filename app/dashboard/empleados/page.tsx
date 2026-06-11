@@ -24,6 +24,7 @@ import {
   ChevronDown,
   ChevronUp,
   UserX,
+  UserCheck,
 } from "lucide-react"
 import {
   guardarAsignacionSucursalDia,
@@ -58,6 +59,7 @@ import { toast } from "sonner"
 import {
   getEmpleadosFromDB,
   getEmpleadosEliminadosFromDB,
+  getEmpleadasInactivasFromDB,
   createEmpleado,
   eliminarEmpleado,
   restaurarEmpleado,
@@ -101,6 +103,7 @@ export default function EmpleadosPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [empleadosEliminados, setEmpleadosEliminados] = useState<Empleado[]>([])
+  const [empleadasInactivas, setEmpleadasInactivas] = useState<Empleado[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [sucursalFilter, setSucursalFilter] = useState<string>("todas")
@@ -113,7 +116,7 @@ export default function EmpleadosPage() {
   const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
   const [desactivarDialogOpen, setDesactivarDialogOpen] = useState(false)
   const [empleadoToDesactivar, setEmpleadoToDesactivar] = useState<Empleado | null>(null)
-  const [activeTab, setActiveTab] = useState<"activos" | "eliminados">("activos")
+  const [activeTab, setActiveTab] = useState<"activos" | "eliminados" | "inactivas">("activos")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formNuevo, setFormNuevo] = useState({
     nombre: "",
@@ -161,14 +164,16 @@ export default function EmpleadosPage() {
       
       const sucursalIdFilter = isAdmin ? undefined : multiBranch ? undefined : effectivePrimarySucursalId(currentUser)
       
-      const [empleadosData, empleadosEliminadosData, sucursalesData] = await Promise.all([
+      const [empleadosData, empleadosEliminadosData, empleadasInactivasData, sucursalesData] = await Promise.all([
         getEmpleadosFromDB(sucursalIdFilter),
         getEmpleadosEliminadosFromDB(sucursalIdFilter),
+        getEmpleadasInactivasFromDB(sucursalIdFilter),
         isAdmin ? getSucursalesActivasFromDB() : getSucursalesByIdsFromDB(userBranchIds),
       ])
       
       setEmpleados(empleadosData)
       setEmpleadosEliminados(empleadosEliminadosData)
+      setEmpleadasInactivas(empleadasInactivasData)
       setSucursales(sucursalesData)
       
       if (!isAdmin && singleBranchId && sucursalesData.length > 0) {
@@ -237,7 +242,11 @@ export default function EmpleadosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar usuario/admin
   }, [currentUser, isAdmin])
 
-  const filteredEmpleados = (activeTab === "activos" ? empleados : empleadosEliminados).filter((e) => {
+  const filteredEmpleados = (
+    activeTab === "activos" ? empleados :
+    activeTab === "inactivas" ? empleadasInactivas :
+    empleadosEliminados
+  ).filter((e) => {
     const matchesSearch = searchQuery
       ? e.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
         e.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -284,6 +293,16 @@ export default function EmpleadosPage() {
       await loadEmpleados()
     } else {
       toast.error(`Error al desactivar: ${result.error}`)
+    }
+  }
+
+  const handleReactivar = async (empleado: Empleado) => {
+    const result = await updateEmpleado(empleado.id, { activo: true })
+    if (result.success) {
+      toast.success(`${empleado.nombre} ${empleado.apellido} reactivada correctamente`)
+      await loadEmpleados()
+    } else {
+      toast.error(`Error al reactivar: ${result.error}`)
     }
   }
 
@@ -887,6 +906,19 @@ export default function EmpleadosPage() {
           <CardDescription>Gestiona tu equipo de trabajo</CardDescription>
         </CardHeader>
         <CardContent>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "activos" | "eliminados" | "inactivas")} className="mb-4">
+            <TabsList>
+              <TabsTrigger value="activos">
+                Activos ({empleados.length})
+              </TabsTrigger>
+              <TabsTrigger value="inactivas">
+                Inactivas ({empleadasInactivas.length})
+              </TabsTrigger>
+              <TabsTrigger value="eliminados">
+                Eliminados ({empleadosEliminados.length})
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           <div className="mb-4 flex gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1065,6 +1097,16 @@ export default function EmpleadosPage() {
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </>
+                          ) : activeTab === "inactivas" ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Reactivar empleada"
+                              className="text-green-500 hover:text-green-700"
+                              onClick={() => handleReactivar(empleado)}
+                            >
+                              <UserCheck className="h-4 w-4" />
+                            </Button>
                           ) : (
                             <Button
                               variant="ghost"

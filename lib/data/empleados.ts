@@ -213,6 +213,33 @@ export async function getEmpleadosEliminadosFromDB(sucursalId?: string): Promise
   }
 }
 
+// Obtener empleadas inactivas (activo = false, no eliminadas)
+export async function getEmpleadasInactivasFromDB(sucursalId?: string): Promise<Empleado[]> {
+  try {
+    let query = supabase
+      .from('empleados')
+      .select('*')
+      .eq('activo', false)
+      .order('nombre', { ascending: true })
+
+    if (sucursalId) {
+      query = query.eq('sucursal_id', sucursalId)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('Error obteniendo empleadas inactivas:', error)
+      return []
+    }
+
+    return (data ?? []).map(transformEmpleado)
+  } catch (error) {
+    console.error('Error inesperado obteniendo empleadas inactivas:', error)
+    return []
+  }
+}
+
 // Obtener empleados activos por sucursal desde Supabase
 export async function getEmpleadosBySucursalFromDB(sucursalId: string): Promise<Empleado[]> {
   try {
