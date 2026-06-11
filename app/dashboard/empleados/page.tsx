@@ -23,6 +23,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  UserX,
 } from "lucide-react"
 import {
   guardarAsignacionSucursalDia,
@@ -110,6 +111,8 @@ export default function EmpleadosPage() {
   const [error, setError] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
+  const [desactivarDialogOpen, setDesactivarDialogOpen] = useState(false)
+  const [empleadoToDesactivar, setEmpleadoToDesactivar] = useState<Empleado | null>(null)
   const [activeTab, setActiveTab] = useState<"activos" | "eliminados">("activos")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formNuevo, setFormNuevo] = useState({
@@ -246,6 +249,17 @@ export default function EmpleadosPage() {
     return matchesSearch && matchesSucursal
   })
 
+  function contratoVencido(fecha?: string | null): boolean {
+    if (!fecha) return false
+    return new Date(fecha + "T12:00:00") < new Date()
+  }
+
+  function diasParaVencer(fecha?: string | null): number | null {
+    if (!fecha) return null
+    const diff = new Date(fecha + "T12:00:00").getTime() - new Date().getTime()
+    return Math.ceil(diff / 86400000)
+  }
+
   const handleEliminar = async () => {
     if (!empleadoToDelete) return
     
@@ -257,6 +271,19 @@ export default function EmpleadosPage() {
       await loadEmpleados()
     } else {
       toast.error(`Error al eliminar empleado: ${result.error}`)
+    }
+  }
+
+  const handleDesactivar = async () => {
+    if (!empleadoToDesactivar) return
+    const result = await updateEmpleado(empleadoToDesactivar.id, { activo: false })
+    if (result.success) {
+      toast.success(`${empleadoToDesactivar.nombre} ${empleadoToDesactivar.apellido} desactivada por contrato vencido`)
+      setDesactivarDialogOpen(false)
+      setEmpleadoToDesactivar(null)
+      await loadEmpleados()
+    } else {
+      toast.error(`Error al desactivar: ${result.error}`)
     }
   }
 
@@ -940,6 +967,16 @@ export default function EmpleadosPage() {
                                 ) : null}
                               </div>
                             )}
+                            {contratoVencido(empleado.fechaContratoHasta) && (
+                              <Badge variant="outline" className="text-xs border-amber-400 text-amber-600 bg-amber-50">
+                                Contrato vencido
+                              </Badge>
+                            )}
+                            {!contratoVencido(empleado.fechaContratoHasta) && diasParaVencer(empleado.fechaContratoHasta) !== null && diasParaVencer(empleado.fechaContratoHasta)! <= 30 && (
+                              <Badge variant="outline" className="text-xs border-orange-300 text-orange-500 bg-orange-50">
+                                Vence en {diasParaVencer(empleado.fechaContratoHasta)} días
+                              </Badge>
+                            )}
                           </div>
                           {canEditEmpleados && (
                             <Button
@@ -1002,16 +1039,32 @@ export default function EmpleadosPage() {
                       {isAdmin && (
                         <div className="flex justify-end gap-2">
                           {activeTab === "activos" ? (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setEmpleadoToDelete(empleado)
-                                setDeleteDialogOpen(true)
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <>
+                              {contratoVencido(empleado.fechaContratoHasta) && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Contrato vencido — desactivar empleada"
+                                  className="text-amber-500 hover:text-amber-700"
+                                  onClick={() => {
+                                    setEmpleadoToDesactivar(empleado)
+                                    setDesactivarDialogOpen(true)
+                                  }}
+                                >
+                                  <UserX className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setEmpleadoToDelete(empleado)
+                                  setDeleteDialogOpen(true)
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
                           ) : (
                             <Button
                               variant="ghost"
@@ -1133,6 +1186,29 @@ export default function EmpleadosPage() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleEliminar} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Diálogo de confirmación de desactivar */}
+      <AlertDialog open={desactivarDialogOpen} onOpenChange={setDesactivarDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Desactivar empleada?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El contrato de {empleadoToDesactivar?.nombre} {empleadoToDesactivar?.apellido} está vencido.
+              Al desactivarla ya no aparecerá en citas ni podrá ser agendada.
+              Quedará guardada en la base de datos y podrás reactivarla si se renueva su contrato.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDesactivar}
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              Desactivar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
