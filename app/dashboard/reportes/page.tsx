@@ -854,7 +854,7 @@ async function renderSeccionGcPdf(
     startY: PDF_TABLE_START_Y,
     head: [["Indicador", "Valor"]],
     body: [
-      ["Gift cards emitidas en el período", String(resumen.totalEmitidas)],
+      ["Gift Cards vendidas en el período", String(resumen.totalEmitidas)],
       ["Total vendido en el período", fmtPdfMXN(resumen.totalVendido)],
       ["Total de saldo usado (canjes)", fmtPdfMXN(resumen.totalSaldoUsado)],
       [resumen.favorLabel, fmtPdfMXN(resumen.favorMonto)],
@@ -878,7 +878,7 @@ async function renderSeccionGcPdf(
   doc.setFont("helvetica", "bold")
   doc.setFontSize(9)
   doc.setTextColor(10, 10, 10)
-  doc.text("Gift Cards emitidas en el período", 14, y1 + 8)
+  doc.text("Gift Cards vendidas en el período", 14, y1 + 8)
   doc.setDrawColor(10, 10, 10)
   doc.setLineWidth(0.3)
   doc.line(14, y1 + 10, doc.internal.pageSize.getWidth() - 14, y1 + 10)
@@ -940,7 +940,7 @@ async function renderSeccionGcPdf(
   doc.setFont("helvetica", "bold")
   doc.setFontSize(9)
   doc.setTextColor(10, 10, 10)
-  doc.text("Movimientos / Canjes del período", 14, y2 + 8)
+  doc.text("Gift Cards cobradas en el período", 14, y2 + 8)
   doc.setDrawColor(10, 10, 10)
   doc.setLineWidth(0.3)
   doc.line(14, y2 + 10, doc.internal.pageSize.getWidth() - 14, y2 + 10)
