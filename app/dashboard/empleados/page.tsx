@@ -1040,20 +1040,20 @@ export default function EmpleadosPage() {
                         <div className="flex justify-end gap-2">
                           {activeTab === "activos" ? (
                             <>
-                              {contratoVencido(empleado.fechaContratoHasta) && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title="Contrato vencido — desactivar empleada"
-                                  className="text-amber-500 hover:text-amber-700"
-                                  onClick={() => {
-                                    setEmpleadoToDesactivar(empleado)
-                                    setDesactivarDialogOpen(true)
-                                  }}
-                                >
-                                  <UserX className="h-4 w-4" />
-                                </Button>
-                              )}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Desactivar empleada"
+                                className={contratoVencido(empleado.fechaContratoHasta)
+                                  ? "text-amber-500 hover:text-amber-700"
+                                  : "text-muted-foreground hover:text-foreground"}
+                                onClick={() => {
+                                  setEmpleadoToDesactivar(empleado)
+                                  setDesactivarDialogOpen(true)
+                                }}
+                              >
+                                <UserX className="h-4 w-4" />
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1197,9 +1197,8 @@ export default function EmpleadosPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Desactivar empleada?</AlertDialogTitle>
             <AlertDialogDescription>
-              El contrato de {empleadoToDesactivar?.nombre} {empleadoToDesactivar?.apellido} está vencido.
-              Al desactivarla ya no aparecerá en citas ni podrá ser agendada.
-              Quedará guardada en la base de datos y podrás reactivarla si se renueva su contrato.
+              Al desactivar a {empleadoToDesactivar?.nombre} {empleadoToDesactivar?.apellido} ya no aparecerá en citas ni podrá ser agendada.
+              Quedará guardada en la base de datos y podrás reactivarla cuando lo necesites.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
