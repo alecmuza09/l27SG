@@ -18,6 +18,7 @@ export interface Empleado {
   /** Fin horario de comida (HH:MM). Opcional. */
   comidaFin?: string | null
   activo: boolean
+  eliminado: boolean
   comision: number
   foto?: string
   /** Fecha de ingreso (YYYY-MM-DD), opcional */
@@ -40,6 +41,7 @@ export const MOCK_EMPLEADOS: Empleado[] = [
     horarioFin: "18:00",
     diasTrabajo: [1, 2, 3, 4, 5],
     activo: true,
+    eliminado: false,
     comision: 40,
   },
   {
@@ -55,6 +57,7 @@ export const MOCK_EMPLEADOS: Empleado[] = [
     horarioFin: "19:00",
     diasTrabajo: [1, 2, 3, 4, 5, 6],
     activo: true,
+    eliminado: false,
     comision: 35,
   },
   {
@@ -70,6 +73,7 @@ export const MOCK_EMPLEADOS: Empleado[] = [
     horarioFin: "17:00",
     diasTrabajo: [1, 2, 3, 4, 5],
     activo: true,
+    eliminado: false,
     comision: 30,
   },
   {
@@ -85,6 +89,7 @@ export const MOCK_EMPLEADOS: Empleado[] = [
     horarioFin: "20:00",
     diasTrabajo: [2, 3, 4, 5, 6],
     activo: true,
+    eliminado: false,
     comision: 40,
   },
   {
@@ -100,6 +105,7 @@ export const MOCK_EMPLEADOS: Empleado[] = [
     horarioFin: "18:00",
     diasTrabajo: [1, 2, 3, 4, 5],
     activo: true,
+    eliminado: false,
     comision: 40,
   },
 ]
@@ -150,6 +156,7 @@ export function transformEmpleado(empleado: EmpleadoRow): Empleado {
     comidaInicio: normalizarHora(empleado.comida_inicio),
     comidaFin: normalizarHora(empleado.comida_fin),
     activo: empleado.activo,
+    eliminado: (empleado as any).eliminado ?? false,
     comision: Number(empleado.comision),
     foto: empleado.foto || undefined,
     fechaIngreso: normalizarFechaDb(empleado.fecha_ingreso),
@@ -164,6 +171,7 @@ export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[
       .from('empleados')
       .select('*')
       .eq('activo', true)
+      .eq('eliminado', false)
       .order('nombre')
 
     // Filtrar por sucursal si se especifica
@@ -185,13 +193,13 @@ export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[
   }
 }
 
-// Obtener solo empleados eliminados (activo = false)
+// Obtener solo empleados eliminados (eliminado = true)
 export async function getEmpleadosEliminadosFromDB(sucursalId?: string): Promise<Empleado[]> {
   try {
     let query = supabase
       .from('empleados')
       .select('*')
-      .eq('activo', false)
+      .eq('eliminado', true)
       .order('nombre')
 
     // Filtrar por sucursal si se especifica
@@ -220,6 +228,7 @@ export async function getEmpleadasInactivasFromDB(sucursalId?: string): Promise<
       .from('empleados')
       .select('*')
       .eq('activo', false)
+      .eq('eliminado', false)
       .order('nombre', { ascending: true })
 
     if (sucursalId) {
@@ -289,9 +298,9 @@ export async function eliminarEmpleado(empleadoId: string): Promise<{ success: b
     const { error } = await supabase
       .from('empleados')
       .update({ 
-        activo: false,
+        eliminado: true,
         updated_at: new Date().toISOString()
-      })
+      } as any)
       .eq('id', empleadoId)
 
     if (error) {
@@ -360,9 +369,10 @@ export async function restaurarEmpleado(empleadoId: string): Promise<{ success: 
     const { error } = await supabase
       .from('empleados')
       .update({ 
+        eliminado: false,
         activo: true,
         updated_at: new Date().toISOString()
-      })
+      } as any)
       .eq('id', empleadoId)
 
     if (error) {
