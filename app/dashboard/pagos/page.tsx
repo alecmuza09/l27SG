@@ -236,6 +236,8 @@ export default function PagosPage() {
     if (d.otro > 0.009) {
       if (p.descuentoTipo === "vip_pass") {
         totalVipPass += d.otro
+      } else if (p.metodoPago === "cortesia") {
+        // no sumar — va a totalCortesias
       } else {
         totalOtro += d.otro
       }
