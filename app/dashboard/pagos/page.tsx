@@ -663,9 +663,10 @@ export default function PagosPage() {
 
           <Separator className="my-2" />
 
-          <StatRow label="Total Efectivo"    value={fmtMXN(totalEfectivo)} highlight />
-          <StatRow label="Total Tarjeta"     value={fmtMXN(totalTarjeta)} highlight />
-          <StatRow label="Total"             value={fmtMXN(totalNeto)} highlight />
+          <StatRow label="Total Efectivo"      value={fmtMXN(totalEfectivo)} highlight />
+          <StatRow label="Total Tarjeta"      value={fmtMXN(totalTarjeta)} highlight />
+          <StatRow label="Total Transferencia" value={fmtMXN(totalTransf)} highlight />
+          <StatRow label="Total"              value={fmtMXN(totalNeto)} highlight />
         </div>
 
         {/* Contador de pendientes */}
