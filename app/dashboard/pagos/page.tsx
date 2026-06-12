@@ -20,7 +20,6 @@ import {
   debePersistirMetodoMixtoEfectivoTarjeta,
   esReferenciaEmisionGiftCard,
   sincronizarPagosEmisionGiftCardsFaltantes,
-  totalizarVentasSaldoGiftCards,
   esVentaSaldoGiftCard,
   metodoPagoAParaEdicionUI,
   normalizarMetodoYMontosPago,
@@ -242,8 +241,6 @@ export default function PagosPage() {
     }
   }
 
-  const ventasSaldoGiftCards = totalizarVentasSaldoGiftCards(pagos)
-
   const cobrosCompletadosCount = pagos.filter(p => p.estado === "completado").length
 
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
@@ -378,6 +375,12 @@ export default function PagosPage() {
 
   const handleCambioMetodoEdicionPago = (valor: string) => {
     const metodo = valor as MetodoPagoEdicionUI
+    if (metodo === "cortesia") {
+      setEditMetodoPago("cortesia")
+      setEditMontoEfectivo("0")
+      setEditMontoTarjeta("0")
+      return
+    }
     setEditMetodoPago(metodo)
     const m = Number(editMonto) || 0
     const { monto_efectivo, monto_tarjeta } = sincronizarMontosDesgloseParaMetodoUI(m, metodo)
@@ -413,9 +416,11 @@ export default function PagosPage() {
       propina:        Number(editPropina) || 0,
       notas:          notaFinal || undefined,
       referencia:     editReferencia.trim() || undefined,
-      metodo_pago:    norm.metodo_pago,
-      monto_efectivo: norm.monto_efectivo,
-      monto_tarjeta:  norm.monto_tarjeta,
+      metodo_pago:    editMetodoPago === "cortesia" ? "otro" : norm.metodo_pago,
+      monto_efectivo: editMetodoPago === "cortesia" ? 0 : norm.monto_efectivo,
+      monto_tarjeta:  editMetodoPago === "cortesia" ? 0 : norm.monto_tarjeta,
+      descuento_tipo: editMetodoPago === "cortesia" ? "cortesia" : (pagoDetalle.descuentoTipo ?? null),
+      descuento_monto: editMetodoPago === "cortesia" ? (Number(editMonto) || pagoDetalle.monto) : (pagoDetalle.descuentoMonto ?? 0),
       fecha:          editFecha || pagoDetalle.fecha,
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
       cliente_id:     editClienteId || (pagoDetalle.clienteId ?? null),
@@ -640,7 +645,6 @@ export default function PagosPage() {
 
           <StatRow label="Servicios — Tarjeta" value={fmtMXN(totalTarjeta)} />
           <StatRow label="Servicios — Efectivo" value={fmtMXN(totalEfectivo)} />
-          <StatRow label="Ventas saldo gift cards" value={fmtMXN(ventasSaldoGiftCards.monto)} />
           <StatRow label="Transferencias" value={fmtMXN(totalTransf)} />
           {totalVipPass > 0 && (
             <StatRow label="VIP Pass" value={fmtMXN(totalVipPass)} />
@@ -1406,6 +1410,7 @@ export default function PagosPage() {
                       <option value="transferencia">Transferencia</option>
                       <option value="mixto">Mixto (efectivo + tarjeta)</option>
                       <option value="otro">Otro (gift card, etc.)</option>
+                      <option value="cortesia">Cortesía</option>
                     </select>
                   ) : (
                     (() => {

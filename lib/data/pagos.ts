@@ -72,6 +72,7 @@ export function distribuirMontoPago(
 
 /** Etiqueta legible para UI (ej. "Efectivo + Tarjeta") según el desglose real del cobro. */
 export function etiquetaMetodosPago(p: Pago): string {
+  if (p.descuentoTipo === "cortesia") return "Cortesía"
   const d = distribuirMontoPago(p)
   const parts: string[] = []
   if (d.efectivo > 0.009) parts.push("Efectivo")
@@ -104,6 +105,7 @@ export type MetodoPagoEdicionUI =
   | 'transferencia'
   | 'mixto'
   | 'otro'
+  | 'cortesia'
 
 const ROUND2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
@@ -120,6 +122,7 @@ export function sincronizarMontosDesgloseParaMetodoUI(
       return { monto_efectivo: 0, monto_tarjeta: m }
     case 'transferencia':
     case 'otro':
+    case 'cortesia':
       return { monto_efectivo: 0, monto_tarjeta: 0 }
     case 'mixto':
       return { monto_efectivo: m, monto_tarjeta: 0 }
@@ -166,13 +169,16 @@ export function normalizarMetodoYMontosPago(params: {
     }
     case 'otro':
       return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
+    case 'cortesia':
+      return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
     default:
       return { ok: false, error: 'Método de pago no válido' }
   }
 }
 
 /** Mapea un pago cargado al valor del `<select>` de edición (mixto explícito si hay desglose efectivo+tarjeta). */
-export function metodoPagoAParaEdicionUI(p: Pick<Pago, 'metodoPago' | 'montoEfectivo' | 'montoTarjeta'>): MetodoPagoEdicionUI {
+export function metodoPagoAParaEdicionUI(p: Pick<Pago, 'metodoPago' | 'montoEfectivo' | 'montoTarjeta'> & { descuentoTipo?: string }): MetodoPagoEdicionUI {
+  if (p.descuentoTipo === "cortesia") return "cortesia"
   if (debePersistirMetodoMixtoEfectivoTarjeta(p.montoEfectivo, p.montoTarjeta)) return 'mixto'
   const m = (p.metodoPago || 'efectivo') as MetodoPagoEdicionUI
   if (m === 'efectivo' || m === 'tarjeta' || m === 'transferencia' || m === 'otro') return m
@@ -1186,6 +1192,8 @@ export async function updatePago(
     metodo_pago?: string
     monto_efectivo?: number
     monto_tarjeta?: number
+    descuento_tipo?: string | null
+    descuento_monto?: number
     fecha?: string
     servicios?: string[]
     cliente_id?: string | null
