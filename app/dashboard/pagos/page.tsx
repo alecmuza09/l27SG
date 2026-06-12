@@ -253,9 +253,6 @@ export default function PagosPage() {
   const totalDescuentos = pagos
     .filter(p => p.estado === "completado")
     .reduce((s, p) => s + (p.descuentoMonto ?? 0), 0)
-  const totalCortesias = pagos
-    .filter(p => p.estado === "completado" && p.metodoPago === "cortesia")
-    .reduce((s, p) => s + p.monto, 0)
 
   // totalEfectivo/Tarjeta/Transf ya incluyen propina en el monto,
   // hay que restarla para obtener solo servicios
@@ -653,9 +650,6 @@ export default function PagosPage() {
           )}
           <StatRow label="Propinas" value={fmtMXN(totalPropinas)} />
           <StatRow label="Descuentos" value={fmtMXN(totalDescuentos)} />
-          {totalCortesias > 0 && (
-            <StatRow label="Cortesías" value={fmtMXN(totalCortesias)} />
-          )}
 
           <Separator className="my-2" />
 
@@ -1412,7 +1406,6 @@ export default function PagosPage() {
                       <option value="transferencia">Transferencia</option>
                       <option value="mixto">Mixto (efectivo + tarjeta)</option>
                       <option value="otro">Otro (gift card, etc.)</option>
-                      <option value="cortesia">Cortesía</option>
                     </select>
                   ) : (
                     (() => {

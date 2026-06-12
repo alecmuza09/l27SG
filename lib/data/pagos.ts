@@ -8,7 +8,7 @@ export interface Pago {
   clienteId: string | null
   clienteNombre: string
   monto: number
-  metodoPago: "efectivo" | "tarjeta" | "transferencia" | "otro" | "cortesia"
+  metodoPago: "efectivo" | "tarjeta" | "transferencia" | "otro"
   estado: "pendiente" | "completado" | "reembolsado" | "cancelado"
   fecha: string
   hora: string
@@ -49,8 +49,6 @@ export function distribuirMontoPago(
   const tarStored = Number(p.montoTarjeta) || 0
   const metodo = (p.metodoPago || "otro") as string
 
-  if (metodo === "cortesia") return { efectivo: 0, tarjeta: 0, transferencia: 0, otro: monto }
-
   if (efStored > 0 || tarStored > 0) {
     const remainder = Math.max(0, monto - efStored - tarStored)
     let transferencia = 0
@@ -87,7 +85,6 @@ export function etiquetaMetodosPago(p: Pago): string {
     tarjeta: "Tarjeta",
     transferencia: "Transferencia",
     otro: "Otro",
-    cortesia: "Cortesía",
   }
   const k = (p.metodoPago || "").toLowerCase()
   return labels[k] ?? p.metodoPago ?? "—"
@@ -107,7 +104,6 @@ export type MetodoPagoEdicionUI =
   | 'transferencia'
   | 'mixto'
   | 'otro'
-  | 'cortesia'
 
 const ROUND2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
@@ -170,8 +166,6 @@ export function normalizarMetodoYMontosPago(params: {
     }
     case 'otro':
       return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
-    case 'cortesia':
-      return { ok: true, metodo_pago: 'cortesia', monto_efectivo: 0, monto_tarjeta: 0 }
     default:
       return { ok: false, error: 'Método de pago no válido' }
   }
@@ -180,7 +174,6 @@ export function normalizarMetodoYMontosPago(params: {
 /** Mapea un pago cargado al valor del `<select>` de edición (mixto explícito si hay desglose efectivo+tarjeta). */
 export function metodoPagoAParaEdicionUI(p: Pick<Pago, 'metodoPago' | 'montoEfectivo' | 'montoTarjeta'>): MetodoPagoEdicionUI {
   if (debePersistirMetodoMixtoEfectivoTarjeta(p.montoEfectivo, p.montoTarjeta)) return 'mixto'
-  if (p.metodoPago === 'cortesia') return 'cortesia'
   const m = (p.metodoPago || 'efectivo') as MetodoPagoEdicionUI
   if (m === 'efectivo' || m === 'tarjeta' || m === 'transferencia' || m === 'otro') return m
   return 'otro'
@@ -645,10 +638,6 @@ export function calcularResumenDesdePagos(pagos: Pago[], fecha: string): Resumen
     porMetodoCantidad: { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 },
   }
   for (const p of completados) {
-    if (p.metodoPago === 'cortesia') {
-      resumen.totalDescuentos += p.monto
-      continue
-    }
     const d = distribuirMontoPago(p)
     resumen.totalVentas += p.monto
     resumen.totalPropinas += p.propina ?? 0
