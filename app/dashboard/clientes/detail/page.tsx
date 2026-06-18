@@ -346,7 +346,7 @@ function ClienteDetailContent() {
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {new Date(cita.fecha).toLocaleDateString("es-MX", {
+                            {new Date(cita.fecha + "T12:00:00").toLocaleDateString("es-MX", {
                               year: "numeric",
                               month: "short",
                               day: "numeric",
