@@ -451,6 +451,7 @@ export default function InventarioPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Producto</TableHead>
+                      <TableHead>SKU</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Stock</TableHead>
                       <TableHead>Precio Compra</TableHead>
@@ -465,10 +466,10 @@ export default function InventarioPage() {
                       return (
                         <TableRow key={producto.id}>
                           <TableCell>
-                            <div>
-                              <p className="font-medium">{producto.nombre}</p>
-                              <p className="text-xs text-muted-foreground">SKU: {producto.sku}</p>
-                            </div>
+                            <p className="font-medium">{producto.nombre}</p>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm font-mono">
+                            {producto.sku || '—'}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="capitalize">
