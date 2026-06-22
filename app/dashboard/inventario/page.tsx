@@ -47,6 +47,7 @@ export default function InventarioPage() {
   const [productosBajoStock, setProductosBajoStock] = useState<ProductoInventario[]>([])
   const [productosProximosVencer, setProductosProximosVencer] = useState<ProductoInventario[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchQueryCategoria, setSearchQueryCategoria] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isMovimientoDialogOpen, setIsMovimientoDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -541,7 +542,7 @@ export default function InventarioPage() {
         </div>
       )}
 
-      <Tabs defaultValue="todos" className="space-y-4">
+      <Tabs defaultValue="todos" className="space-y-4" onValueChange={() => setSearchQueryCategoria("")}>
         <TabsList>
           <TabsTrigger value="todos">Todos</TabsTrigger>
           <TabsTrigger value="Tratamientos Spa">Tratamientos Spa</TabsTrigger>
@@ -680,6 +681,17 @@ export default function InventarioPage() {
                 <CardDescription>Productos de la categoría {categoria}</CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar por nombre, SKU o descripción..."
+                      value={searchQueryCategoria}
+                      onChange={(e) => setSearchQueryCategoria(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -695,6 +707,12 @@ export default function InventarioPage() {
                     <TableBody>
                       {inventario
                         .filter((p) => p.categoria === categoria)
+                        .filter((p) =>
+                          searchQueryCategoria === "" ||
+                          p.nombre.toLowerCase().includes(searchQueryCategoria.toLowerCase()) ||
+                          p.sku.toLowerCase().includes(searchQueryCategoria.toLowerCase()) ||
+                          (p.descripcion && p.descripcion.toLowerCase().includes(searchQueryCategoria.toLowerCase()))
+                        )
                         .map((producto) => {
                           const status = getStockStatus(producto)
                           return (
