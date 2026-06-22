@@ -224,10 +224,16 @@ export default function InventarioPage() {
                         <SelectValue placeholder="Seleccionar" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="productos">Productos</SelectItem>
-                        <SelectItem value="insumos">Insumos</SelectItem>
-                        <SelectItem value="equipamiento">Equipamiento</SelectItem>
-                        <SelectItem value="limpieza">Limpieza</SelectItem>
+                        <SelectItem value="Tratamientos Spa">Tratamientos Spa</SelectItem>
+                        <SelectItem value="Herramientas y Equipo">Herramientas y Equipo</SelectItem>
+                        <SelectItem value="Acrílicos">Acrílicos</SelectItem>
+                        <SelectItem value="Uñas y Aplicación">Uñas y Aplicación</SelectItem>
+                        <SelectItem value="Insumos y Desechables">Insumos y Desechables</SelectItem>
+                        <SelectItem value="Accesorios de Servicio">Accesorios de Servicio</SelectItem>
+                        <SelectItem value="Retail y Consumo">Retail y Consumo</SelectItem>
+                        <SelectItem value="Limpieza y Mantenimiento">Limpieza y Mantenimiento</SelectItem>
+                        <SelectItem value="Papelería">Papelería</SelectItem>
+                        <SelectItem value="Mobiliario y Equipo">Mobiliario y Equipo</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -405,10 +411,16 @@ export default function InventarioPage() {
       <Tabs defaultValue="todos" className="space-y-4">
         <TabsList>
           <TabsTrigger value="todos">Todos</TabsTrigger>
-          <TabsTrigger value="productos">Productos</TabsTrigger>
-          <TabsTrigger value="insumos">Insumos</TabsTrigger>
-          <TabsTrigger value="equipamiento">Equipamiento</TabsTrigger>
-          <TabsTrigger value="limpieza">Limpieza</TabsTrigger>
+          <TabsTrigger value="Tratamientos Spa">Tratamientos Spa</TabsTrigger>
+          <TabsTrigger value="Herramientas y Equipo">Herramientas y Equipo</TabsTrigger>
+          <TabsTrigger value="Acrílicos">Acrílicos</TabsTrigger>
+          <TabsTrigger value="Uñas y Aplicación">Uñas y Aplicación</TabsTrigger>
+          <TabsTrigger value="Insumos y Desechables">Insumos y Desechables</TabsTrigger>
+          <TabsTrigger value="Accesorios de Servicio">Accesorios de Servicio</TabsTrigger>
+          <TabsTrigger value="Retail y Consumo">Retail y Consumo</TabsTrigger>
+          <TabsTrigger value="Limpieza y Mantenimiento">Limpieza y Mantenimiento</TabsTrigger>
+          <TabsTrigger value="Papelería">Papelería</TabsTrigger>
+          <TabsTrigger value="Mobiliario y Equipo">Mobiliario y Equipo</TabsTrigger>
         </TabsList>
 
         <TabsContent value="todos">
@@ -511,11 +523,22 @@ export default function InventarioPage() {
           </Card>
         </TabsContent>
 
-        {["productos", "insumos", "equipamiento", "limpieza"].map((categoria) => (
+        {[
+          "Tratamientos Spa",
+          "Herramientas y Equipo",
+          "Acrílicos",
+          "Uñas y Aplicación",
+          "Insumos y Desechables",
+          "Accesorios de Servicio",
+          "Retail y Consumo",
+          "Limpieza y Mantenimiento",
+          "Papelería",
+          "Mobiliario y Equipo",
+        ].map((categoria) => (
           <TabsContent key={categoria} value={categoria}>
             <Card>
               <CardHeader>
-                <CardTitle className="capitalize">{categoria}</CardTitle>
+                <CardTitle>{categoria}</CardTitle>
                 <CardDescription>Productos de la categoría {categoria}</CardDescription>
               </CardHeader>
               <CardContent>

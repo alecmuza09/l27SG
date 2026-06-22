@@ -6,7 +6,7 @@ export interface ProductoInventario {
   id: string
   nombre: string
   descripcion: string
-  categoria: "productos" | "insumos" | "equipamiento" | "limpieza"
+  categoria: 'Tratamientos Spa' | 'Herramientas y Equipo' | 'Acrílicos' | 'Uñas y Aplicación' | 'Insumos y Desechables' | 'Accesorios de Servicio' | 'Retail y Consumo' | 'Limpieza y Mantenimiento' | 'Papelería' | 'Mobiliario y Equipo'
   sku: string
   stockActual: number
   stockMinimo: number
@@ -41,7 +41,7 @@ export const MOCK_INVENTARIO: ProductoInventario[] = [
     id: "1",
     nombre: "Aceite de Masaje Lavanda",
     descripcion: "Aceite esencial de lavanda para masajes relajantes",
-    categoria: "productos",
+    categoria: "Tratamientos Spa",
     sku: "ACE-LAV-500",
     stockActual: 5,
     stockMinimo: 10,
@@ -60,7 +60,7 @@ export const MOCK_INVENTARIO: ProductoInventario[] = [
     id: "2",
     nombre: "Toallas Faciales",
     descripcion: "Toallas de algodón para tratamientos faciales",
-    categoria: "insumos",
+    categoria: "Insumos y Desechables",
     sku: "TOA-FAC-100",
     stockActual: 15,
     stockMinimo: 20,
@@ -77,7 +77,7 @@ export const MOCK_INVENTARIO: ProductoInventario[] = [
     id: "3",
     nombre: "Crema Hidratante Facial",
     descripcion: "Crema hidratante con ácido hialurónico",
-    categoria: "productos",
+    categoria: "Retail y Consumo",
     sku: "CRE-HID-250",
     stockActual: 8,
     stockMinimo: 15,
@@ -96,7 +96,7 @@ export const MOCK_INVENTARIO: ProductoInventario[] = [
     id: "4",
     nombre: "Guantes Desechables",
     descripcion: "Guantes de nitrilo talla M",
-    categoria: "insumos",
+    categoria: "Insumos y Desechables",
     sku: "GUA-NIT-M",
     stockActual: 45,
     stockMinimo: 30,
@@ -113,7 +113,7 @@ export const MOCK_INVENTARIO: ProductoInventario[] = [
     id: "5",
     nombre: "Camilla de Masaje",
     descripcion: "Camilla profesional ajustable",
-    categoria: "equipamiento",
+    categoria: "Mobiliario y Equipo",
     sku: "CAM-MAS-001",
     stockActual: 3,
     stockMinimo: 2,
@@ -130,7 +130,7 @@ export const MOCK_INVENTARIO: ProductoInventario[] = [
     id: "6",
     nombre: "Desinfectante Multiusos",
     descripcion: "Desinfectante para superficies",
-    categoria: "limpieza",
+    categoria: "Limpieza y Mantenimiento",
     sku: "DES-MUL-1L",
     stockActual: 12,
     stockMinimo: 15,
