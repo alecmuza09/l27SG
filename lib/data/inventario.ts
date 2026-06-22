@@ -293,6 +293,62 @@ export async function getProductosBajoStockFromDB(sucursalId?: string): Promise<
   }
 }
 
+// Obtener stock de una sucursal específica (catálogo global + stock propio de la franquicia)
+export async function getStockPorSucursal(sucursalId: string): Promise<ProductoInventario[]> {
+  const { data, error } = await supabase
+    .from('inventario_productos')
+    .select(`
+      *,
+      inventario_stock!left(stock_actual, stock_minimo, sucursal_id)
+    `)
+    .eq('activo', true)
+    .order('nombre')
+
+  if (error) throw error
+
+  return (data ?? []).map((p: any) => {
+    const stockRow = p.inventario_stock?.find((s: any) => s.sucursal_id === sucursalId)
+    return {
+      id: p.id,
+      nombre: p.nombre,
+      descripcion: p.descripcion ?? '',
+      categoria: p.categoria,
+      sku: p.sku,
+      unidadMedida: p.unidad_medida ?? 'unidad',
+      activo: p.activo ?? true,
+      stockActual: stockRow?.stock_actual ?? 0,
+      stockMinimo: stockRow?.stock_minimo ?? 0,
+      stockMaximo: p.stock_maximo ?? 0,
+      precioCompra: p.precio_compra ?? 0,
+      proveedor: p.proveedor ?? '',
+      sucursalId: sucursalId,
+    }
+  })
+}
+
+// Actualizar stock de un producto en una sucursal (upsert por UNIQUE constraint)
+export async function upsertStock(
+  productoId: string,
+  sucursalId: string,
+  stockActual: number,
+  stockMinimo: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from('inventario_stock')
+    .upsert(
+      {
+        producto_id: productoId,
+        sucursal_id: sucursalId,
+        stock_actual: stockActual,
+        stock_minimo: stockMinimo,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'producto_id,sucursal_id' },
+    )
+
+  if (error) throw error
+}
+
 // Obtener productos próximos a vencer desde BD
 export async function getProductosProximosVencerFromDB(sucursalId?: string): Promise<ProductoInventario[]> {
   try {

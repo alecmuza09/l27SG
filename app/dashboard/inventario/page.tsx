@@ -22,6 +22,8 @@ import {
   getProductosInventarioFromDB, 
   getProductosBajoStockFromDB, 
   getProductosProximosVencerFromDB,
+  getStockPorSucursal,
+  upsertStock,
   type ProductoInventario 
 } from "@/lib/data/inventario"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -42,7 +44,9 @@ import { supabase } from "@/lib/supabase/client"
 
 export default function InventarioPage() {
   const currentUser = getCurrentUser()
-  const isAdmin = currentUser?.role === "admin"
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin'
+  const isBranchAdmin = currentUser?.role === 'branch-admin'
+  const sucursalId = currentUser?.sucursalId ?? null
   const [inventario, setInventario] = useState<ProductoInventario[]>([])
   const [productosBajoStock, setProductosBajoStock] = useState<ProductoInventario[]>([])
   const [productosProximosVencer, setProductosProximosVencer] = useState<ProductoInventario[]>([])
@@ -52,6 +56,9 @@ export default function InventarioPage() {
   const [isMovimientoDialogOpen, setIsMovimientoDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isEditStockOpen, setIsEditStockOpen] = useState(false)
+  const [editStockActual, setEditStockActual] = useState(0)
+  const [editStockMinimo, setEditStockMinimo] = useState(0)
   const [productoEditando, setProductoEditando] = useState<ProductoInventario | null>(null)
   const [editForm, setEditForm] = useState({
     nombre: '',
@@ -62,6 +69,29 @@ export default function InventarioPage() {
     stockMinimo: 0,
     unidadMedida: '',
   })
+
+  async function loadInventario() {
+    try {
+      setIsLoading(true)
+      if (isAdmin) {
+        const [productosData, bajoStockData, proximosVencerData] = await Promise.all([
+          getProductosInventarioFromDB(),
+          getProductosBajoStockFromDB(),
+          getProductosProximosVencerFromDB(),
+        ])
+        setInventario(productosData)
+        setProductosBajoStock(bajoStockData)
+        setProductosProximosVencer(proximosVencerData)
+      } else if (sucursalId) {
+        const productosData = await getStockPorSucursal(sucursalId)
+        setInventario(productosData)
+      }
+    } catch (err) {
+      console.error('Error cargando inventario:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   async function handleEditSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -75,31 +105,13 @@ export default function InventarioPage() {
       stock_minimo: editForm.stockMinimo,
       unidad_medida: editForm.unidadMedida,
     }).eq('id', productoEditando.id)
-    const productosData = await getProductosInventarioFromDB()
-    setInventario(productosData)
+    await loadInventario()
     setIsEditDialogOpen(false)
   }
 
   useEffect(() => {
-    async function loadInventario() {
-      try {
-        setIsLoading(true)
-        const [productosData, bajoStockData, proximosVencerData] = await Promise.all([
-          getProductosInventarioFromDB(),
-          getProductosBajoStockFromDB(),
-          getProductosProximosVencerFromDB()
-        ])
-        setInventario(productosData)
-        setProductosBajoStock(bajoStockData)
-        setProductosProximosVencer(proximosVencerData)
-      } catch (err) {
-        console.error('Error cargando inventario:', err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
     loadInventario()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const filteredInventario = searchQuery
@@ -431,6 +443,50 @@ export default function InventarioPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={isEditStockOpen} onOpenChange={setIsEditStockOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Actualizar Stock</DialogTitle>
+            <DialogDescription>{productoEditando?.nombre}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Stock Actual</Label>
+              <Input
+                type="number"
+                min="0"
+                value={editStockActual}
+                onChange={(e) => setEditStockActual(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Stock Mínimo</Label>
+              <Input
+                type="number"
+                min="0"
+                value={editStockMinimo}
+                onChange={(e) => setEditStockMinimo(Number(e.target.value))}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsEditStockOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!productoEditando || !sucursalId) return
+                  await upsertStock(productoEditando.id, sucursalId, editStockActual, editStockMinimo)
+                  setIsEditStockOpen(false)
+                  await loadInventario()
+                }}
+              >
+                Guardar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
@@ -651,6 +707,16 @@ export default function InventarioPage() {
                                 </Button>
                               </div>
                             )}
+                            {isBranchAdmin && (
+                              <Button variant="ghost" size="icon" title="Actualizar stock" onClick={() => {
+                                setProductoEditando(producto)
+                                setEditStockActual(producto.stockActual)
+                                setEditStockMinimo(producto.stockMinimo)
+                                setIsEditStockOpen(true)
+                              }}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       )
@@ -701,7 +767,7 @@ export default function InventarioPage() {
                         <TableHead>Categoría</TableHead>
                         <TableHead>Stock</TableHead>
                         <TableHead>Estado</TableHead>
-                        {isAdmin && <TableHead className="text-right">Acciones</TableHead>}
+                        {(isAdmin || isBranchAdmin) && <TableHead className="text-right">Acciones</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -748,23 +814,35 @@ export default function InventarioPage() {
                                   {status === "bajo" ? "Bajo Stock" : status === "alto" ? "Stock Alto" : "Normal"}
                                 </Badge>
                               </TableCell>
-                              {isAdmin && (
+                              {(isAdmin || isBranchAdmin) && (
                                 <TableCell className="text-right">
-                                  <Button variant="ghost" size="icon" onClick={() => {
-                                    setProductoEditando(producto)
-                                    setEditForm({
-                                      nombre: producto.nombre,
-                                      descripcion: producto.descripcion,
-                                      categoria: producto.categoria,
-                                      sku: producto.sku,
-                                      stockActual: producto.stockActual,
-                                      stockMinimo: producto.stockMinimo,
-                                      unidadMedida: producto.unidadMedida,
-                                    })
-                                    setIsEditDialogOpen(true)
-                                  }}>
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
+                                  {isAdmin && (
+                                    <Button variant="ghost" size="icon" onClick={() => {
+                                      setProductoEditando(producto)
+                                      setEditForm({
+                                        nombre: producto.nombre,
+                                        descripcion: producto.descripcion,
+                                        categoria: producto.categoria,
+                                        sku: producto.sku,
+                                        stockActual: producto.stockActual,
+                                        stockMinimo: producto.stockMinimo,
+                                        unidadMedida: producto.unidadMedida,
+                                      })
+                                      setIsEditDialogOpen(true)
+                                    }}>
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  {isBranchAdmin && (
+                                    <Button variant="ghost" size="icon" title="Actualizar stock" onClick={() => {
+                                      setProductoEditando(producto)
+                                      setEditStockActual(producto.stockActual)
+                                      setEditStockMinimo(producto.stockMinimo)
+                                      setIsEditStockOpen(true)
+                                    }}>
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  )}
                                 </TableCell>
                               )}
                             </TableRow>
