@@ -38,6 +38,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getCurrentUser } from "@/lib/auth"
+import { supabase } from "@/lib/supabase/client"
 
 export default function InventarioPage() {
   const currentUser = getCurrentUser()
@@ -49,6 +50,34 @@ export default function InventarioPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isMovimientoDialogOpen, setIsMovimientoDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [productoEditando, setProductoEditando] = useState<ProductoInventario | null>(null)
+  const [editForm, setEditForm] = useState({
+    nombre: '',
+    descripcion: '',
+    categoria: '' as ProductoInventario['categoria'],
+    sku: '',
+    stockActual: 0,
+    stockMinimo: 0,
+    unidadMedida: '',
+  })
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!productoEditando) return
+    await supabase.from('inventario_productos').update({
+      nombre: editForm.nombre,
+      descripcion: editForm.descripcion,
+      categoria: editForm.categoria,
+      sku: editForm.sku,
+      stock_actual: editForm.stockActual,
+      stock_minimo: editForm.stockMinimo,
+      unidad_medida: editForm.unidadMedida,
+    }).eq('id', productoEditando.id)
+    const productosData = await getProductosInventarioFromDB()
+    setInventario(productosData)
+    setIsEditDialogOpen(false)
+  }
 
   useEffect(() => {
     async function loadInventario() {
@@ -297,6 +326,110 @@ export default function InventarioPage() {
         </div>
       </div>
 
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar Producto</DialogTitle>
+            <DialogDescription>Modifica los datos del producto</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-nombre">Nombre *</Label>
+                <Input
+                  id="edit-nombre"
+                  value={editForm.nombre}
+                  onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-sku">SKU *</Label>
+                <Input
+                  id="edit-sku"
+                  value={editForm.sku}
+                  onChange={(e) => setEditForm({ ...editForm, sku: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-descripcion">Descripción</Label>
+              <Textarea
+                id="edit-descripcion"
+                value={editForm.descripcion}
+                onChange={(e) => setEditForm({ ...editForm, descripcion: e.target.value })}
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-categoria">Categoría *</Label>
+                <Select
+                  value={editForm.categoria}
+                  onValueChange={(v) => setEditForm({ ...editForm, categoria: v as ProductoInventario['categoria'] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Tratamientos Spa">Tratamientos Spa</SelectItem>
+                    <SelectItem value="Herramientas y Equipo">Herramientas y Equipo</SelectItem>
+                    <SelectItem value="Acrílicos">Acrílicos</SelectItem>
+                    <SelectItem value="Uñas y Aplicación">Uñas y Aplicación</SelectItem>
+                    <SelectItem value="Insumos y Desechables">Insumos y Desechables</SelectItem>
+                    <SelectItem value="Accesorios de Servicio">Accesorios de Servicio</SelectItem>
+                    <SelectItem value="Retail y Consumo">Retail y Consumo</SelectItem>
+                    <SelectItem value="Limpieza y Mantenimiento">Limpieza y Mantenimiento</SelectItem>
+                    <SelectItem value="Papelería">Papelería</SelectItem>
+                    <SelectItem value="Mobiliario y Equipo">Mobiliario y Equipo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-unidadMedida">Unidad de Medida *</Label>
+                <Input
+                  id="edit-unidadMedida"
+                  value={editForm.unidadMedida}
+                  onChange={(e) => setEditForm({ ...editForm, unidadMedida: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-stockActual">Stock Actual *</Label>
+                <Input
+                  id="edit-stockActual"
+                  type="number"
+                  min="0"
+                  value={editForm.stockActual}
+                  onChange={(e) => setEditForm({ ...editForm, stockActual: Number(e.target.value) })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-stockMinimo">Stock Mínimo *</Label>
+                <Input
+                  id="edit-stockMinimo"
+                  type="number"
+                  min="0"
+                  value={editForm.stockMinimo}
+                  onChange={(e) => setEditForm({ ...editForm, stockMinimo: Number(e.target.value) })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">Guardar Cambios</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
@@ -454,8 +587,6 @@ export default function InventarioPage() {
                       <TableHead>SKU</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Stock</TableHead>
-                      <TableHead>Precio Compra</TableHead>
-                      <TableHead>Proveedor</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -490,12 +621,6 @@ export default function InventarioPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <span className="font-medium">${producto.precioCompra}</span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm">{producto.proveedor}</span>
-                          </TableCell>
-                          <TableCell>
                             <Badge
                               variant={status === "bajo" ? "destructive" : status === "alto" ? "default" : "secondary"}
                             >
@@ -505,7 +630,19 @@ export default function InventarioPage() {
                           <TableCell className="text-right">
                             {isAdmin && (
                               <div className="flex justify-end gap-2">
-                                <Button variant="ghost" size="icon">
+                                <Button variant="ghost" size="icon" onClick={() => {
+                                  setProductoEditando(producto)
+                                  setEditForm({
+                                    nombre: producto.nombre,
+                                    descripcion: producto.descripcion,
+                                    categoria: producto.categoria,
+                                    sku: producto.sku,
+                                    stockActual: producto.stockActual,
+                                    stockMinimo: producto.stockMinimo,
+                                    unidadMedida: producto.unidadMedida,
+                                  })
+                                  setIsEditDialogOpen(true)
+                                }}>
                                   <Edit className="h-4 w-4" />
                                 </Button>
                                 <Button variant="ghost" size="icon">
@@ -548,9 +685,11 @@ export default function InventarioPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Producto</TableHead>
+                        <TableHead>SKU</TableHead>
+                        <TableHead>Categoría</TableHead>
                         <TableHead>Stock</TableHead>
-                        <TableHead>Precio</TableHead>
                         <TableHead>Estado</TableHead>
+                        {isAdmin && <TableHead className="text-right">Acciones</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -561,18 +700,26 @@ export default function InventarioPage() {
                           return (
                             <TableRow key={producto.id}>
                               <TableCell>
-                                <div>
-                                  <p className="font-medium">{producto.nombre}</p>
-                                  <p className="text-xs text-muted-foreground">{producto.descripcion}</p>
+                                <p className="font-medium">{producto.nombre}</p>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground text-sm font-mono">
+                                {producto.sku || '—'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{producto.categoria}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    {status === "bajo" && <TrendingDown className="h-4 w-4 text-orange-600" />}
+                                    {status === "alto" && <TrendingUp className="h-4 w-4 text-blue-600" />}
+                                    <span className="font-medium">{producto.stockActual}</span>
+                                    <span className="text-xs text-muted-foreground">{producto.unidadMedida}</span>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    Min: {producto.stockMinimo} / Max: {producto.stockMaximo}
+                                  </p>
                                 </div>
-                              </TableCell>
-                              <TableCell>
-                                <span className="font-medium">
-                                  {producto.stockActual} {producto.unidadMedida}
-                                </span>
-                              </TableCell>
-                              <TableCell>
-                                <span className="font-medium">${producto.precioCompra}</span>
                               </TableCell>
                               <TableCell>
                                 <Badge
@@ -583,6 +730,25 @@ export default function InventarioPage() {
                                   {status === "bajo" ? "Bajo Stock" : status === "alto" ? "Stock Alto" : "Normal"}
                                 </Badge>
                               </TableCell>
+                              {isAdmin && (
+                                <TableCell className="text-right">
+                                  <Button variant="ghost" size="icon" onClick={() => {
+                                    setProductoEditando(producto)
+                                    setEditForm({
+                                      nombre: producto.nombre,
+                                      descripcion: producto.descripcion,
+                                      categoria: producto.categoria,
+                                      sku: producto.sku,
+                                      stockActual: producto.stockActual,
+                                      stockMinimo: producto.stockMinimo,
+                                      unidadMedida: producto.unidadMedida,
+                                    })
+                                    setIsEditDialogOpen(true)
+                                  }}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              )}
                             </TableRow>
                           )
                         })}
