@@ -107,8 +107,23 @@ export default function InventarioPage() {
       unidad_medida: editForm.unidadMedida,
       precio_compra: editPrecio,
     }).eq('id', productoEditando.id)
-    await loadInventario()
+    setInventario(prev => prev.map(p =>
+      p.id === productoEditando.id
+        ? {
+            ...p,
+            nombre: editForm.nombre,
+            descripcion: editForm.descripcion,
+            categoria: editForm.categoria,
+            sku: editForm.sku,
+            stockActual: editForm.stockActual,
+            stockMinimo: editForm.stockMinimo,
+            unidadMedida: editForm.unidadMedida,
+            precioCompra: editPrecio,
+          }
+        : p
+    ))
     setIsEditDialogOpen(false)
+    setProductoEditando(null)
   }
 
   useEffect(() => {
