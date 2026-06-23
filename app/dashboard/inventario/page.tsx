@@ -644,6 +644,7 @@ export default function InventarioPage() {
                       <TableHead>SKU</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Stock</TableHead>
+                      <TableHead>Precio</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -676,6 +677,9 @@ export default function InventarioPage() {
                                 Min: {producto.stockMinimo} / Max: {producto.stockMaximo}
                               </p>
                             </div>
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {producto.precioCompra > 0 ? `$${producto.precioCompra.toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'}
                           </TableCell>
                           <TableCell>
                             <Badge
@@ -766,6 +770,7 @@ export default function InventarioPage() {
                         <TableHead>SKU</TableHead>
                         <TableHead>Categoría</TableHead>
                         <TableHead>Stock</TableHead>
+                        <TableHead>Precio</TableHead>
                         <TableHead>Estado</TableHead>
                         {(isAdmin || isBranchAdmin) && <TableHead className="text-right">Acciones</TableHead>}
                       </TableRow>
@@ -804,6 +809,9 @@ export default function InventarioPage() {
                                     Min: {producto.stockMinimo} / Max: {producto.stockMaximo}
                                   </p>
                                 </div>
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {producto.precioCompra > 0 ? `$${producto.precioCompra.toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'}
                               </TableCell>
                               <TableCell>
                                 <Badge
