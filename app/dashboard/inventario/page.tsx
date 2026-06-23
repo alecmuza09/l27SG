@@ -59,6 +59,7 @@ export default function InventarioPage() {
   const [isEditStockOpen, setIsEditStockOpen] = useState(false)
   const [editStockActual, setEditStockActual] = useState(0)
   const [editStockMinimo, setEditStockMinimo] = useState(0)
+  const [editPrecio, setEditPrecio] = useState(0)
   const [productoEditando, setProductoEditando] = useState<ProductoInventario | null>(null)
   const [editForm, setEditForm] = useState({
     nombre: '',
@@ -104,6 +105,7 @@ export default function InventarioPage() {
       stock_actual: editForm.stockActual,
       stock_minimo: editForm.stockMinimo,
       unidad_medida: editForm.unidadMedida,
+      precio_compra: editPrecio,
     }).eq('id', productoEditando.id)
     await loadInventario()
     setIsEditDialogOpen(false)
@@ -433,6 +435,16 @@ export default function InventarioPage() {
                 />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>Precio de Compra</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={editPrecio}
+                onChange={e => setEditPrecio(Number(e.target.value))}
+              />
+            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancelar
@@ -702,6 +714,7 @@ export default function InventarioPage() {
                                     stockMinimo: producto.stockMinimo,
                                     unidadMedida: producto.unidadMedida,
                                   })
+                                  setEditPrecio(producto.precioCompra ?? 0)
                                   setIsEditDialogOpen(true)
                                 }}>
                                   <Edit className="h-4 w-4" />
@@ -836,6 +849,7 @@ export default function InventarioPage() {
                                         stockMinimo: producto.stockMinimo,
                                         unidadMedida: producto.unidadMedida,
                                       })
+                                      setEditPrecio(producto.precioCompra ?? 0)
                                       setIsEditDialogOpen(true)
                                     }}>
                                       <Edit className="h-4 w-4" />
