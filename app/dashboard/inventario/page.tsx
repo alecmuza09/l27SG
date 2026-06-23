@@ -507,7 +507,7 @@ export default function InventarioPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.bajoStock}</div>
+            <div className="text-2xl font-bold text-orange-600">—</div>
           </CardContent>
         </Card>
         <Card>
@@ -531,7 +531,7 @@ export default function InventarioPage() {
         </Card>
       </div>
 
-      {(productosBajoStock.length > 0 || productosProximosVencer.length > 0) && (
+      {/* (productosBajoStock.length > 0 || productosProximosVencer.length > 0) && (
         <div className="grid gap-4 md:grid-cols-2">
           {productosBajoStock.length > 0 && (
             <Card className="border-orange-200 bg-orange-50">
@@ -596,7 +596,7 @@ export default function InventarioPage() {
             </Card>
           )}
         </div>
-      )}
+      ) */}
 
       <Tabs defaultValue="todos" className="space-y-4" onValueChange={() => setSearchQueryCategoria("")}>
         <TabsList>
