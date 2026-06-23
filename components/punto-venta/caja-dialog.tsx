@@ -895,9 +895,6 @@ export function CajaDialog({
                               </div>
                               <div className="flex items-center justify-between w-full mt-0.5">
                                 <span className="text-emerald-600 font-semibold text-xs">{fmtMXN(p.precioVenta ?? p.precioCompra)}</span>
-                                {p.stockActual <= (p.stockMinimo ?? 5) && (
-                                  <AlertTriangle className="h-3 w-3 text-amber-500" />
-                                )}
                               </div>
                             </button>
                           ))}
@@ -915,9 +912,6 @@ export function CajaDialog({
                           <span className="font-medium text-xs truncate w-full">{p.nombre}</span>
                           <div className="flex items-center justify-between w-full mt-0.5">
                             <span className="text-emerald-600 font-semibold text-xs">{fmtMXN(p.precioVenta ?? p.precioCompra)}</span>
-                            <span className={cn("text-[10px]", p.stockActual <= (p.stockMinimo ?? 5) ? "text-amber-600 font-semibold" : "text-muted-foreground")}>
-                              {p.stockActual <= (p.stockMinimo ?? 5) ? "⚠ Stock bajo" : `Stock: ${p.stockActual}`}
-                            </span>
                           </div>
                         </button>
                       ))}
