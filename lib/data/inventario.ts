@@ -20,6 +20,7 @@ export interface ProductoInventario {
   fechaVencimiento?: string
   ultimaCompra?: string
   activo: boolean
+  disponibleVenta: boolean
 }
 
 export interface MovimientoInventario {
@@ -238,6 +239,7 @@ export async function getProductosInventarioFromDB(sucursalId?: string): Promise
       fechaVencimiento: producto.fecha_vencimiento || undefined,
       ultimaCompra: producto.ultima_compra || undefined,
       activo: producto.activo ?? true,
+      disponibleVenta: producto.disponible_venta ?? false,
     }))
   } catch (error) {
     console.error('Error inesperado obteniendo productos:', error)
@@ -286,6 +288,7 @@ export async function getProductosBajoStockFromDB(sucursalId?: string): Promise<
         fechaVencimiento: producto.fecha_vencimiento || undefined,
         ultimaCompra: producto.ultima_compra || undefined,
         activo: producto.activo ?? true,
+        disponibleVenta: producto.disponible_venta ?? false,
       }))
   } catch (error) {
     console.error('Error inesperado obteniendo productos bajo stock:', error)
@@ -322,6 +325,7 @@ export async function getStockPorSucursal(sucursalId: string): Promise<ProductoI
       precioCompra: p.precio_compra ?? 0,
       proveedor: p.proveedor ?? '',
       sucursalId: sucursalId,
+      disponibleVenta: p.disponible_venta ?? false,
     }
   })
 }
@@ -396,6 +400,7 @@ export async function getProductosProximosVencerFromDB(sucursalId?: string): Pro
       fechaVencimiento: producto.fecha_vencimiento || undefined,
       ultimaCompra: producto.ultima_compra || undefined,
       activo: producto.activo ?? true,
+      disponibleVenta: producto.disponible_venta ?? false,
     }))
   } catch (error) {
     console.error('Error inesperado obteniendo productos próximos a vencer:', error)

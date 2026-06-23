@@ -657,6 +657,7 @@ export default function InventarioPage() {
                       <TableHead>Categoría</TableHead>
                       <TableHead>Stock</TableHead>
                       <TableHead>Precio</TableHead>
+                      <TableHead>Venta</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -692,6 +693,32 @@ export default function InventarioPage() {
                           </TableCell>
                           <TableCell className="font-medium">
                             {producto.precioCompra > 0 ? `$${producto.precioCompra.toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'}
+                          </TableCell>
+                          <TableCell>
+                            {isAdmin && (
+                              <button
+                                title={producto.disponibleVenta ? "Quitar de ventas" : "Agregar a ventas"}
+                                onClick={async () => {
+                                  await supabase
+                                    .from('inventario_productos')
+                                    .update({ disponible_venta: !producto.disponibleVenta })
+                                    .eq('id', producto.id)
+                                  await loadInventario()
+                                }}
+                                className={`w-10 h-6 rounded-full transition-colors duration-200 flex items-center px-1 ${
+                                  producto.disponibleVenta
+                                    ? 'bg-green-500 justify-end'
+                                    : 'bg-gray-300 justify-start'
+                                }`}
+                              >
+                                <span className="w-4 h-4 bg-white rounded-full shadow" />
+                              </button>
+                            )}
+                            {!isAdmin && (
+                              <span className={`text-xs font-medium ${producto.disponibleVenta ? 'text-green-600' : 'text-muted-foreground'}`}>
+                                {producto.disponibleVenta ? '✓' : '—'}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Badge
@@ -784,6 +811,7 @@ export default function InventarioPage() {
                         <TableHead>Categoría</TableHead>
                         <TableHead>Stock</TableHead>
                         <TableHead>Precio</TableHead>
+                        <TableHead>Venta</TableHead>
                         <TableHead>Estado</TableHead>
                         {(isAdmin || isBranchAdmin) && <TableHead className="text-right">Acciones</TableHead>}
                       </TableRow>
@@ -825,6 +853,32 @@ export default function InventarioPage() {
                               </TableCell>
                               <TableCell className="font-medium">
                                 {producto.precioCompra > 0 ? `$${producto.precioCompra.toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'}
+                              </TableCell>
+                              <TableCell>
+                                {isAdmin && (
+                                  <button
+                                    title={producto.disponibleVenta ? "Quitar de ventas" : "Agregar a ventas"}
+                                    onClick={async () => {
+                                      await supabase
+                                        .from('inventario_productos')
+                                        .update({ disponible_venta: !producto.disponibleVenta })
+                                        .eq('id', producto.id)
+                                      await loadInventario()
+                                    }}
+                                    className={`w-10 h-6 rounded-full transition-colors duration-200 flex items-center px-1 ${
+                                      producto.disponibleVenta
+                                        ? 'bg-green-500 justify-end'
+                                        : 'bg-gray-300 justify-start'
+                                    }`}
+                                  >
+                                    <span className="w-4 h-4 bg-white rounded-full shadow" />
+                                  </button>
+                                )}
+                                {!isAdmin && (
+                                  <span className={`text-xs font-medium ${producto.disponibleVenta ? 'text-green-600' : 'text-muted-foreground'}`}>
+                                    {producto.disponibleVenta ? '✓' : '—'}
+                                  </span>
+                                )}
                               </TableCell>
                               <TableCell>
                                 <Badge
