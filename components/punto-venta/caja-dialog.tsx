@@ -238,7 +238,7 @@ export function CajaDialog({
       .then(([cls, svcs, prods, sucs]) => {
         setClientes(cls)
         setServicios(svcs)
-        setProductos(prods)
+        setProductos(prods.filter(p => p.categoria === 'Retail y Consumo'))
         setSucursales(sucs)
         // Auto-seleccionar: prioriza la sucursal del padre, sino la única disponible
         if (!sucursalIdInicial && sucs.length === 1) setSucursalId(sucs[0].id)
