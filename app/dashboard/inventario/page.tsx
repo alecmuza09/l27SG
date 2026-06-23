@@ -699,11 +699,15 @@ export default function InventarioPage() {
                               <button
                                 title={producto.disponibleVenta ? "Quitar de ventas" : "Agregar a ventas"}
                                 onClick={async () => {
+                                  setInventario(prev => prev.map(p =>
+                                    p.id === producto.id
+                                      ? { ...p, disponibleVenta: !p.disponibleVenta }
+                                      : p
+                                  ))
                                   await supabase
                                     .from('inventario_productos')
                                     .update({ disponible_venta: !producto.disponibleVenta })
                                     .eq('id', producto.id)
-                                  await loadInventario()
                                 }}
                                 className={`w-10 h-6 rounded-full transition-colors duration-200 flex items-center px-1 ${
                                   producto.disponibleVenta
@@ -859,11 +863,15 @@ export default function InventarioPage() {
                                   <button
                                     title={producto.disponibleVenta ? "Quitar de ventas" : "Agregar a ventas"}
                                     onClick={async () => {
+                                      setInventario(prev => prev.map(p =>
+                                        p.id === producto.id
+                                          ? { ...p, disponibleVenta: !p.disponibleVenta }
+                                          : p
+                                      ))
                                       await supabase
                                         .from('inventario_productos')
                                         .update({ disponible_venta: !producto.disponibleVenta })
                                         .eq('id', producto.id)
-                                      await loadInventario()
                                     }}
                                     className={`w-10 h-6 rounded-full transition-colors duration-200 flex items-center px-1 ${
                                       producto.disponibleVenta
