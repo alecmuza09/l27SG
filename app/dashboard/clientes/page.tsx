@@ -63,6 +63,7 @@ export default function ClientesPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalClientes, setTotalClientes] = useState(0)
   const [pageSize] = useState(50) // 50 clientes por página
+  const [visitaFilter, setVisitaFilter] = useState<'todos' | 'sin-visita-reciente' | 'sin-visitas'>('todos')
 
   // Estado del formulario (genero y sucursal con valores no vacíos por requisito de Select)
   const [formData, setFormData] = useState({
@@ -326,6 +327,14 @@ export default function ClientesPage() {
     )
   }
 
+  const hoy60 = Date.now() - 60 * 24 * 60 * 60 * 1000
+  const clientesFiltrados = clientes.filter((c) => {
+    if (visitaFilter === 'sin-visitas') return !c.ultimaVisita
+    if (visitaFilter === 'sin-visita-reciente')
+      return !c.ultimaVisita || new Date(c.ultimaVisita + 'T12:00:00').getTime() < hoy60
+    return true
+  })
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -540,6 +549,16 @@ export default function ClientesPage() {
                 className="pl-10"
               />
             </div>
+            <Select value={visitaFilter} onValueChange={(v) => setVisitaFilter(v as typeof visitaFilter)}>
+              <SelectTrigger className="w-52">
+                <SelectValue placeholder="Filtrar por visita" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="sin-visita-reciente">Sin visita reciente (+60 días)</SelectItem>
+                <SelectItem value="sin-visitas">Sin visitas</SelectItem>
+              </SelectContent>
+            </Select>
             <div className="text-sm text-muted-foreground">
               {searchQuery ? (
                 <span>Mostrando {totalClientes} resultado{totalClientes !== 1 ? 's' : ''} de búsqueda</span>
@@ -555,6 +574,7 @@ export default function ClientesPage() {
                 <TableRow>
                   <TableHead>Cliente</TableHead>
                   <TableHead>Contacto</TableHead>
+                  <TableHead>Última Visita</TableHead>
                   <TableHead>Visitas</TableHead>
                   {currentUser?.role !== 'manager' && <TableHead>Total Gastado</TableHead>}
                   <TableHead>Puntos</TableHead>
@@ -563,14 +583,14 @@ export default function ClientesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {clientes.length === 0 ? (
+                {clientesFiltrados.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={currentUser?.role === 'manager' ? 6 : 7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={currentUser?.role === 'manager' ? 7 : 8} className="text-center py-8 text-muted-foreground">
                       {searchQuery ? 'No se encontraron clientes con ese criterio de búsqueda' : 'No hay clientes registrados'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  clientes.map((cliente) => (
+                  clientesFiltrados.map((cliente) => (
                   <TableRow key={cliente.id}>
                     <TableCell>
                       <div>
@@ -593,6 +613,19 @@ export default function ClientesPage() {
                           <span className="text-xs">{cliente.telefono}</span>
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {cliente.ultimaVisita ? (
+                        <span className={
+                          new Date(cliente.ultimaVisita + 'T12:00:00') < new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+                            ? 'text-orange-500 text-sm'
+                            : 'text-sm'
+                        }>
+                          {new Date(cliente.ultimaVisita + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">Sin visitas</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

@@ -16,7 +16,7 @@ export interface Cliente {
   ciudad?: string
   notas?: string
   fechaRegistro: string
-  ultimaVisita?: string
+  ultimaVisita: string | null
   totalVisitas: number
   totalGastado: number
   puntosFidelidad: number
@@ -40,7 +40,7 @@ function transformCliente(cliente: ClienteRow): Cliente {
     ciudad: cliente.ciudad || undefined,
     notas: cliente.notas || undefined,
     fechaRegistro: cliente.fecha_registro || new Date().toISOString().split('T')[0],
-    ultimaVisita: cliente.ultima_visita || undefined,
+    ultimaVisita: cliente.ultima_visita || null,
     totalVisitas: cliente.total_visitas ?? 0,
     totalGastado: Number(cliente.total_gastado) || 0,
     puntosFidelidad: cliente.puntos_fidelidad ?? 0,
@@ -78,10 +78,13 @@ export async function getClientesPaginated(
     const total = count || 0
     const totalPages = Math.ceil(total / pageSize)
 
-    // Obtener los clientes de la página actual
+    // Obtener los clientes de la página actual con sus citas
     const { data, error } = await supabase
       .from('clientes')
-      .select('*')
+      .select(`
+        *,
+        citas!left(fecha, estado)
+      `)
       .order('created_at', { ascending: false })
       .range(from, to)
 
@@ -91,7 +94,13 @@ export async function getClientesPaginated(
     }
 
     return {
-      clientes: data.map(transformCliente),
+      clientes: (data as any[]).map((row) => ({
+        ...transformCliente(row),
+        ultimaVisita: (row.citas as any[])
+          ?.filter((c) => c.estado === 'completada')
+          ?.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())[0]
+          ?.fecha ?? null,
+      })),
       total,
       totalPages,
     }
@@ -211,10 +220,13 @@ export async function searchClientesPaginated(
     const total = count || 0
     const totalPages = Math.ceil(total / pageSize)
 
-    // Obtener los resultados de la página actual
+    // Obtener los resultados de la página actual con sus citas
     const { data, error } = await supabase
       .from('clientes')
-      .select('*')
+      .select(`
+        *,
+        citas!left(fecha, estado)
+      `)
       .or(`nombre.ilike.%${searchTerm}%,apellido.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,telefono.ilike.%${searchTerm}%`)
       .order('created_at', { ascending: false })
       .range(from, to)
@@ -225,7 +237,13 @@ export async function searchClientesPaginated(
     }
 
     return {
-      clientes: data.map(transformCliente),
+      clientes: (data as any[]).map((row) => ({
+        ...transformCliente(row),
+        ultimaVisita: (row.citas as any[])
+          ?.filter((c) => c.estado === 'completada')
+          ?.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())[0]
+          ?.fecha ?? null,
+      })),
       total,
       totalPages,
     }
