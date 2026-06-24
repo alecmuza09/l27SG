@@ -613,10 +613,10 @@ export default function PagosPage() {
             <ShoppingBag className="h-3.5 w-3.5 flex-shrink-0" />
             Cobro espontáneo
           </button>
-          <button className="w-full flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg px-3 py-2.5 transition-colors">
+          {/* <button className="w-full flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg px-3 py-2.5 transition-colors">
             <Gift className="h-3.5 w-3.5 flex-shrink-0" />
             Transferir saldo GC
-          </button>
+          </button> */}
           <button
             onClick={cargarDatos}
             className="w-full flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground border rounded-lg px-3 py-2 transition-colors"
