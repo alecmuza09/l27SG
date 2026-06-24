@@ -265,8 +265,8 @@ export default function InventarioPage() {
                     <Input id="nombre" placeholder="Aceite de Masaje" required />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="sku">SKU *</Label>
-                    <Input id="sku" placeholder="ACE-MAS-001" required />
+                    <Label htmlFor="sku">SKU</Label>
+                    <Input id="sku" placeholder="ACE-MAS-001" />
                   </div>
                 </div>
 
