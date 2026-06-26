@@ -56,6 +56,14 @@ function normalizarNombreClienteNuevo(valor: string): string {
   return valor.trim().toLocaleUpperCase('es')
 }
 
+function normalizarBusqueda(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim()
+}
+
 // Obtener clientes con paginación
 export async function getClientesPaginated(
   page: number = 1,
@@ -164,8 +172,9 @@ export async function searchClientes(
       return []
     }
 
-    const searchTerm = `%${query.trim()}%`
-    
+    const termino = normalizarBusqueda(query)
+    const searchTerm = `%${termino}%`
+
     let q = supabase
       .from('clientes')
       .select('*')
@@ -202,7 +211,7 @@ export async function searchClientesPaginated(
       return { clientes: [], total: 0, totalPages: 0 }
     }
 
-    const searchTerm = query.trim()
+    const searchTerm = normalizarBusqueda(query.trim())
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
 
