@@ -172,35 +172,16 @@ export async function searchClientes(
       return []
     }
 
-    const terminos = normalizarBusqueda(query).split(/\s+/).filter(Boolean)
-
-    let q = supabase
-      .from('clientes')
-      .select('*')
-      .order('created_at', { ascending: false })
+    const { data, error } = await supabase
+      .rpc('buscar_clientes', { termino: query.trim() })
       .limit(limit)
-
-    if (terminos.length === 1) {
-      const t = terminos[0]
-      q = q.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%,email.ilike.%${t}%,telefono.ilike.%${t}%`)
-    } else {
-      for (const t of terminos) {
-        q = q.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%`)
-      }
-    }
-
-    if (soloActivos) {
-      q = q.eq('estado', 'activo')
-    }
-
-    const { data, error } = await q
 
     if (error) {
       console.error('Error buscando clientes:', error)
       return []
     }
 
-    return data.map(transformCliente)
+    return (data ?? []).map(transformCliente)
   } catch (error) {
     console.error('Error inesperado buscando clientes:', error)
     return []
@@ -218,69 +199,23 @@ export async function searchClientesPaginated(
       return { clientes: [], total: 0, totalPages: 0 }
     }
 
-    const terminos = normalizarBusqueda(query.trim()).split(/\s+/).filter(Boolean)
-    const from = (page - 1) * pageSize
-    const to = from + pageSize - 1
-
-    // Construir query de conteo
-    let countQ = supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-
-    if (terminos.length === 1) {
-      const t = terminos[0]
-      countQ = countQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%,email.ilike.%${t}%,telefono.ilike.%${t}%`)
-    } else {
-      for (const t of terminos) {
-        countQ = countQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%`)
-      }
-    }
-
-    // Obtener el total de resultados de búsqueda
-    const { count, error: countError } = await countQ
-
-    if (countError) {
-      console.error('Error obteniendo conteo de búsqueda:', countError)
-      return { clientes: [], total: 0, totalPages: 0 }
-    }
-
-    const total = count || 0
-    const totalPages = Math.ceil(total / pageSize)
-
-    // Construir query de datos
-    let dataQ = supabase
-      .from('clientes')
-      .select(`
-        *,
-        citas!left(fecha, estado)
-      `)
-
-    if (terminos.length === 1) {
-      const t = terminos[0]
-      dataQ = dataQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%,email.ilike.%${t}%,telefono.ilike.%${t}%`)
-    } else {
-      for (const t of terminos) {
-        dataQ = dataQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%`)
-      }
-    }
-
-    // Obtener los resultados de la página actual con sus citas
-    const { data, error } = await dataQ
-      .order('created_at', { ascending: false })
-      .range(from, to)
+    const { data: allData, error } = await supabase
+      .rpc('buscar_clientes', { termino: query.trim() })
 
     if (error) {
       console.error('Error buscando clientes:', error)
-      return { clientes: [], total, totalPages }
+      return { clientes: [], total: 0, totalPages: 0 }
     }
 
+    const total = allData?.length ?? 0
+    const totalPages = Math.ceil(total / pageSize)
+    const from = (page - 1) * pageSize
+    const paginatedData = (allData ?? []).slice(from, from + pageSize)
+
     return {
-      clientes: (data as any[]).map((row) => ({
+      clientes: paginatedData.map((row: any) => ({
         ...transformCliente(row),
-        ultimaVisita: (row.citas as any[])
-          ?.filter((c) => c.estado === 'completada')
-          ?.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())[0]
-          ?.fecha ?? null,
+        ultimaVisita: null,
       })),
       total,
       totalPages,
