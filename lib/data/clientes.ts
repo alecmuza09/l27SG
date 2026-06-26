@@ -172,13 +172,29 @@ export async function searchClientes(
       return []
     }
 
-    const termino = normalizarBusqueda(query)
-    const searchTerm = `%${termino}%`
+    const terminos = normalizarBusqueda(query).split(/\s+/).filter(Boolean)
+
+    let orConditions: string[] = []
+    if (terminos.length === 1) {
+      const t = terminos[0]
+      orConditions = [
+        `nombre.ilike.%${t}%`,
+        `apellido.ilike.%${t}%`,
+        `email.ilike.%${t}%`,
+        `telefono.ilike.%${t}%`,
+      ]
+    } else {
+      for (const t of terminos) {
+        orConditions.push(`nombre.ilike.%${t}%`)
+        orConditions.push(`apellido.ilike.%${t}%`)
+      }
+    }
+    const orString = orConditions.join(',')
 
     let q = supabase
       .from('clientes')
       .select('*')
-      .or(`nombre.ilike.${searchTerm},apellido.ilike.${searchTerm},email.ilike.${searchTerm},telefono.ilike.${searchTerm}`)
+      .or(orString)
       .order('created_at', { ascending: false })
       .limit(limit)
 
@@ -211,15 +227,32 @@ export async function searchClientesPaginated(
       return { clientes: [], total: 0, totalPages: 0 }
     }
 
-    const searchTerm = normalizarBusqueda(query.trim())
+    const terminos = normalizarBusqueda(query.trim()).split(/\s+/).filter(Boolean)
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
+
+    let orConditions: string[] = []
+    if (terminos.length === 1) {
+      const t = terminos[0]
+      orConditions = [
+        `nombre.ilike.%${t}%`,
+        `apellido.ilike.%${t}%`,
+        `email.ilike.%${t}%`,
+        `telefono.ilike.%${t}%`,
+      ]
+    } else {
+      for (const t of terminos) {
+        orConditions.push(`nombre.ilike.%${t}%`)
+        orConditions.push(`apellido.ilike.%${t}%`)
+      }
+    }
+    const orString = orConditions.join(',')
 
     // Obtener el total de resultados de búsqueda
     const { count, error: countError } = await supabase
       .from('clientes')
       .select('*', { count: 'exact', head: true })
-      .or(`nombre.ilike.%${searchTerm}%,apellido.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,telefono.ilike.%${searchTerm}%`)
+      .or(orString)
 
     if (countError) {
       console.error('Error obteniendo conteo de búsqueda:', countError)
@@ -236,7 +269,7 @@ export async function searchClientesPaginated(
         *,
         citas!left(fecha, estado)
       `)
-      .or(`nombre.ilike.%${searchTerm}%,apellido.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,telefono.ilike.%${searchTerm}%`)
+      .or(orString)
       .order('created_at', { ascending: false })
       .range(from, to)
 
