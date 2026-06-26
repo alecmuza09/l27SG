@@ -615,7 +615,8 @@ export async function canjearGiftCard(
   giftCardId: string,
   monto: number,
   notas?: string,
-  empleadoId?: string | null
+  empleadoId?: string | null,
+  sucursalId?: string | null
 ): Promise<{ success: boolean; saldoNuevo?: number; error?: string }> {
   try {
     const { data: gc, error: fetchError } = await supabase
@@ -646,6 +647,7 @@ export async function canjearGiftCard(
       saldo_anterior: saldoAnterior,
       saldo_nuevo: saldoNuevo,
       empleado_id: empleadoId || null,
+      sucursal_id: sucursalId || null,
       fecha: fechaLocal(),
       notas: notas || 'Canje de saldo',
     })
@@ -661,7 +663,8 @@ export async function recargarGiftCard(
   giftCardId: string,
   monto: number,
   notas?: string,
-  empleadoId?: string | null
+  empleadoId?: string | null,
+  sucursalId?: string | null
 ): Promise<{ success: boolean; saldoNuevo?: number; error?: string }> {
   try {
     const { data: gc, error: fetchError } = await supabase
@@ -693,6 +696,7 @@ export async function recargarGiftCard(
       saldo_anterior: saldoAnterior,
       saldo_nuevo: saldoNuevo,
       empleado_id: empleadoId || null,
+      sucursal_id: sucursalId || null,
       fecha: fechaLocal(),
       notas: notas || 'Recarga de saldo',
     })

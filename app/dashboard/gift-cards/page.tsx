@@ -645,7 +645,8 @@ export default function GiftCardsPage() {
     setIsSubmitting(true)
     const cardId = selectedCard.id
     const cardCodigo = selectedCard.codigo
-    const res = await canjearGiftCard(cardId, monto, redeemNotas || undefined)
+    const sucursalIdCanje = currentUser?.sucursalId ?? selectedCard?.sucursalId ?? null
+    const res = await canjearGiftCard(cardId, monto, redeemNotas || undefined, null, sucursalIdCanje)
     setIsSubmitting(false)
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
     toast.success(`Canjeados ${fmtMXN(monto)}. Saldo restante: ${fmtMXN(res.saldoNuevo ?? 0)}`)
@@ -662,7 +663,8 @@ export default function GiftCardsPage() {
     setIsSubmitting(true)
     const cardId = selectedCard.id
     const cardCodigo = selectedCard.codigo
-    const res = await recargarGiftCard(cardId, monto, rechargeNotas || undefined)
+    const sucursalIdRecarga = currentUser?.sucursalId ?? selectedCard?.sucursalId ?? null
+    const res = await recargarGiftCard(cardId, monto, rechargeNotas || undefined, null, sucursalIdRecarga)
     setIsSubmitting(false)
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
     toast.success(`Recargados ${fmtMXN(monto)}. Nuevo saldo: ${fmtMXN(res.saldoNuevo ?? 0)}`)
