@@ -405,6 +405,7 @@ export default function GiftCardsPage() {
 
   // ── KPIs (desde query COUNT rápida) ───────────────────────────────────
   const { totalEmitidas, totalActivas, totalPendientes, saldoTotal } = kpis
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin'
 
   // ─────────────────────────────────────────────────────────────────────
   // Handlers
@@ -1179,7 +1180,7 @@ export default function GiftCardsPage() {
                             Ver Detalles
                           </DropdownMenuItem>
 
-                          {card.estado === "activa" && (
+                          {card.estado === "activa" && isAdmin && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => { setSelectedCard(card); setIsRedeemOpen(true) }}>
@@ -1193,7 +1194,7 @@ export default function GiftCardsPage() {
                             </>
                           )}
 
-                          {card.estado === "agotada" && (
+                          {card.estado === "agotada" && isAdmin && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => { setSelectedCard(card); setIsRechargeOpen(true) }}>
