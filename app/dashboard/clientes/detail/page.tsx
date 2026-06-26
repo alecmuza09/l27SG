@@ -356,6 +356,11 @@ function ClienteDetailContent() {
                           <span>{cita.empleadoNombre}</span>
                           <span>{cita.duracion} min</span>
                         </div>
+                        {cita.createdAt && (
+                          <span className="text-xs text-muted-foreground">
+                            Agendada el {new Date(cita.createdAt + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                        )}
                       </div>
                       <div className="text-right">
                         <p className="font-semibold">${cita.precio.toLocaleString()}</p>
