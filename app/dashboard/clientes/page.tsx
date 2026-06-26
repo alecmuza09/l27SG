@@ -53,6 +53,7 @@ export default function ClientesPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchActivo, setSearchActivo] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
@@ -90,18 +91,16 @@ export default function ClientesPage() {
   }
 
   // Función para cargar clientes
-  const loadClientes = async () => {
+  const loadClientes = async (page: number = currentPage, term: string = searchActivo) => {
     try {
       setIsLoading(true)
       setError(null)
       
       let result
-      if (searchQuery.trim()) {
-        // Si hay búsqueda, usar búsqueda paginada
-        result = await searchClientesPaginated(searchQuery.trim(), currentPage, pageSize)
+      if (term.trim()) {
+        result = await searchClientesPaginated(term.trim(), page, pageSize)
       } else {
-        // Si no hay búsqueda, usar paginación normal
-        result = await getClientesPaginated(currentPage, pageSize)
+        result = await getClientesPaginated(page, pageSize)
       }
       
       setClientes(result.clientes)
@@ -134,28 +133,17 @@ export default function ClientesPage() {
     loadInitialData()
   }, [])
 
-  // Cargar clientes cuando cambia la página
+  // Cargar clientes cuando cambia la página o el término de búsqueda activo
   useEffect(() => {
-    loadClientes()
+    loadClientes(currentPage, searchActivo)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage])
+  }, [currentPage, searchActivo])
 
-  // Manejar cambios en el buscador con debounce y resetear página
-  useEffect(() => {
-    if (searchQuery.trim() !== '') {
-      const timer = setTimeout(() => {
-        setCurrentPage(1) // Resetear a página 1 cuando se busca
-        loadClientes()
-      }, 500) // Esperar 500ms después de que el usuario deje de escribir
-
-      return () => clearTimeout(timer)
-    } else {
-      // Si el buscador está vacío, resetear página y cargar
-      setCurrentPage(1)
-      loadClientes()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery])
+  const handleBuscar = () => {
+    setCurrentPage(1)
+    setSearchActivo(searchQuery)
+    loadClientes(1, searchQuery)
+  }
 
   // Manejar cambios en el formulario
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -546,9 +534,16 @@ export default function ClientesPage() {
                 placeholder="Buscar por nombre, email o teléfono en toda la base de datos..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleBuscar()
+                }}
                 className="pl-10"
               />
             </div>
+            <Button onClick={handleBuscar} variant="outline">
+              <Search className="h-4 w-4 mr-2" />
+              Buscar
+            </Button>
             <Select value={visitaFilter} onValueChange={(v) => setVisitaFilter(v as typeof visitaFilter)}>
               <SelectTrigger className="w-52">
                 <SelectValue placeholder="Filtrar por visita" />
@@ -560,7 +555,7 @@ export default function ClientesPage() {
               </SelectContent>
             </Select>
             <div className="text-sm text-muted-foreground">
-              {searchQuery ? (
+              {searchActivo ? (
                 <span>Mostrando {totalClientes} resultado{totalClientes !== 1 ? 's' : ''} de búsqueda</span>
               ) : (
                 <span>Total: {totalClientes.toLocaleString()} clientes</span>
@@ -586,7 +581,7 @@ export default function ClientesPage() {
                 {clientesFiltrados.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={currentUser?.role === 'manager' ? 7 : 8} className="text-center py-8 text-muted-foreground">
-                      {searchQuery ? 'No se encontraron clientes con ese criterio de búsqueda' : 'No hay clientes registrados'}
+                      {searchActivo ? 'No se encontraron clientes con ese criterio de búsqueda' : 'No hay clientes registrados'}
                     </TableCell>
                   </TableRow>
                 ) : (
