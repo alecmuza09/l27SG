@@ -295,10 +295,8 @@ export async function getClientesStats(sucursalId?: string): Promise<{
     const total = totalCount || 0
 
     // Obtener conteos por estado usando count
-    const { count: activosCount, error: activosError } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-      .eq('estado', 'activo')
+    const { data: activosData } = await supabase.rpc('contar_clientes_activos')
+    const activos = (activosData as number) ?? 0
 
     const { count: vipCount, error: vipError } = await supabase
       .from('clientes')
@@ -315,7 +313,6 @@ export async function getClientesStats(sucursalId?: string): Promise<{
       .select('*', { count: 'exact', head: true })
       .gte('fecha_registro', fechaLimite)
 
-    const activos = activosError ? 0 : (activosCount || 0)
     const vip = vipError ? 0 : (vipCount || 0)
     const nuevos = nuevosError ? 0 : (nuevosCount || 0)
 
