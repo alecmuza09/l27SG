@@ -174,29 +174,20 @@ export async function searchClientes(
 
     const terminos = normalizarBusqueda(query).split(/\s+/).filter(Boolean)
 
-    let orConditions: string[] = []
-    if (terminos.length === 1) {
-      const t = terminos[0]
-      orConditions = [
-        `nombre.ilike.%${t}%`,
-        `apellido.ilike.%${t}%`,
-        `email.ilike.%${t}%`,
-        `telefono.ilike.%${t}%`,
-      ]
-    } else {
-      for (const t of terminos) {
-        orConditions.push(`nombre.ilike.%${t}%`)
-        orConditions.push(`apellido.ilike.%${t}%`)
-      }
-    }
-    const orString = orConditions.join(',')
-
     let q = supabase
       .from('clientes')
       .select('*')
-      .or(orString)
       .order('created_at', { ascending: false })
       .limit(limit)
+
+    if (terminos.length === 1) {
+      const t = terminos[0]
+      q = q.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%,email.ilike.%${t}%,telefono.ilike.%${t}%`)
+    } else {
+      for (const t of terminos) {
+        q = q.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%`)
+      }
+    }
 
     if (soloActivos) {
       q = q.eq('estado', 'activo')
@@ -231,28 +222,22 @@ export async function searchClientesPaginated(
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
 
-    let orConditions: string[] = []
-    if (terminos.length === 1) {
-      const t = terminos[0]
-      orConditions = [
-        `nombre.ilike.%${t}%`,
-        `apellido.ilike.%${t}%`,
-        `email.ilike.%${t}%`,
-        `telefono.ilike.%${t}%`,
-      ]
-    } else {
-      for (const t of terminos) {
-        orConditions.push(`nombre.ilike.%${t}%`)
-        orConditions.push(`apellido.ilike.%${t}%`)
-      }
-    }
-    const orString = orConditions.join(',')
-
-    // Obtener el total de resultados de búsqueda
-    const { count, error: countError } = await supabase
+    // Construir query de conteo
+    let countQ = supabase
       .from('clientes')
       .select('*', { count: 'exact', head: true })
-      .or(orString)
+
+    if (terminos.length === 1) {
+      const t = terminos[0]
+      countQ = countQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%,email.ilike.%${t}%,telefono.ilike.%${t}%`)
+    } else {
+      for (const t of terminos) {
+        countQ = countQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%`)
+      }
+    }
+
+    // Obtener el total de resultados de búsqueda
+    const { count, error: countError } = await countQ
 
     if (countError) {
       console.error('Error obteniendo conteo de búsqueda:', countError)
@@ -262,14 +247,25 @@ export async function searchClientesPaginated(
     const total = count || 0
     const totalPages = Math.ceil(total / pageSize)
 
-    // Obtener los resultados de la página actual con sus citas
-    const { data, error } = await supabase
+    // Construir query de datos
+    let dataQ = supabase
       .from('clientes')
       .select(`
         *,
         citas!left(fecha, estado)
       `)
-      .or(orString)
+
+    if (terminos.length === 1) {
+      const t = terminos[0]
+      dataQ = dataQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%,email.ilike.%${t}%,telefono.ilike.%${t}%`)
+    } else {
+      for (const t of terminos) {
+        dataQ = dataQ.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%`)
+      }
+    }
+
+    // Obtener los resultados de la página actual con sus citas
+    const { data, error } = await dataQ
       .order('created_at', { ascending: false })
       .range(from, to)
 
