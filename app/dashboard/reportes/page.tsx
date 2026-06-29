@@ -455,6 +455,7 @@ async function fetchCanjesParaPdf(
       .select(`
         *,
         empleado:empleados(nombre, apellido),
+        sucursal:sucursales(nombre),
         pago:pagos(sucursal_id, sucursal:sucursales(nombre)),
         gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
       `)
@@ -474,8 +475,10 @@ async function fetchCanjesParaPdf(
 
   const rowsFiltrados = sucursalId
     ? rows.filter((t: any) => {
+        const txnSucursal = t.sucursal_id
         const pagoSucursal = t.pago?.sucursal_id
         const gcSucursal = t.gift_card?.sucursal_id
+        if (txnSucursal) return txnSucursal === sucursalId
         if (pagoSucursal) return pagoSucursal === sucursalId
         return gcSucursal === sucursalId
       })
@@ -498,7 +501,8 @@ async function fetchCanjesParaPdf(
         cliente: clienteNombre,
         monto: Number(t.monto) || 0,
         empleada: empleadaJoin || empleadaDirecta || "—",
-        sucursal: (t.pago as any)?.sucursal?.nombre
+        sucursal: t.sucursal?.nombre
+          || (t.pago as any)?.sucursal?.nombre
           || gc.sucursal?.nombre
           || gc.sucursal_id
           || "—",
@@ -522,6 +526,7 @@ async function fetchRecargasParaPdf(
       .select(`
         *,
         empleado:empleados(nombre, apellido),
+        sucursal:sucursales(nombre),
         gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
       `)
       .eq("tipo", "recarga")
@@ -558,7 +563,7 @@ async function fetchRecargasParaPdf(
         cliente: clienteNombre,
         monto: Number(t.monto) || 0,
         empleada: empleadaJoin || "—",
-        sucursal: gc.sucursal?.nombre || gc.sucursal_id || "—",
+        sucursal: t.sucursal?.nombre || t.sucursal_id || gc.sucursal?.nombre || gc.sucursal_id || "—",
       }
     })
     .filter((r): r is CanjeGcPdfRow => r !== null)
@@ -865,18 +870,17 @@ function calcularResumenGcSeccion(
   cards: GiftCardDetallePdfRow[],
   canjes: CanjeGcPdfRow[],
   recargas: CanjeGcPdfRow[] = [],
-): { totalEmitidas: number; totalVendido: number; totalSaldoUsado: number; diferencia: number; favorLabel: string; favorMonto: number; esGisman: boolean; totalRecargas: number } {
+): { totalEmitidas: number; totalVendido: number; totalSaldoUsado: number; diferencia: number; favorLabel: string; favorMonto: number; esGisman: boolean } {
   const totalEmitidas = cards.length
   const totalVendido = cards.reduce((s, c) => s + c.montoInicial, 0)
+    + recargas.reduce((s, r) => s + r.monto, 0)
   const totalSaldoUsado = canjes.reduce((s, c) => s + c.monto, 0)
-  const totalRecargas = recargas.reduce((s, r) => s + r.monto, 0)
   const diferencia = totalVendido - totalSaldoUsado
   const esGisman = diferencia >= 0
   return {
     totalEmitidas,
     totalVendido,
     totalSaldoUsado,
-    totalRecargas,
     diferencia,
     favorLabel: esGisman ? "Favor a Gisman" : "Favor a Sucursal",
     favorMonto: Math.abs(diferencia),
@@ -914,10 +918,9 @@ async function renderSeccionGcPdf(
     head: [["Indicador", "Valor"]],
     body: [
       ["Gift Cards vendidas en el período", String(resumen.totalEmitidas)],
-      ["Total vendido en el período", fmtPdfMXN(resumen.totalVendido)],
+      ["Total vendido en el período (ventas + recargas)", fmtPdfMXN(resumen.totalVendido)],
       ["Total de saldo usado (canjes)", fmtPdfMXN(resumen.totalSaldoUsado)],
       [resumen.favorLabel, fmtPdfMXN(resumen.favorMonto)],
-      ["Total recargas en el período", fmtPdfMXN(resumen.totalRecargas)],
     ],
     didParseCell: (data: any) => {
       if (data.section === "body" && data.row.index === 3) {
@@ -943,14 +946,31 @@ async function renderSeccionGcPdf(
   doc.setLineWidth(0.3)
   doc.line(14, y1 + 10, doc.internal.pageSize.getWidth() - 14, y1 + 10)
 
-  // Tabla emitidas
+  // Combinar ventas originales + recargas en la tabla de "vendidas"
+  const recargasComoVendidas = opts.recargas.map(r => ({
+    codigo: r.codigo,
+    cliente: r.cliente,
+    fechaEmision: r.fecha,
+    montoInicial: r.monto,
+    metodoPago: "Recarga",
+    sucursal: r.sucursal,
+    estado: "Recarga",
+  }))
+  const todasVendidas = [
+    ...opts.cards,
+    ...recargasComoVendidas,
+  ]
+  const totalVendidasMonto = opts.cards.reduce((s, c) => s + c.montoInicial, 0)
+    + opts.recargas.reduce((s, r) => s + r.monto, 0)
+
+  // Tabla emitidas (ventas + recargas)
   autoTable(doc, {
     ...tableOpts,
     startY: y1 + 13,
-    head: [["Código", "Cliente", "Emisión", "Monto vendido", "Método de pago", "Sucursal", "Estado"]],
-    body: opts.cards.length > 0
+    head: [["Código", "Cliente", "Fecha", "Monto", "Método / Tipo", "Sucursal", "Estado"]],
+    body: todasVendidas.length > 0
       ? [
-          ...opts.cards.map(c => [
+          ...todasVendidas.map(c => [
             c.codigo,
             c.cliente,
             c.fechaEmision,
@@ -960,20 +980,20 @@ async function renderSeccionGcPdf(
             c.estado,
           ]),
           [
-            `${opts.cards.length} GC`,
+            `${todasVendidas.length} items`,
             "TOTAL",
             "",
-            fmtPdfMXN(opts.cards.reduce((s, c) => s + c.montoInicial, 0)),
+            fmtPdfMXN(totalVendidasMonto),
             "",
             "",
             "",
           ],
         ]
-      : [["Sin gift cards emitidas en este período", "—", "—", "—", "—", "—", "—"]],
+      : [["Sin gift cards ni recargas en este período", "—", "—", "—", "—", "—", "—"]],
     styles: { ...tableOpts.styles, fontSize: 6.5 },
     headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
     didParseCell: (data: any) => {
-      if (data.section === "body" && opts.cards.length > 0 && data.row.index === opts.cards.length) {
+      if (data.section === "body" && todasVendidas.length > 0 && data.row.index === todasVendidas.length) {
         data.cell.styles.fontStyle = "bold"
         data.cell.styles.fillColor = PDF_HEADER_BLACK
         data.cell.styles.textColor = 255
@@ -1085,50 +1105,6 @@ async function renderSeccionGcPdf(
     },
   })
 
-  // Título recargas
-  const y4 = (doc as any).lastAutoTable?.finalY ?? y3 + 30
-  doc.setFont("helvetica", "bold")
-  doc.setFontSize(9)
-  doc.setTextColor(10, 10, 10)
-  doc.text("Recargas en el período", 14, y4 + 8)
-  doc.setDrawColor(10, 10, 10)
-  doc.setLineWidth(0.3)
-  doc.line(14, y4 + 10, doc.internal.pageSize.getWidth() - 14, y4 + 10)
-
-  autoTable(doc, {
-    ...tableOpts,
-    startY: y4 + 13,
-    head: [["Fecha", "Código GC", "Cliente", "Monto recargado", "Empleada", "Sucursal"]],
-    body: opts.recargas.length > 0
-      ? [
-          ...opts.recargas.map(r => [
-            r.fecha,
-            r.codigo,
-            r.cliente,
-            fmtPdfMXN(r.monto),
-            r.empleada,
-            r.sucursal,
-          ]),
-          [
-            `${opts.recargas.length} recargas`,
-            "TOTAL",
-            "",
-            fmtPdfMXN(opts.recargas.reduce((s, r) => s + r.monto, 0)),
-            "",
-            "",
-          ],
-        ]
-      : [["Sin recargas en este período", "—", "—", "—", "—", "—"]],
-    styles: { ...tableOpts.styles, fontSize: 6.5 },
-    headStyles: { ...tableOpts.headStyles, fontSize: 6.5 },
-    didParseCell: (data: any) => {
-      if (data.section === "body" && opts.recargas.length > 0 && data.row.index === opts.recargas.length) {
-        data.cell.styles.fontStyle = "bold"
-        data.cell.styles.fillColor = PDF_HEADER_BLACK
-        data.cell.styles.textColor = 255
-      }
-    },
-  })
 }
 
 async function generarGiftCardsPdf(opts: {
