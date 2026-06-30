@@ -958,27 +958,8 @@ export async function registrarPago(
       await incrementPromoUsosPorCodigo(params.descuentoCodigo)
     }
 
-    // 4. Descontar saldo de gift card usada como descuento
-    if (params.descuentoTipo === 'gift_card' && (params.descuentoGcId || params.descuentoCodigo)) {
-      // Preferir búsqueda por ID (exacto); fallback por código con ilike
-      let gcRow: any = null
-      if (params.descuentoGcId) {
-        const { data } = await (supabase as any)
-          .from('gift_cards').select('id, saldo_actual').eq('id', params.descuentoGcId).maybeSingle()
-        gcRow = data
-      } else {
-        const { data } = await (supabase as any)
-          .from('gift_cards').select('id, saldo_actual').ilike('codigo', params.descuentoCodigo!).limit(1)
-        gcRow = Array.isArray(data) ? data[0] : null
-      }
-      if (gcRow) {
-        const nuevoSaldo = Math.max(0, Number(gcRow.saldo_actual) - params.descuentoMonto)
-        await (supabase as any)
-          .from('gift_cards')
-          .update({ saldo_actual: nuevoSaldo, estado: nuevoSaldo === 0 ? 'agotada' : undefined })
-          .eq('id', gcRow.id)
-      }
-    }
+    // 4. (eliminado) El descuento de saldo por gift card como descuento lo maneja caja-dialog.tsx
+    //    para evitar que se reste dos veces.
 
     // 5. Descontar saldo de gift card usada como método de pago (pago mixto)
     if (params.giftCardId && (params.montoGiftCard ?? 0) > 0) {
