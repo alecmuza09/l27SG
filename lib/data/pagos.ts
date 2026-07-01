@@ -969,7 +969,9 @@ export async function registrarPago(
         .eq('id', params.giftCardId)
         .maybeSingle()
       if (gcPago) {
-        const nuevoSaldo = Math.max(0, Number(gcPago.saldo_actual) - (params.montoGiftCard ?? 0))
+        const montoGC = params.montoGiftCard ?? 0
+        const saldoAnterior = Number(gcPago.saldo_actual)
+        const nuevoSaldo = Math.max(0, saldoAnterior - montoGC)
         await (supabase as any)
           .from('gift_cards')
           .update({
@@ -977,6 +979,22 @@ export async function registrarPago(
             estado: nuevoSaldo === 0 ? 'agotada' : undefined,
           })
           .eq('id', params.giftCardId)
+
+        // Registrar el canje en el historial de la GC
+        await (supabase as any)
+          .from('gift_card_transacciones')
+          .insert({
+            gift_card_id: params.giftCardId,
+            tipo: 'canje',
+            monto: montoGC,
+            saldo_anterior: saldoAnterior,
+            saldo_nuevo: nuevoSaldo,
+            venta_id: pagoData.id,
+            empleado_id: params.empleadoId || null,
+            sucursal_id: params.sucursalId,
+            fecha,
+            notas: `Canje · ${params.servicioNombre}`,
+          })
       }
     }
 

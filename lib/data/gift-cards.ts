@@ -514,17 +514,25 @@ export async function crearGiftCard(datos: {
         ? `Emisión de gift card · Pago: ${datos.metodoPago}`
         : "Emisión de gift card"
 
-    const pagoRes = await registrarPagoEmisionGiftCard({
-      giftCardId: gcData.id,
-      codigo: gcData.codigo,
-      monto: montoInicialFinal,
-      sucursalId: datos.sucursalId,
-      clienteId: datos.clienteId ?? null,
-      empleadoId: datos.empleadoEmisorId ?? null,
-      metodoPagoRaw: datos.metodoPago ?? null,
-      fecha: hoy,
-      descripcionServicio: servicioTiendaLinea,
-    })
+    // Las GCs de tienda en línea ya fueron cobradas externamente; la sucursal
+    // solo las registra para activarlas, no las vendió. No se genera pago en caja.
+    let pagoRes: Awaited<ReturnType<typeof registrarPagoEmisionGiftCard>> = {
+      success: true,
+      skipped: true,
+    }
+    if (!esOrigenLinea) {
+      pagoRes = await registrarPagoEmisionGiftCard({
+        giftCardId: gcData.id,
+        codigo: gcData.codigo,
+        monto: montoInicialFinal,
+        sucursalId: datos.sucursalId,
+        clienteId: datos.clienteId ?? null,
+        empleadoId: datos.empleadoEmisorId ?? null,
+        metodoPagoRaw: datos.metodoPago ?? null,
+        fecha: hoy,
+        descripcionServicio: servicioTiendaLinea,
+      })
+    }
 
     if (!pagoRes.success && !pagoRes.skipped) {
       console.error('[crearGiftCard] Cobro no registrado en pagos:', pagoRes.error)
