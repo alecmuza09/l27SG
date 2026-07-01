@@ -132,6 +132,7 @@ export function CajaDialog({
   const [clienteSearch, setClienteSearch] = useState(propClienteNombre)
   const [showClienteList, setShowClienteList] = useState(false)
   const clienteRef = useRef<HTMLDivElement>(null)
+  const cobrandoRef = useRef(false)
 
   // ── Panel cliente ──────────────────────────────────────────────────────
   const [historial, setHistorial]             = useState<HistorialCliente[]>([])
@@ -517,13 +518,16 @@ export function CajaDialog({
 
   // ── Cobrar ────────────────────────────────────────────────────────────
   const handleCobrar = async () => {
-    if (cart.length === 0) { toast.error("Agrega al menos un servicio o producto"); return }
-    if (!clienteId) { toast.error("Selecciona un cliente"); return }
-    if (!sucursalId) { toast.error("Selecciona una sucursal"); return }
-    if (totalPagado < total - 0.01) { toast.error(`Faltan ${fmtMXN(faltante)} por asignar a un método de pago`); return }
-    if (trfNum > 0 && !referencia.trim()) { toast.error("Ingresa la referencia de la transferencia"); return }
-    if (gcNum > 0 && gcNum > gcPagoSaldo + 0.01) { toast.error("El monto en gift card excede el saldo disponible"); return }
-    if (vipNum > 0 && vipNum > vipPassSaldo + 0.01) { toast.error("El monto VIP Pass excede el saldo disponible"); return }
+    if (cobrandoRef.current) return
+    cobrandoRef.current = true
+
+    if (cart.length === 0) { toast.error("Agrega al menos un servicio o producto"); cobrandoRef.current = false; return }
+    if (!clienteId) { toast.error("Selecciona un cliente"); cobrandoRef.current = false; return }
+    if (!sucursalId) { toast.error("Selecciona una sucursal"); cobrandoRef.current = false; return }
+    if (totalPagado < total - 0.01) { toast.error(`Faltan ${fmtMXN(faltante)} por asignar a un método de pago`); cobrandoRef.current = false; return }
+    if (trfNum > 0 && !referencia.trim()) { toast.error("Ingresa la referencia de la transferencia"); cobrandoRef.current = false; return }
+    if (gcNum > 0 && gcNum > gcPagoSaldo + 0.01) { toast.error("El monto en gift card excede el saldo disponible"); cobrandoRef.current = false; return }
+    if (vipNum > 0 && vipNum > vipPassSaldo + 0.01) { toast.error("El monto VIP Pass excede el saldo disponible"); cobrandoRef.current = false; return }
 
     setIsCobrando(true)
 
@@ -575,6 +579,7 @@ export function CajaDialog({
     })
 
     setIsCobrando(false)
+    cobrandoRef.current = false
 
     if (!res.success) { toast.error(`Error: ${res.error}`); return }
 
