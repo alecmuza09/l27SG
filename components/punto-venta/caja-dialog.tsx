@@ -550,6 +550,7 @@ export function CajaDialog({
     // VIP Pass usa el mismo campo que gift card (giftCardId / montoGiftCard)
     // El descuento de VIP Pass se registra con tipo "vip_pass" para cálculo de comisiones
     const giftCardIdFinal = vipNum > 0 ? vipPassId : (gcNum > 0 ? gcPagoId : undefined)
+    const giftCardCodigoFinal = vipNum > 0 ? vipPassCodigo : (gcNum > 0 ? gcPagoCodigo : undefined)
     const montoGiftCardFinal = vipNum > 0 ? vipNum : (gcNum > 0 ? gcNum : 0)
     const descuentoTipoFinal = descuentoAplicado?.tipo === "cupon" ? "cupon"
       : descuentoAplicado?.tipo === "gift_card" ? "gift_card"
@@ -585,6 +586,7 @@ export function CajaDialog({
       montoTarjeta: tarNum,
       montoGiftCard: montoGiftCardFinal,
       giftCardId: giftCardIdFinal,
+      giftCardCodigo: giftCardCodigoFinal || undefined,
       referencia: referencia.trim() || undefined,
       notas: notasVenta.trim() || undefined,
     })

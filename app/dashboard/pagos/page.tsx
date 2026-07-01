@@ -1432,8 +1432,18 @@ export default function PagosPage() {
                       )
                     })()
                   )}
-                </div>
               </div>
+
+              {/* Folio Gift Card / VIP Pass usado como pago */}
+              {pagoDetalle.giftCardCodigo && (
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Gift Card / VIP usada</p>
+                  <span className="inline-flex items-center gap-1 text-xs border border-purple-200 rounded px-1.5 py-0.5 bg-purple-50 text-purple-700 font-mono mt-0.5">
+                    {pagoDetalle.giftCardCodigo}
+                  </span>
+                </div>
+              )}
+            </div>
 
               {/* Concepto / Servicios — editable */}
               <div>

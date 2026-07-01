@@ -26,6 +26,7 @@ export interface Pago {
   propina?: number
   montoEfectivo?: number
   montoTarjeta?: number
+  giftCardCodigo?: string
 }
 
 /** Monto por canal para corte de caja y reportes (pago mixto sin duplicar el total). */
@@ -219,6 +220,7 @@ export interface RegistrarPagoParams {
   montoTarjeta?: number
   montoGiftCard?: number
   giftCardId?: string       // ID de la gift card usada para descontar saldo
+  giftCardCodigo?: string   // Código/folio de la GC o VIP Pass usado como pago
   referencia?: string       // Referencia de transferencia
   notas?: string
 }
@@ -359,7 +361,7 @@ export async function getPagosFromDB(
         monto, metodo_pago, estado, fecha, hora, servicios,
         notas, referencia, subtotal,
         descuento_monto, descuento_tipo, descuento_codigo,
-        propina, monto_efectivo, monto_tarjeta,
+        propina, monto_efectivo, monto_tarjeta, gift_card_codigo,
         cliente:clientes(nombre, apellido),
         empleado:empleados(nombre, apellido)
       `)
@@ -406,6 +408,7 @@ export async function getPagosFromDB(
       propina: Number(pago.propina) || 0,
       montoEfectivo: Number(pago.monto_efectivo) || 0,
       montoTarjeta: Number(pago.monto_tarjeta) || 0,
+      giftCardCodigo: pago.gift_card_codigo || undefined,
     }))
   } catch (error) {
     console.error('Error inesperado obteniendo pagos:', error)
@@ -927,6 +930,7 @@ export async function registrarPago(
         propina: params.propina,
         monto_efectivo: efGuardar,
         monto_tarjeta: tarGuardar,
+        gift_card_codigo: params.giftCardCodigo ?? null,
       })
       .select('id')
       .single()
