@@ -221,6 +221,7 @@ export interface RegistrarPagoParams {
   montoGiftCard?: number
   giftCardId?: string       // ID de la gift card usada para descontar saldo
   giftCardCodigo?: string   // Código/folio de la GC o VIP Pass usado como pago
+  clienteNombre?: string    // Nombre del cliente que canjea (para historial de GC)
   referencia?: string       // Referencia de transferencia
   notas?: string
 }
@@ -997,7 +998,9 @@ export async function registrarPago(
             empleado_id: params.empleadoId || null,
             sucursal_id: params.sucursalId,
             fecha,
-            notas: `Canje · ${params.servicioNombre}`,
+            notas: params.clienteNombre
+              ? `Canje · Usó: ${params.clienteNombre} · ${params.servicioNombre}`
+              : `Canje · ${params.servicioNombre}`,
           })
       }
     }

@@ -51,6 +51,7 @@ import {
   type PromocionValidada,
   type GiftCardValidada,
 } from "@/lib/data/pagos"
+import { canjearGiftCard } from "@/lib/data/gift-cards"
 import type { Cita } from "@/lib/data/citas"
 
 // ─── Tipos internos ────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ interface DescuentoAplicado {
   label: string
   monto: number
   promoId?: string
+  gcId?: string
 }
 
 // ─── Props ─────────────────────────────────────────────────────────────────
@@ -198,6 +200,7 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
       codigo: res.gc.codigo,
       label: `Gift Card ${res.gc.codigo} (saldo: ${formatMXN(res.gc.saldoActual)})`,
       monto,
+      gcId: res.gc.id,
     })
     toast.success(`Gift card aplicada: ${formatMXN(monto)} de descuento`)
   }, [codigoGiftCard, subtotal])
@@ -297,6 +300,7 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
           : metodoPago === "mixto"
           ? montoTarjetaMixto
           : 0,
+      clienteNombre: cita.clienteNombre,
       notas: notas || undefined,
     })
 
@@ -305,6 +309,20 @@ export function CajaDialog({ open, onOpenChange, cita, onPagoCobrado }: CajaDial
     if (!result.success) {
       toast.error(`Error al registrar el pago: ${result.error}`)
       return
+    }
+
+    // Descontar saldo de GC usada como descuento y registrar transacción
+    if (descuentoAplicado?.tipo === "gift_card" && descuentoAplicado.gcId && descuento > 0) {
+      const notasCanje = `Canje como descuento · Usó: ${cita.clienteNombre} · Servicio: ${cita.servicioNombre}`
+      await canjearGiftCard(
+        descuentoAplicado.gcId,
+        descuento,
+        notasCanje,
+        cita.empleadoId,
+        cita.sucursalId,
+        result.pagoId ?? null,
+        cita.clienteNombre
+      )
     }
 
     toast.success("¡Pago registrado exitosamente!", {

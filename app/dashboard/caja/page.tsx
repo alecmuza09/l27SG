@@ -315,6 +315,7 @@ export default function CajaPage() {
       montoTarjeta: tarNum,
       montoGiftCard: gcNum,
       giftCardId: gcNum > 0 ? gcPagoId : undefined,
+      giftCardCodigo: gcNum > 0 ? gcPagoCodigo : undefined,
       referencia: referencia.trim() || undefined,
       notas: notas.trim() || undefined,
     })

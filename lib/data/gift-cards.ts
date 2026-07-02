@@ -624,7 +624,9 @@ export async function canjearGiftCard(
   monto: number,
   notas?: string,
   empleadoId?: string | null,
-  sucursalId?: string | null
+  sucursalId?: string | null,
+  ventaId?: string | null,
+  clienteCanjeNombre?: string | null
 ): Promise<{ success: boolean; saldoNuevo?: number; error?: string }> {
   try {
     const { data: gc, error: fetchError } = await supabase
@@ -648,6 +650,10 @@ export async function canjearGiftCard(
 
     if (error) return { success: false, error: error.message }
 
+    const notasFinales = clienteCanjeNombre
+      ? `${notas || 'Canje de saldo'} · Usó: ${clienteCanjeNombre}`
+      : (notas || 'Canje de saldo')
+
     await supabase.from('gift_card_transacciones').insert({
       gift_card_id: giftCardId,
       tipo: 'canje',
@@ -656,8 +662,9 @@ export async function canjearGiftCard(
       saldo_nuevo: saldoNuevo,
       empleado_id: empleadoId || null,
       sucursal_id: sucursalId || null,
+      venta_id: ventaId || null,
       fecha: fechaLocal(),
-      notas: notas || 'Canje de saldo',
+      notas: notasFinales,
     })
 
     return { success: true, saldoNuevo }
