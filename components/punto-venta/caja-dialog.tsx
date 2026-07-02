@@ -528,12 +528,6 @@ export function CajaDialog({
     if (trfNum > 0 && !referencia.trim()) { toast.error("Ingresa la referencia de la transferencia"); cobrandoRef.current = false; return }
     if (gcNum > 0 && gcNum > gcPagoSaldo + 0.01) { toast.error("El monto en gift card excede el saldo disponible"); cobrandoRef.current = false; return }
     if (vipNum > 0 && vipNum > vipPassSaldo + 0.01) { toast.error("El monto VIP Pass excede el saldo disponible"); cobrandoRef.current = false; return }
-    if (gcNum > 0 && descuentoAplicado?.tipo === "gift_card" && descuentoAplicado.gcId === gcPagoId) {
-      toast.error("No puedes usar la misma gift card como descuento y como método de pago")
-      cobrandoRef.current = false
-      return
-    }
-
     setIsCobrando(true)
 
     // Determinar método principal
