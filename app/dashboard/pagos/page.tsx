@@ -1434,12 +1434,12 @@ export default function PagosPage() {
                   )}
               </div>
 
-              {/* Folio Gift Card / VIP Pass usado como pago */}
-              {pagoDetalle.giftCardCodigo && (
+              {/* Folio Gift Card / VIP Pass usado como pago o descuento */}
+              {(pagoDetalle.giftCardCodigo || (pagoDetalle.descuentoTipo === 'gift_card' && pagoDetalle.descuentoCodigo)) && (
                 <div>
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Gift Card / VIP usada</p>
                   <span className="inline-flex items-center gap-1 text-xs border border-purple-200 rounded px-1.5 py-0.5 bg-purple-50 text-purple-700 font-mono mt-0.5">
-                    {pagoDetalle.giftCardCodigo}
+                    {pagoDetalle.giftCardCodigo || pagoDetalle.descuentoCodigo}
                   </span>
                 </div>
               )}
