@@ -125,6 +125,7 @@ export default function PagosPage() {
   const [editMetodoPago, setEditMetodoPago]             = useState("")
   const [editMontoEfectivo, setEditMontoEfectivo]       = useState("")
   const [editMontoTarjeta, setEditMontoTarjeta]         = useState("")
+  const [editGiftCardCodigo, setEditGiftCardCodigo]     = useState("")
   const [editMotivo, setEditMotivo]                     = useState("")
   const [editMonto, setEditMonto]                       = useState("")
   const [editFecha, setEditFecha]                       = useState("")
@@ -225,6 +226,7 @@ export default function PagosPage() {
   let totalTarjeta = 0
   let totalTransf = 0
   let totalVipPass = 0
+  let totalGiftCard = 0
   let totalOtro = 0
   for (const p of pagos) {
     if (p.estado !== "completado") continue
@@ -237,6 +239,8 @@ export default function PagosPage() {
         totalVipPass += d.otro
       } else if (p.descuentoTipo === "cortesia") {
         // no sumar — ya va a Descuentos
+      } else if (p.giftCardCodigo) {
+        totalGiftCard += d.otro  // informativo — no entra al total
       } else {
         totalOtro += d.otro
       }
@@ -352,6 +356,7 @@ export default function PagosPage() {
     setEditMetodoPago(metodoPagoAParaEdicionUI(pago))
     setEditMontoEfectivo(String(pago.montoEfectivo ?? 0))
     setEditMontoTarjeta(String(pago.montoTarjeta ?? 0))
+    setEditGiftCardCodigo(pago.giftCardCodigo ?? "")
     setEditMotivo("")
     setEditMonto(String(pago.monto))
     setEditFecha(pago.fecha)
@@ -365,7 +370,7 @@ export default function PagosPage() {
   // Mantiene monto_efectivo / monto_tarjeta alineados al total cuando el método no es mixto ni "otro" (GC).
   useEffect(() => {
     if (!editando || !pagoDetalle) return
-    if (editMetodoPago === "mixto" || editMetodoPago === "otro") return
+    if (editMetodoPago === "mixto" || editMetodoPago === "otro" || editMetodoPago === "gift_card" || editMetodoPago === "vip_pass") return
     const m = Number(editMonto) || 0
     const { monto_efectivo, monto_tarjeta } = sincronizarMontosDesgloseParaMetodoUI(
       m,
@@ -379,6 +384,12 @@ export default function PagosPage() {
     const metodo = valor as MetodoPagoEdicionUI
     if (metodo === "cortesia") {
       setEditMetodoPago("cortesia")
+      setEditMontoEfectivo("0")
+      setEditMontoTarjeta("0")
+      return
+    }
+    if (metodo === "gift_card" || metodo === "vip_pass") {
+      setEditMetodoPago(metodo)
       setEditMontoEfectivo("0")
       setEditMontoTarjeta("0")
       return
@@ -413,19 +424,30 @@ export default function PagosPage() {
     }
 
     const res = await updatePago(pagoDetalle.id, {
-      monto:          montoNum,
-      subtotal:       montoNum,
-      propina:        Number(editPropina) || 0,
-      notas:          notaFinal || undefined,
-      referencia:     editReferencia.trim() || undefined,
-      metodo_pago:    editMetodoPago === "cortesia" ? "otro" : norm.metodo_pago,
-      monto_efectivo: editMetodoPago === "cortesia" ? 0 : norm.monto_efectivo,
-      monto_tarjeta:  editMetodoPago === "cortesia" ? 0 : norm.monto_tarjeta,
-      descuento_tipo: editMetodoPago === "cortesia" ? "cortesia" : (pagoDetalle.descuentoTipo ?? null),
-      descuento_monto: editMetodoPago === "cortesia" ? (Number(editMonto) || pagoDetalle.monto) : (pagoDetalle.descuentoMonto ?? 0),
-      fecha:          editFecha || pagoDetalle.fecha,
-      servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
-      cliente_id:     editClienteId || (pagoDetalle.clienteId ?? null),
+      monto:             montoNum,
+      subtotal:          montoNum,
+      propina:           Number(editPropina) || 0,
+      notas:             notaFinal || undefined,
+      referencia:        editReferencia.trim() || undefined,
+      metodo_pago:       editMetodoPago === "cortesia" ? "otro" : norm.metodo_pago,
+      monto_efectivo:    editMetodoPago === "cortesia" ? 0 : norm.monto_efectivo,
+      monto_tarjeta:     editMetodoPago === "cortesia" ? 0 : norm.monto_tarjeta,
+      descuento_tipo:    editMetodoPago === "cortesia"
+                           ? "cortesia"
+                           : editMetodoPago === "vip_pass"
+                             ? "vip_pass"
+                             : (pagoDetalle.descuentoTipo ?? null),
+      descuento_monto:   editMetodoPago === "cortesia"
+                           ? (Number(editMonto) || pagoDetalle.monto)
+                           : (pagoDetalle.descuentoMonto ?? 0),
+      gift_card_codigo:  editMetodoPago === "gift_card"
+                           ? (editGiftCardCodigo.trim() || null)
+                           : editMetodoPago === "vip_pass" || editMetodoPago === "otro"
+                             ? null
+                             : (pagoDetalle.giftCardCodigo ?? null),
+      fecha:             editFecha || pagoDetalle.fecha,
+      servicios:         editServicio.split(",").map(s => s.trim()).filter(Boolean),
+      cliente_id:        editClienteId || (pagoDetalle.clienteId ?? null),
     })
     setIsSavingPago(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
@@ -448,6 +470,16 @@ export default function PagosPage() {
       servicios:      editServicio.split(",").map(s => s.trim()).filter(Boolean),
       clienteId:      editClienteId || (pagoDetalle.clienteId ?? null),
       clienteNombre:  editClienteNombre || pagoDetalle.clienteNombre,
+      giftCardCodigo: editMetodoPago === "gift_card"
+                        ? (editGiftCardCodigo.trim() || undefined)
+                        : editMetodoPago === "vip_pass" || editMetodoPago === "otro"
+                          ? undefined
+                          : (pagoDetalle.giftCardCodigo ?? undefined),
+      descuentoTipo:  editMetodoPago === "cortesia"
+                        ? "cortesia"
+                        : editMetodoPago === "vip_pass"
+                          ? "vip_pass"
+                          : pagoDetalle.descuentoTipo,
     }
     setPagos(prev => prev.map(p => p.id === pagoDetalle.id ? { ...p, ...updated } : p))
     setPagoDetalle(prev => (prev ? { ...prev, ...updated } : null))
@@ -650,6 +682,9 @@ export default function PagosPage() {
           <StatRow label="Transferencias" value={fmtMXN(totalTransf)} />
           {totalVipPass > 0 && (
             <StatRow label="VIP Pass" value={fmtMXN(totalVipPass)} />
+          )}
+          {totalGiftCard > 0 && (
+            <StatRow label="Gift Card (informativo)" value={fmtMXN(totalGiftCard)} />
           )}
           {totalOtro > 0 && (
             <StatRow label="Otros medios / mixto" value={fmtMXN(totalOtro)} />
@@ -970,13 +1005,31 @@ export default function PagosPage() {
                           {(() => {
                             const d = distribuirMontoPago(pago)
                             const lbl = etiquetaMetodosPago(pago)
+                            const isVip = pago.descuentoTipo === "vip_pass"
+                            const isGC = !isVip && (!!pago.giftCardCodigo || pago.descuentoTipo === "gift_card")
+                            const isCortesia = pago.descuentoTipo === "cortesia"
+                            const soloOtro = d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009)
                             return (
-                              <span className="inline-flex items-center gap-1 flex-wrap text-xs border rounded px-1.5 py-0.5 max-w-[200px]">
+                              <span className={cn(
+                                "inline-flex items-center gap-1 flex-wrap text-xs border rounded px-1.5 py-0.5 max-w-[200px]",
+                                isVip && "border-amber-300 bg-amber-50 text-amber-700",
+                                isGC && "border-violet-300 bg-violet-50 text-violet-700",
+                                isCortesia && "border-gray-200 bg-gray-50 text-gray-500",
+                              )}>
                                 {d.efectivo > 0.009 && <Banknote className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden />}
                                 {d.tarjeta > 0.009 && <CreditCard className="h-3 w-3 text-blue-500 shrink-0" aria-hidden />}
                                 {d.transferencia > 0.009 && <ArrowLeftRight className="h-3 w-3 text-indigo-500 shrink-0" aria-hidden />}
-                                {d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009) && (
-                                  <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
+                                {soloOtro && (
+                                  isVip
+                                    ? <Star className="h-3 w-3 text-amber-500 shrink-0" aria-hidden />
+                                    : isGC
+                                      ? <Gift className="h-3 w-3 text-violet-500 shrink-0" aria-hidden />
+                                      : isCortesia
+                                        ? null
+                                        : <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
+                                )}
+                                {isCortesia && !soloOtro && (
+                                  <span className="text-gray-400 text-[10px] leading-none">✕</span>
                                 )}
                                 <span className="leading-tight">{lbl}</span>
                               </span>
@@ -1403,29 +1456,56 @@ export default function PagosPage() {
                 <div>
                   <p className="text-[10px] uppercase text-muted-foreground font-semibold">Método de pago</p>
                   {editando ? (
-                    <select
-                      value={editMetodoPago}
-                      onChange={e => handleCambioMetodoEdicionPago(e.target.value)}
-                      className="mt-0.5 w-full h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                    >
-                      <option value="efectivo">Efectivo</option>
-                      <option value="tarjeta">Tarjeta</option>
-                      <option value="transferencia">Transferencia</option>
-                      <option value="mixto">Mixto (efectivo + tarjeta)</option>
-                      <option value="otro">Otro (gift card, etc.)</option>
-                      <option value="cortesia">Cortesía</option>
-                    </select>
+                    <>
+                      <select
+                        value={editMetodoPago}
+                        onChange={e => handleCambioMetodoEdicionPago(e.target.value)}
+                        className="mt-0.5 w-full h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="efectivo">Efectivo</option>
+                        <option value="tarjeta">Tarjeta</option>
+                        <option value="transferencia">Transferencia</option>
+                        <option value="mixto">Mixto (efectivo + tarjeta)</option>
+                        <option value="gift_card">Gift Card</option>
+                        <option value="vip_pass">VIP Pass</option>
+                        <option value="otro">Otro</option>
+                        <option value="cortesia">Cortesía</option>
+                      </select>
+                      {editMetodoPago === "gift_card" && (
+                        <Input
+                          className="mt-1.5 h-8 text-sm font-mono uppercase"
+                          placeholder="Folio de la gift card (ej. C1104)"
+                          value={editGiftCardCodigo}
+                          onChange={e => setEditGiftCardCodigo(e.target.value.toUpperCase())}
+                        />
+                      )}
+                    </>
                   ) : (
                     (() => {
                       const d = distribuirMontoPago(pagoDetalle)
                       const lbl = etiquetaMetodosPago(pagoDetalle)
+                      const isVip = pagoDetalle.descuentoTipo === "vip_pass"
+                      const isGC = !isVip && (!!pagoDetalle.giftCardCodigo || pagoDetalle.descuentoTipo === "gift_card")
+                      const isCortesia = pagoDetalle.descuentoTipo === "cortesia"
+                      const soloOtro = d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009)
                       return (
-                        <span className="inline-flex items-center gap-1 flex-wrap text-xs border rounded px-1.5 py-0.5 bg-background mt-0.5 max-w-full">
+                        <span className={cn(
+                          "inline-flex items-center gap-1 flex-wrap text-xs border rounded px-1.5 py-0.5 bg-background mt-0.5 max-w-full",
+                          isVip && "border-amber-300 bg-amber-50 text-amber-700",
+                          isGC && "border-violet-300 bg-violet-50 text-violet-700",
+                          isCortesia && "border-gray-200 bg-gray-50 text-gray-500",
+                        )}>
                           {d.efectivo > 0.009 && <Banknote className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden />}
                           {d.tarjeta > 0.009 && <CreditCard className="h-3 w-3 text-blue-500 shrink-0" aria-hidden />}
                           {d.transferencia > 0.009 && <ArrowLeftRight className="h-3 w-3 text-indigo-500 shrink-0" aria-hidden />}
-                          {d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009) && (
-                            <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
+                          {soloOtro && (
+                            isVip
+                              ? <Star className="h-3 w-3 text-amber-500 shrink-0" aria-hidden />
+                              : isGC
+                                ? <Gift className="h-3 w-3 text-violet-500 shrink-0" aria-hidden />
+                                : !isCortesia
+                                  ? <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
+                                  : null
                           )}
                           <span className="leading-tight">{lbl}</span>
                         </span>

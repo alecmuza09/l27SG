@@ -74,12 +74,18 @@ export function distribuirMontoPago(
 /** Etiqueta legible para UI (ej. "Efectivo + Tarjeta") según el desglose real del cobro. */
 export function etiquetaMetodosPago(p: Pago): string {
   if (p.descuentoTipo === "cortesia") return "Cortesía"
+  // VIP Pass con monto $0 (cubrió 100 % del servicio)
+  if (p.descuentoTipo === "vip_pass" && (Number(p.monto) || 0) <= 0.009) return "VIP Pass"
   const d = distribuirMontoPago(p)
   const parts: string[] = []
   if (d.efectivo > 0.009) parts.push("Efectivo")
   if (d.tarjeta > 0.009) parts.push("Tarjeta")
   if (d.transferencia > 0.009) parts.push("Transferencia")
-  if (d.otro > 0.009) parts.push("Otro")
+  if (d.otro > 0.009) {
+    if (p.descuentoTipo === "vip_pass") parts.push("VIP Pass")
+    else if (p.giftCardCodigo || p.descuentoTipo === "gift_card") parts.push("Gift Card")
+    else parts.push("Otro")
+  }
   if (parts.length >= 2) return parts.join(" + ")
   if (parts.length === 1) return parts[0]
   const labels: Record<string, string> = {
@@ -105,6 +111,8 @@ export type MetodoPagoEdicionUI =
   | 'tarjeta'
   | 'transferencia'
   | 'mixto'
+  | 'gift_card'
+  | 'vip_pass'
   | 'otro'
   | 'cortesia'
 
@@ -122,6 +130,8 @@ export function sincronizarMontosDesgloseParaMetodoUI(
     case 'tarjeta':
       return { monto_efectivo: 0, monto_tarjeta: m }
     case 'transferencia':
+    case 'gift_card':
+    case 'vip_pass':
     case 'otro':
     case 'cortesia':
       return { monto_efectivo: 0, monto_tarjeta: 0 }
@@ -170,6 +180,10 @@ export function normalizarMetodoYMontosPago(params: {
     }
     case 'otro':
       return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
+    case 'gift_card':
+      return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
+    case 'vip_pass':
+      return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
     case 'cortesia':
       return { ok: true, metodo_pago: 'otro', monto_efectivo: 0, monto_tarjeta: 0 }
     default:
@@ -178,9 +192,11 @@ export function normalizarMetodoYMontosPago(params: {
 }
 
 /** Mapea un pago cargado al valor del `<select>` de edición (mixto explícito si hay desglose efectivo+tarjeta). */
-export function metodoPagoAParaEdicionUI(p: Pick<Pago, 'metodoPago' | 'montoEfectivo' | 'montoTarjeta'> & { descuentoTipo?: string }): MetodoPagoEdicionUI {
+export function metodoPagoAParaEdicionUI(p: Pick<Pago, 'metodoPago' | 'montoEfectivo' | 'montoTarjeta' | 'giftCardCodigo'> & { descuentoTipo?: string }): MetodoPagoEdicionUI {
   if (p.descuentoTipo === "cortesia") return "cortesia"
+  if (p.descuentoTipo === "vip_pass") return "vip_pass"
   if (debePersistirMetodoMixtoEfectivoTarjeta(p.montoEfectivo, p.montoTarjeta)) return 'mixto'
+  if (p.giftCardCodigo) return 'gift_card'
   const m = (p.metodoPago || 'efectivo') as MetodoPagoEdicionUI
   if (m === 'efectivo' || m === 'tarjeta' || m === 'transferencia' || m === 'otro') return m
   return 'otro'
@@ -1200,6 +1216,7 @@ export async function updatePago(
     monto_tarjeta?: number
     descuento_tipo?: string | null
     descuento_monto?: number
+    gift_card_codigo?: string | null
     fecha?: string
     servicios?: string[]
     cliente_id?: string | null
