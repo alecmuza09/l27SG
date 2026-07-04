@@ -100,7 +100,7 @@ const tipoTransaccionConfig: Record<string, { label: string; signo: string; colo
   compra:      { label: "Compra",      signo: "+", color: "text-blue-600" },
   uso:         { label: "Uso",         signo: "−", color: "text-red-600" },
   reembolso:   { label: "Reembolso",   signo: "+", color: "text-emerald-600" },
-  vip_pass:    { label: "VIP Pass",    signo: "—", color: "text-indigo-500" },
+  vip_pass:    { label: "VIP Pass",    signo: "−", color: "text-red-600" },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1995,7 +1995,7 @@ export default function GiftCardsPage() {
                         {estadoConfig[selectedCard.estado].label}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        {transacciones.length} movimiento{transacciones.length !== 1 ? "s" : ""}
+                        {transacciones.filter(t => t.tipo !== 'vip_pass').length} movimiento{transacciones.filter(t => t.tipo !== 'vip_pass').length !== 1 ? "s" : ""}
                       </span>
                     </div>
                   )}
@@ -2135,7 +2135,7 @@ export default function GiftCardsPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {transacciones.map((t) => {
+                          {transacciones.filter(t => t.tipo !== 'vip_pass').map((t) => {
                             const cfg = tipoTransaccionConfig[t.tipo] ?? { label: t.tipo, signo: "·", color: "" }
                             const esIngreso = cfg.signo === "+"
                             const esEgreso  = cfg.signo === "−" || cfg.signo === "-"
