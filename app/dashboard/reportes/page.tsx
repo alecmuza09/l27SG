@@ -686,6 +686,8 @@ async function fetchCanjesOnlineParaPdf(
                        metodo.includes("online") ||
                        metodo.includes("en line")
       if (!esOnline) return false
+      const sucursalTxn = t.sucursal_id as string | undefined
+      if (sucursalTxn && sucursalIdsExcluir.includes(sucursalTxn)) return false
       const sucursalPago = (t.pago as any)?.sucursal_id as string | undefined
       if (sucursalPago && sucursalIdsExcluir.includes(sucursalPago)) return false
       return true
