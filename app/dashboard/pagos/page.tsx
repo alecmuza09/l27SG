@@ -442,9 +442,11 @@ export default function PagosPage() {
                            : (pagoDetalle.descuentoMonto ?? 0),
       gift_card_codigo:  editMetodoPago === "gift_card"
                            ? (editGiftCardCodigo.trim() || null)
-                           : editMetodoPago === "vip_pass" || editMetodoPago === "otro"
+                           : editMetodoPago === "vip_pass"
                              ? null
-                             : (pagoDetalle.giftCardCodigo ?? null),
+                             : editMetodoPago === "otro"
+                               ? (pagoDetalle.giftCardCodigo ?? null)
+                               : (pagoDetalle.giftCardCodigo ?? null),
       fecha:             editFecha || pagoDetalle.fecha,
       servicios:         editServicio.split(",").map(s => s.trim()).filter(Boolean),
       cliente_id:        editClienteId || (pagoDetalle.clienteId ?? null),
@@ -472,9 +474,11 @@ export default function PagosPage() {
       clienteNombre:  editClienteNombre || pagoDetalle.clienteNombre,
       giftCardCodigo: editMetodoPago === "gift_card"
                         ? (editGiftCardCodigo.trim() || undefined)
-                        : editMetodoPago === "vip_pass" || editMetodoPago === "otro"
+                        : editMetodoPago === "vip_pass"
                           ? undefined
-                          : (pagoDetalle.giftCardCodigo ?? undefined),
+                          : editMetodoPago === "otro"
+                            ? (pagoDetalle.giftCardCodigo ?? undefined)
+                            : (pagoDetalle.giftCardCodigo ?? undefined),
       descuentoTipo:  editMetodoPago === "cortesia"
                         ? "cortesia"
                         : editMetodoPago === "vip_pass"
@@ -1113,7 +1117,7 @@ export default function PagosPage() {
                         <TableHead className="text-xs">Hora</TableHead>
                         <TableHead className="text-xs">Cliente</TableHead>
                         <TableHead className="text-xs">Servicios</TableHead>
-                        <TableHead className="text-xs">Referencia</TableHead>
+                        <TableHead className="text-xs">Folio GC</TableHead>
                         <TableHead className="text-xs text-right">Monto</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1123,7 +1127,13 @@ export default function PagosPage() {
                           <TableCell className="text-xs tabular-nums">{p.hora}</TableCell>
                           <TableCell className="text-sm font-medium">{p.clienteNombre}</TableCell>
                           <TableCell className="text-xs max-w-[180px] truncate">{p.servicios.join(", ")}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{p.referencia ?? "—"}</TableCell>
+                          <TableCell className="text-xs">
+                            {p.giftCardCodigo ? (
+                              <span className="inline-flex items-center gap-1 text-xs border border-violet-200 rounded px-1.5 py-0.5 bg-violet-50 text-violet-700 font-mono">
+                                {p.giftCardCodigo}
+                              </span>
+                            ) : (p.referencia ?? "—")}
+                          </TableCell>
                           <TableCell className="text-right font-semibold text-sm">{fmtMXN(p.monto)}</TableCell>
                         </TableRow>
                       ))}
