@@ -664,10 +664,10 @@ async function fetchCanjesOnlineParaPdf(
         )
       `)
       .in("tipo", ["canje", "uso", "descuento", "cobro", "vip_pass"])
-      .gte("created_at", fechaDesde + "T00:00:00")
-      .lte("created_at", fechaHasta + "T23:59:59")
+      .gte("fecha", fechaDesde)
+      .lte("fecha", fechaHasta)
       .or("venta_id.is.null")
-      .order("created_at", { ascending: false })
+      .order("fecha", { ascending: false })
       .range(offset, offset + PAGE - 1)
 
     if (error) throw new Error(error.message)
