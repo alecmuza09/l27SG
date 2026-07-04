@@ -1979,7 +1979,7 @@ export default function GiftCardsPage() {
 
       {/* Ver Detalles + Historial */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-        <DialogContent className="flex h-auto max-h-[min(90dvh,calc(100vh-2rem))] min-h-0 w-[calc(100%-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogContent className="flex h-auto max-h-[min(90dvh,calc(100vh-2rem))] min-h-0 w-[calc(100%-2rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
           <DialogHeader className="flex-shrink-0 border-b px-6 pt-5 pb-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -2117,8 +2117,8 @@ export default function GiftCardsPage() {
                       Sin movimientos registrados
                     </p>
                   ) : (
-                    <div className="border rounded-lg overflow-hidden">
-                      <Table>
+                    <div className="border rounded-lg overflow-x-auto">
+                      <Table className="min-w-[540px]">
                         <TableHeader>
                           <TableRow className="bg-muted/30">
                             <TableHead className="text-xs">Fecha</TableHead>
