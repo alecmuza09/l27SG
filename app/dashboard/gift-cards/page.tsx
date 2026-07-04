@@ -1995,7 +1995,11 @@ export default function GiftCardsPage() {
                         {estadoConfig[selectedCard.estado].label}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        {transacciones.filter(t => t.tipo !== 'vip_pass').length} movimiento{transacciones.filter(t => t.tipo !== 'vip_pass').length !== 1 ? "s" : ""}
+                        {(() => {
+                          const fechasConCanje = new Set(transacciones.filter(t => t.tipo === 'canje').map(t => t.fecha?.substring(0, 10)))
+                          const count = transacciones.filter(t => t.tipo !== 'vip_pass' || !fechasConCanje.has(t.fecha?.substring(0, 10))).length
+                          return `${count} movimiento${count !== 1 ? "s" : ""}`
+                        })()}
                       </span>
                     </div>
                   )}
@@ -2135,7 +2139,16 @@ export default function GiftCardsPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {transacciones.filter(t => t.tipo !== 'vip_pass').map((t) => {
+                          {(() => {
+                            // Fechas que tienen un canje — esos vip_pass son duplicados y se ocultan
+                            const fechasConCanje = new Set(
+                              transacciones
+                                .filter(t => t.tipo === 'canje')
+                                .map(t => t.fecha?.substring(0, 10))
+                            )
+                            return transacciones
+                              .filter(t => t.tipo !== 'vip_pass' || !fechasConCanje.has(t.fecha?.substring(0, 10)))
+                              .map((t) => {
                             const cfg = tipoTransaccionConfig[t.tipo] ?? { label: t.tipo, signo: "·", color: "" }
                             const esIngreso = cfg.signo === "+"
                             const esEgreso  = cfg.signo === "−" || cfg.signo === "-"
@@ -2169,6 +2182,7 @@ export default function GiftCardsPage() {
                               </TableRow>
                             )
                           })}
+                          })()}
                         </TableBody>
                       </Table>
                     </div>
