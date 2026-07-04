@@ -548,9 +548,15 @@ export function CajaDialog({
 
     // VIP Pass usa el mismo campo que gift card (giftCardId / montoGiftCard)
     // El descuento de VIP Pass se registra con tipo "vip_pass" para cálculo de comisiones
-    const giftCardIdFinal = vipNum > 0 ? vipPassId : (gcNum > 0 ? gcPagoId : undefined)
-    const giftCardCodigoFinal = vipNum > 0 ? vipPassCodigo : (gcNum > 0 ? gcPagoCodigo : undefined)
-    const montoGiftCardFinal = vipNum > 0 ? vipNum : (gcNum > 0 ? gcNum : 0)
+    //
+    // Monto efectivo del VIP Pass: solo cubre lo que no pagaron los otros métodos.
+    // Ejemplo: total $740, efectivo $320 → VIP cubre $420, no $740.
+    const vipNumEfectivo = vipNum > 0
+      ? Math.min(vipNum, Math.max(0, total - efNum - tarNum - trfNum - gcNum))
+      : 0
+    const giftCardIdFinal = vipNumEfectivo > 0 ? vipPassId : (gcNum > 0 ? gcPagoId : undefined)
+    const giftCardCodigoFinal = vipNumEfectivo > 0 ? vipPassCodigo : (gcNum > 0 ? gcPagoCodigo : undefined)
+    const montoGiftCardFinal = vipNumEfectivo > 0 ? vipNumEfectivo : (gcNum > 0 ? gcNum : 0)
     const descuentoTipoFinal = descuentoAplicado?.tipo === "cupon" ? "cupon"
       : descuentoAplicado?.tipo === "gift_card" ? "gift_card"
       : descuentoAplicado?.tipo === "vip_pass"  ? "vip_pass"
@@ -558,7 +564,7 @@ export function CajaDialog({
 
     // Leer saldo del VIP Pass ANTES de registrar el pago
     let vipPassSaldoAntes = 0
-    if (vipNum > 0 && vipPassId) {
+    if (vipNumEfectivo > 0 && vipPassId) {
       const { data: vipData } = await (supabase as any)
         .from("gift_cards")
         .select("saldo_actual")
@@ -605,10 +611,10 @@ export function CajaDialog({
     )
 
     // Registrar transacción de VIP Pass si se usó uno
-    if (vipNum > 0 && vipPassId) {
+    if (vipNumEfectivo > 0 && vipPassId) {
       const hoy = new Date()
       const fechaLocal = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`
-      const saldoNuevo = Math.max(0, vipPassSaldoAntes - vipNum)
+      const saldoNuevo = Math.max(0, vipPassSaldoAntes - vipNumEfectivo)
 
       // Solo insertar transacción — el saldo ya fue descontado por registrarPago (Paso 5)
       await (supabase as any)
@@ -616,12 +622,12 @@ export function CajaDialog({
         .insert({
           gift_card_id: vipPassId,
           tipo: "vip_pass",
-          monto: vipNum,
+          monto: vipNumEfectivo,
           saldo_anterior: vipPassSaldoAntes,
           saldo_nuevo: saldoNuevo,
           venta_id: res.pagoId ?? null,
           fecha: fechaLocal,
-          notas: `VIP Pass usado · descuento $${descuento} · cobro al saldo $${vipNum}`,
+          notas: `VIP Pass usado · descuento $${descuento} · cobro al saldo $${vipNumEfectivo}`,
         })
     }
 
