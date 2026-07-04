@@ -484,7 +484,19 @@ async function fetchCanjesParaPdf(
       })
     : rows
 
-  return rowsFiltrados
+  // Deduplicar: ocultar vip_pass cuando hay un canje del mismo código en la misma fecha
+  const canjesKeys = new Set(
+    rowsFiltrados
+      .filter((t: any) => t.tipo === 'canje')
+      .map((t: any) => `${t.gift_card?.codigo}_${(t.fecha || '').substring(0, 10)}`)
+  )
+  const rowsDeduplicados = rowsFiltrados.filter((t: any) => {
+    if (t.tipo !== 'vip_pass') return true
+    const key = `${t.gift_card?.codigo}_${(t.fecha || '').substring(0, 10)}`
+    return !canjesKeys.has(key)
+  })
+
+  return rowsDeduplicados
     .map((t: any): CanjeGcPdfRow | null => {
       const gc = t.gift_card
       if (!gc) return null
@@ -651,7 +663,7 @@ async function fetchCanjesOnlineParaPdf(
     offset += PAGE
   }
 
-  return rows
+  const rowsOnline = rows
     .filter((t: any) => {
       const gc = t.gift_card
       if (!gc) return false
@@ -663,6 +675,20 @@ async function fetchCanjesOnlineParaPdf(
       const sucursalPago = (t.pago as any)?.sucursal_id as string | undefined
       if (sucursalPago && sucursalIdsExcluir.includes(sucursalPago)) return false
       return true
+    })
+
+  // Deduplicar: ocultar vip_pass cuando hay un canje del mismo código en la misma fecha
+  const canjesKeysOnline = new Set(
+    rowsOnline
+      .filter((t: any) => t.tipo === 'canje')
+      .map((t: any) => `${t.gift_card?.codigo}_${(t.fecha || t.created_at || '').substring(0, 10)}`)
+  )
+
+  return rowsOnline
+    .filter((t: any) => {
+      if (t.tipo !== 'vip_pass') return true
+      const key = `${t.gift_card?.codigo}_${(t.fecha || t.created_at || '').substring(0, 10)}`
+      return !canjesKeysOnline.has(key)
     })
     .map((t: any): CanjeGcPdfRow | null => {
       const gc = t.gift_card
