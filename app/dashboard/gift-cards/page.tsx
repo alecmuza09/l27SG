@@ -100,6 +100,7 @@ const tipoTransaccionConfig: Record<string, { label: string; signo: string; colo
   compra:      { label: "Compra",      signo: "+", color: "text-blue-600" },
   uso:         { label: "Uso",         signo: "−", color: "text-red-600" },
   reembolso:   { label: "Reembolso",   signo: "+", color: "text-emerald-600" },
+  vip_pass:    { label: "VIP Pass",    signo: "—", color: "text-indigo-500" },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
