@@ -2117,14 +2117,14 @@ export default function GiftCardsPage() {
                       Sin movimientos registrados
                     </p>
                   ) : (
-                    <div className="border rounded-lg overflow-x-auto">
-                      <Table className="min-w-[540px]">
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
                         <TableHeader>
                           <TableRow className="bg-muted/30">
-                            <TableHead className="text-xs">Fecha</TableHead>
+                            <TableHead className="text-xs w-[90px] shrink-0">Fecha</TableHead>
                             <TableHead className="text-xs">Tipo</TableHead>
-                            <TableHead className="text-xs text-right">Monto</TableHead>
-                            <TableHead className="text-xs text-right">Saldo resultante</TableHead>
+                            <TableHead className="text-xs text-right w-[90px] shrink-0">Monto</TableHead>
+                            <TableHead className="text-xs text-right w-[110px] shrink-0">Saldo resultante</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2134,11 +2134,11 @@ export default function GiftCardsPage() {
                             const esEgreso  = cfg.signo === "−" || cfg.signo === "-"
                             return (
                               <TableRow key={t.id} className="hover:bg-muted/20">
-                                <TableCell className="text-sm py-2.5">{fmtDate(t.fecha)}</TableCell>
+                                <TableCell className="text-sm py-2.5 align-top">{fmtDate(t.fecha)}</TableCell>
                                 <TableCell className="py-2.5">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-start gap-2">
                                     <span className={cn(
-                                      "inline-flex h-5 w-5 rounded-full items-center justify-center flex-shrink-0",
+                                      "inline-flex h-5 w-5 rounded-full items-center justify-center flex-shrink-0 mt-0.5",
                                       esIngreso ? "bg-emerald-100" : esEgreso ? "bg-red-100" : "bg-gray-100"
                                     )}>
                                       {esIngreso
@@ -2148,17 +2148,17 @@ export default function GiftCardsPage() {
                                           : <RefreshCw className="h-3 w-3 text-gray-500" />
                                       }
                                     </span>
-                                    <div>
+                                    <div className="min-w-0">
                                       <span className="text-sm font-medium">{cfg.label}</span>
-                                      {t.notas && <p className="text-xs text-muted-foreground leading-tight">{t.notas}</p>}
+                                      {t.notas && <p className="text-xs text-muted-foreground leading-tight break-words">{t.notas}</p>}
                                       {t.empleadoNombre && <p className="text-xs text-muted-foreground leading-tight">Por: {t.empleadoNombre}</p>}
                                     </div>
                                   </div>
                                 </TableCell>
-                                <TableCell className={cn("text-sm font-semibold text-right py-2.5", cfg.color)}>
+                                <TableCell className={cn("text-sm font-semibold text-right py-2.5 align-top", cfg.color)}>
                                   {cfg.signo !== "—" ? `${cfg.signo}${fmtMXN(t.monto)}` : "—"}
                                 </TableCell>
-                                <TableCell className="text-sm font-medium text-right py-2.5">{fmtMXN(t.saldoNuevo)}</TableCell>
+                                <TableCell className="text-sm font-medium text-right py-2.5 align-top">{fmtMXN(t.saldoNuevo)}</TableCell>
                               </TableRow>
                             )
                           })}
