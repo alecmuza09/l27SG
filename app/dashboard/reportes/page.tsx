@@ -456,7 +456,7 @@ async function fetchCanjesParaPdf(
         *,
         empleado:empleados(nombre, apellido),
         sucursal:sucursales(nombre),
-        pago:pagos(sucursal_id, sucursal:sucursales(nombre)),
+        pago:pagos(sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre)),
         gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
       `)
       .in("tipo", ["canje", "uso", "descuento", "cobro", "vip_pass"])
@@ -513,9 +513,14 @@ async function fetchCanjesParaPdf(
         ? `${t.empleado.nombre ?? ""} ${t.empleado.apellido ?? ""}`.trim()
         : ""
       const empleadaDirecta = String(t.empleado_nombre ?? t.empleada ?? "").trim()
-      const clienteNombre = gc.cliente
-        ? `${gc.cliente.nombre} ${gc.cliente.apellido}`
-        : "Sin cliente"
+      // Cliente: primero el de la GC, luego el del pago (venta_id → pagos.cliente)
+      const gcCliente = gc.cliente
+      const pagoCliente = (t.pago as any)?.cliente
+      const clienteNombre = gcCliente
+        ? `${gcCliente.nombre} ${gcCliente.apellido}`.trim()
+        : pagoCliente
+          ? `${pagoCliente.nombre} ${pagoCliente.apellido}`.trim()
+          : "Sin cliente"
       return {
         fecha: normalizarFechaGc(t.fecha || t.created_at),
         codigo: gc.codigo,
