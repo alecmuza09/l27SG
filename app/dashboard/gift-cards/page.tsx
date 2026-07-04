@@ -2118,13 +2118,19 @@ export default function GiftCardsPage() {
                     </p>
                   ) : (
                     <div className="border rounded-lg overflow-hidden">
-                      <Table>
+                      <Table className="table-fixed w-full">
+                        <colgroup>
+                          <col className="w-[88px]" />
+                          <col />
+                          <col className="w-[80px]" />
+                          <col className="w-[104px]" />
+                        </colgroup>
                         <TableHeader>
                           <TableRow className="bg-muted/30">
-                            <TableHead className="text-xs w-[90px] shrink-0">Fecha</TableHead>
+                            <TableHead className="text-xs">Fecha</TableHead>
                             <TableHead className="text-xs">Tipo</TableHead>
-                            <TableHead className="text-xs text-right w-[90px] shrink-0">Monto</TableHead>
-                            <TableHead className="text-xs text-right w-[110px] shrink-0">Saldo resultante</TableHead>
+                            <TableHead className="text-xs text-right">Monto</TableHead>
+                            <TableHead className="text-xs text-right">Saldo resultante</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2135,7 +2141,7 @@ export default function GiftCardsPage() {
                             return (
                               <TableRow key={t.id} className="hover:bg-muted/20">
                                 <TableCell className="text-sm py-2.5 align-top">{fmtDate(t.fecha)}</TableCell>
-                                <TableCell className="py-2.5">
+                                <TableCell className="py-2.5 overflow-hidden">
                                   <div className="flex items-start gap-2">
                                     <span className={cn(
                                       "inline-flex h-5 w-5 rounded-full items-center justify-center flex-shrink-0 mt-0.5",
@@ -2148,9 +2154,9 @@ export default function GiftCardsPage() {
                                           : <RefreshCw className="h-3 w-3 text-gray-500" />
                                       }
                                     </span>
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 overflow-hidden">
                                       <span className="text-sm font-medium">{cfg.label}</span>
-                                      {t.notas && <p className="text-xs text-muted-foreground leading-tight break-words">{t.notas}</p>}
+                                      {t.notas && <p className="text-xs text-muted-foreground leading-tight break-all">{t.notas}</p>}
                                       {t.empleadoNombre && <p className="text-xs text-muted-foreground leading-tight">Por: {t.empleadoNombre}</p>}
                                     </div>
                                   </div>
