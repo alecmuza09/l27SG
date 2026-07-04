@@ -484,16 +484,25 @@ async function fetchCanjesParaPdf(
       })
     : rows
 
-  // Deduplicar: ocultar vip_pass cuando hay un canje del mismo código en la misma fecha
-  const canjesKeys = new Set(
-    rowsFiltrados
-      .filter((t: any) => t.tipo === 'canje')
-      .map((t: any) => `${t.gift_card?.codigo}_${(t.fecha || '').substring(0, 10)}`)
-  )
-  const rowsDeduplicados = rowsFiltrados.filter((t: any) => {
-    if (t.tipo !== 'vip_pass') return true
-    const key = `${t.gift_card?.codigo}_${(t.fecha || '').substring(0, 10)}`
-    return !canjesKeys.has(key)
+  // Deduplicar: agrupar por (código + fecha + monto) y quedarse con la fila más informativa
+  // (la que tiene empleada y notas de servicio, no la del sistema "Canje como descuento")
+  const grupos = new Map<string, any[]>()
+  for (const t of rowsFiltrados) {
+    const key = `${(t as any).gift_card?.codigo}_${((t as any).fecha || '').substring(0, 10)}_${Number((t as any).monto).toFixed(2)}`
+    if (!grupos.has(key)) grupos.set(key, [])
+    grupos.get(key)!.push(t)
+  }
+  const rowsDeduplicados = Array.from(grupos.values()).map(group => {
+    if (group.length === 1) return group[0]
+    // Prioridad 1: canje con empleada asignada
+    const canjeConEmp = group.find((t: any) => t.tipo === 'canje' && t.empleado_id)
+    if (canjeConEmp) return canjeConEmp
+    // Prioridad 2: cualquier fila con empleada
+    const conEmp = group.find((t: any) => t.empleado_id || t.empleado_nombre)
+    if (conEmp) return conEmp
+    // Prioridad 3: canje antes que vip_pass/cobro
+    const canje = group.find((t: any) => t.tipo === 'canje')
+    return canje ?? group[0]
   })
 
   return rowsDeduplicados
@@ -677,19 +686,23 @@ async function fetchCanjesOnlineParaPdf(
       return true
     })
 
-  // Deduplicar: ocultar vip_pass cuando hay un canje del mismo código en la misma fecha
-  const canjesKeysOnline = new Set(
-    rowsOnline
-      .filter((t: any) => t.tipo === 'canje')
-      .map((t: any) => `${t.gift_card?.codigo}_${(t.fecha || t.created_at || '').substring(0, 10)}`)
-  )
+  // Deduplicar: agrupar por (código + fecha + monto) y quedarse con la fila más informativa
+  const gruposOnline = new Map<string, any[]>()
+  for (const t of rowsOnline) {
+    const key = `${(t as any).gift_card?.codigo}_${((t as any).fecha || (t as any).created_at || '').substring(0, 10)}_${Number((t as any).monto).toFixed(2)}`
+    if (!gruposOnline.has(key)) gruposOnline.set(key, [])
+    gruposOnline.get(key)!.push(t)
+  }
 
-  return rowsOnline
-    .filter((t: any) => {
-      if (t.tipo !== 'vip_pass') return true
-      const key = `${t.gift_card?.codigo}_${(t.fecha || t.created_at || '').substring(0, 10)}`
-      return !canjesKeysOnline.has(key)
-    })
+  return Array.from(gruposOnline.values()).map(group => {
+    if (group.length === 1) return group[0]
+    const canjeConEmp = group.find((t: any) => t.tipo === 'canje' && t.empleado_id)
+    if (canjeConEmp) return canjeConEmp
+    const conEmp = group.find((t: any) => t.empleado_id || t.empleado_nombre)
+    if (conEmp) return conEmp
+    const canje = group.find((t: any) => t.tipo === 'canje')
+    return canje ?? group[0]
+  })
     .map((t: any): CanjeGcPdfRow | null => {
       const gc = t.gift_card
       if (!gc) return null
