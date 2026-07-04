@@ -2181,7 +2181,7 @@ export default function GiftCardsPage() {
                                 <TableCell className="text-sm font-medium text-right py-2.5 align-top">{fmtMXN(t.saldoNuevo)}</TableCell>
                               </TableRow>
                             )
-                          })}
+                          })
                           })()}
                         </TableBody>
                       </Table>
