@@ -629,6 +629,21 @@ export function CajaDialog({
           fecha: fechaLocal,
           notas: `VIP Pass usado · descuento $${descuento} · cobro al saldo $${vipNumEfectivo}`,
         })
+
+      if (vipNum > 0 && vipPassId && clienteId) {
+        const { data: vipRow } = await (supabase as any)
+          .from("gift_cards")
+          .select("cliente_id")
+          .eq("id", vipPassId)
+          .single()
+
+        if (vipRow && !vipRow.cliente_id) {
+          await (supabase as any)
+            .from("gift_cards")
+            .update({ cliente_id: clienteId })
+            .eq("id", vipPassId)
+        }
+      }
     }
 
     // Registrar transacción de Gift Card si se usó como descuento
@@ -668,6 +683,36 @@ export function CajaDialog({
             fecha: fechaLocal,
             notas: `Canje como descuento · ${descuentoAplicado.codigo}`,
           })
+      }
+
+      if (descuentoAplicado?.tipo === "gift_card" && descuentoAplicado.gcId && clienteId) {
+        const { data: gcRow } = await (supabase as any)
+          .from("gift_cards")
+          .select("cliente_id")
+          .eq("id", descuentoAplicado.gcId)
+          .single()
+
+        if (gcRow && !gcRow.cliente_id) {
+          await (supabase as any)
+            .from("gift_cards")
+            .update({ cliente_id: clienteId })
+            .eq("id", descuentoAplicado.gcId)
+        }
+      }
+    }
+
+    if (gcNum > 0 && gcPagoId && clienteId) {
+      const { data: gcPagoRow } = await (supabase as any)
+        .from("gift_cards")
+        .select("cliente_id")
+        .eq("id", gcPagoId)
+        .single()
+
+      if (gcPagoRow && !gcPagoRow.cliente_id) {
+        await (supabase as any)
+          .from("gift_cards")
+          .update({ cliente_id: clienteId })
+          .eq("id", gcPagoId)
       }
     }
 
