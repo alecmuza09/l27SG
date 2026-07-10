@@ -97,7 +97,11 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
     const list = [...resultMap.values()].sort((a, b) =>
       `${a.nombre} ${a.apellido}`.localeCompare(`${b.nombre} ${b.apellido}`, "es"),
     )
-    return list.map(transformEmpleado)
+    const fechaAgenda = fecha
+    return list.map(transformEmpleado).filter(e => {
+      if (!e.fechaContratoHasta) return true
+      return e.fechaContratoHasta >= fechaAgenda
+    })
   } catch (e) {
     console.error("getEmpleadosParaAgendaPorSucursalYDia:", e)
     return []
