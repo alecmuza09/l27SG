@@ -186,7 +186,8 @@ export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[
       return []
     }
 
-    const hoy = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const hoy = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     return data.map(transformEmpleado).filter(e => {
       if (!e.fechaContratoHasta) return true
       return e.fechaContratoHasta >= hoy
@@ -459,7 +460,8 @@ export async function updateEmpleado(
 
 // Desactivar automáticamente empleadas cuyo contrato ya venció
 export async function desactivarEmpleadasContratoVencido(): Promise<void> {
-  const hoy = new Date().toISOString().split('T')[0]
+  const now = new Date()
+  const hoy = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
   await supabase
     .from('empleados')
