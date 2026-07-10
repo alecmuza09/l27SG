@@ -186,7 +186,11 @@ export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[
       return []
     }
 
-    return data.map(transformEmpleado)
+    const hoy = new Date().toISOString().split('T')[0]
+    return data.map(transformEmpleado).filter(e => {
+      if (!e.fechaContratoHasta) return true
+      return e.fechaContratoHasta >= hoy
+    })
   } catch (error) {
     console.error('Error inesperado obteniendo empleados:', error)
     return []
@@ -451,4 +455,17 @@ export async function updateEmpleado(
     console.error('Error inesperado actualizando empleado:', error)
     return { success: false, error: error.message || 'Error desconocido' }
   }
+}
+
+// Desactivar automáticamente empleadas cuyo contrato ya venció
+export async function desactivarEmpleadasContratoVencido(): Promise<void> {
+  const hoy = new Date().toISOString().split('T')[0]
+
+  await supabase
+    .from('empleados')
+    .update({ activo: false })
+    .eq('activo', true)
+    .eq('eliminado', false)
+    .not('fecha_contrato_hasta', 'is', null)
+    .lt('fecha_contrato_hasta', hoy)
 }

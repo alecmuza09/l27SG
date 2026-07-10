@@ -64,6 +64,7 @@ import {
   eliminarEmpleado,
   restaurarEmpleado,
   updateEmpleado,
+  desactivarEmpleadasContratoVencido,
   type Empleado,
 } from "@/lib/data/empleados"
 import { cn } from "@/lib/utils"
@@ -189,6 +190,10 @@ export default function EmpleadosPage() {
       setIsLoading(false)
     }
   }
+
+  useEffect(() => {
+    desactivarEmpleadasContratoVencido()
+  }, [])
 
   useEffect(() => {
     const user = getCurrentUser()

@@ -6,6 +6,7 @@ import { Plus } from "lucide-react"
 import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { desactivarEmpleadasContratoVencido } from "@/lib/data/empleados"
 import {
   getCurrentUser,
   refreshSession,
@@ -36,6 +37,10 @@ export default function CitasPage() {
   const isAdmin = isGlobalAdministrator(currentUser)
   const multiBranch = userHasMultiBranchScope(currentUser)
   const userSucursalIds = collectEffectiveSucursalIds(currentUser)
+
+  useEffect(() => {
+    desactivarEmpleadasContratoVencido()
+  }, [])
 
   // Detectar breakpoint lg (≥1024px) en tiempo de ejecución
   useEffect(() => {
