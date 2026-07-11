@@ -157,7 +157,7 @@ export default function EmpleadosPage() {
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
 
   useEffect(() => {
-    if (currentUser && !isAdmin) {
+    if (currentUser && !isAdmin && currentUser.role !== 'branch-admin') {
       router.replace('/dashboard/citas')
     }
   }, [currentUser, isAdmin, router])

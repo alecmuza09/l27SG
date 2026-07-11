@@ -100,7 +100,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
       ? navigation.filter((i) => SAN_JERONIMO_NAV_HREFS.has(i.href))
       : navigation.filter((i) => {
           if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
-          if (i.href === "/dashboard/empleados") return false
+          if (i.href === "/dashboard/empleados" && currentUser?.role !== "branch-admin") return false
           if (i.href === "/dashboard" && isSucursalScoped) return false
           // Reportes visible para todos los roles — los datos se filtran por sucursal en la página
           return true
