@@ -59,7 +59,7 @@ export default function DashboardLayout({
       }
 
       if (pathname.startsWith(EMPLEADOS_ROUTE)) {
-        if (!isGlobalAdmin && !isBranchAdmin && !managerMultiSucursal) {
+        if (!isGlobalAdmin) {
           router.replace("/dashboard/citas")
           return
         }

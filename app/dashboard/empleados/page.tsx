@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -101,6 +102,7 @@ function formatearFechaEmpleadoMX(iso: string | null | undefined) {
 }
 
 export default function EmpleadosPage() {
+  const router = useRouter()
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [empleadosEliminados, setEmpleadosEliminados] = useState<Empleado[]>([])
@@ -153,6 +155,13 @@ export default function EmpleadosPage() {
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin' || currentUser?.role === 'superadmin')
+
+  useEffect(() => {
+    if (currentUser && !isAdmin) {
+      router.replace('/dashboard/citas')
+    }
+  }, [currentUser, isAdmin, router])
+
   const canEditEmpleados = checkPermission(currentUser, "manager")
   const userBranchIds = collectEffectiveSucursalIds(currentUser)
   const multiBranch = userHasMultiBranchScope(currentUser)

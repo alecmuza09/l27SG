@@ -24,7 +24,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { logout, getCurrentUser, userHasMultiBranchScope, isSanJeronimoRestrictedNavUser } from "@/lib/auth"
+import { logout, getCurrentUser, isSanJeronimoRestrictedNavUser } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { canAccessVacacionesModule, userIsSucursalScopedLike } from "@/lib/auth-vacaciones"
 
@@ -89,7 +89,6 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const currentUser = getCurrentUser()
   const isGlobalAdmin = currentUser?.role === "admin" || currentUser?.role === "superadmin"
   const isSuperAdmin = currentUser?.role === "superadmin"
-  const isBranchAdmin = currentUser?.role === "branch-admin"
   /** Cuentas con alcance de sucursala (bloquear «Dashboard» global) */
   const isSucursalScoped = userIsSucursalScopedLike(currentUser)
   const sanJerRestrictedMenu =
@@ -101,8 +100,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
       ? navigation.filter((i) => SAN_JERONIMO_NAV_HREFS.has(i.href))
       : navigation.filter((i) => {
           if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
-          if (i.href === "/dashboard/empleados" && !isBranchAdmin && !userHasMultiBranchScope(currentUser))
-            return false
+          if (i.href === "/dashboard/empleados") return false
           if (i.href === "/dashboard" && isSucursalScoped) return false
           // Reportes visible para todos los roles — los datos se filtran por sucursal en la página
           return true
