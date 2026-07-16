@@ -28,6 +28,7 @@ import {
   updateUsuarioAction,
   deleteUsuarioAction,
   updateUsuarioPasswordAction,
+  getUsuariosBySucursalAction,
 } from "@/app/actions/usuarios"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { normalizeEmail } from "@/lib/utils"
@@ -57,6 +58,16 @@ export default function ConfiguracionPage() {
 
   // Calcular isAdmin de forma segura (siempre definido)
   const isAdmin: boolean = Boolean(currentUser?.role === 'admin')
+  const isBranchAdmin: boolean = Boolean(currentUser?.role === 'branch-admin')
+  const isManager: boolean = Boolean(currentUser?.role === 'manager')
+
+  // Estado para cambiar la propia contraseña (branch-admin)
+  const [ownNewPassword, setOwnNewPassword] = useState("")
+  const [ownConfirmPassword, setOwnConfirmPassword] = useState("")
+  const [isChangingOwnPassword, setIsChangingOwnPassword] = useState(false)
+
+  // Usuarios de la sucursal (para branch-admin)
+  const [usuariosSucursal, setUsuariosSucursal] = useState<Usuario[]>([])
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -73,6 +84,15 @@ export default function ConfiguracionPage() {
           if (usuariosError) toast.error(`Error cargando usuarios: ${usuariosError}`)
           setUsuarios(usuariosData)
           setSucursales(sucursalesData)
+        }
+
+        if (user?.role === 'branch-admin') {
+          const sucursalId = user.sucursalId ?? user.sucursalIds?.[0]
+          if (sucursalId) {
+            const { usuarios: uSuc } = await getUsuariosBySucursalAction(sucursalId)
+            // Excluir al propio usuario de la lista (ya tiene su propia sección)
+            setUsuariosSucursal(uSuc.filter(u => u.id !== user.id))
+          }
         }
       } catch (err) {
         console.error('Error cargando datos:', err)
@@ -227,6 +247,33 @@ export default function ConfiguracionPage() {
     }
   }
 
+  const handleChangeOwnPassword = async () => {
+    if (!currentUser) return
+    if (!ownNewPassword || ownNewPassword.length < 6) {
+      toast.error('La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+    if (ownNewPassword !== ownConfirmPassword) {
+      toast.error('Las contraseñas no coinciden')
+      return
+    }
+    setIsChangingOwnPassword(true)
+    try {
+      const result = await updateUsuarioPasswordAction(currentUser.id, ownNewPassword)
+      if (result.success) {
+        toast.success('Contraseña actualizada exitosamente')
+        setOwnNewPassword("")
+        setOwnConfirmPassword("")
+      } else {
+        toast.error(result.error || 'Error actualizando contraseña')
+      }
+    } catch {
+      toast.error('Error inesperado')
+    } finally {
+      setIsChangingOwnPassword(false)
+    }
+  }
+
   const resetForm = () => {
     setFormEmail("")
     setFormNombre("")
@@ -285,6 +332,12 @@ export default function ConfiguracionPage() {
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="notificaciones">Notificaciones</TabsTrigger>
             <TabsTrigger value="pagos">Pagos</TabsTrigger>
+            <TabsTrigger value="seguridad">Seguridad</TabsTrigger>
+          </TabsList>
+        )}
+
+        {isBranchAdmin && (
+          <TabsList>
             <TabsTrigger value="seguridad">Seguridad</TabsTrigger>
           </TabsList>
         )}
@@ -587,92 +640,6 @@ export default function ConfiguracionPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-
-            {/* Dialog: Cambiar Contraseña */}
-            <Dialog open={isPasswordDialogOpen} onOpenChange={(open) => {
-              setIsPasswordDialogOpen(open)
-              if (!open) {
-                setPasswordUsuario(null)
-                setNewPassword("")
-                setConfirmPassword("")
-              }
-            }}>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Cambiar Contraseña</DialogTitle>
-                  <DialogDescription>
-                    {passwordUsuario && `Actualiza la contraseña de ${passwordUsuario.nombre}`}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="newPassword">Nueva Contraseña *</Label>
-                    <Input
-                      id="newPassword"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Mínimo 6 caracteres"
-                      disabled={isChangingPassword}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      La contraseña debe tener al menos 6 caracteres
-                    </p>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="confirmPassword">Confirmar Contraseña *</Label>
-                    <Input
-                      id="confirmPassword"
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Repite la contraseña"
-                      disabled={isChangingPassword}
-                    />
-                  </div>
-                  {newPassword && confirmPassword && newPassword !== confirmPassword && (
-                    <div className="flex items-start gap-2 p-2 text-xs bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md">
-                      <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-                      <p className="text-red-800 dark:text-red-300">
-                        Las contraseñas no coinciden
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setIsPasswordDialogOpen(false)
-                      setPasswordUsuario(null)
-                      setNewPassword("")
-                      setConfirmPassword("")
-                    }}
-                    disabled={isChangingPassword}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    onClick={handleChangePassword}
-                    disabled={
-                      !newPassword || 
-                      newPassword.length < 6 || 
-                      newPassword !== confirmPassword ||
-                      isChangingPassword
-                    }
-                  >
-                    {isChangingPassword ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Actualizando...
-                      </>
-                    ) : (
-                      "Actualizar Contraseña"
-                    )}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </TabsContent>
         )}
 
@@ -840,39 +807,235 @@ export default function ConfiguracionPage() {
         )}
 
         <TabsContent value="seguridad" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Seguridad</CardTitle>
-              <CardDescription>Configuración de seguridad y privacidad</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Autenticación de Dos Factores</Label>
-                  <p className="text-sm text-muted-foreground">Seguridad adicional para el inicio de sesión</p>
+          {/* Manager: sin acceso a cambio de contraseña */}
+          {isManager && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Seguridad</CardTitle>
+                <CardDescription>Para cambiar tu contraseña, contacta al administrador.</CardDescription>
+              </CardHeader>
+            </Card>
+          )}
+
+          {/* Branch-admin: cambiar su propia contraseña */}
+          {isBranchAdmin && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    Mi Contraseña
+                  </CardTitle>
+                  <CardDescription>Actualiza tu contraseña de acceso</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Nueva Contraseña</Label>
+                    <Input
+                      type="password"
+                      placeholder="Mínimo 6 caracteres"
+                      value={ownNewPassword}
+                      onChange={e => setOwnNewPassword(e.target.value)}
+                      disabled={isChangingOwnPassword}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Confirmar Contraseña</Label>
+                    <Input
+                      type="password"
+                      placeholder="Repite la contraseña"
+                      value={ownConfirmPassword}
+                      onChange={e => setOwnConfirmPassword(e.target.value)}
+                      disabled={isChangingOwnPassword}
+                    />
+                  </div>
+                  {ownNewPassword && ownConfirmPassword && ownNewPassword !== ownConfirmPassword && (
+                    <div className="flex items-start gap-2 p-2 text-xs bg-red-50 border border-red-200 rounded-md">
+                      <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
+                      <p className="text-red-800">Las contraseñas no coinciden</p>
+                    </div>
+                  )}
+                  <Button
+                    onClick={handleChangeOwnPassword}
+                    disabled={
+                      !ownNewPassword ||
+                      ownNewPassword.length < 6 ||
+                      ownNewPassword !== ownConfirmPassword ||
+                      isChangingOwnPassword
+                    }
+                  >
+                    {isChangingOwnPassword ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Actualizando...</>
+                    ) : (
+                      'Actualizar Contraseña'
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Usuarios de la sucursal */}
+              {usuariosSucursal.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Shield className="h-5 w-5" />
+                      Usuarios de mi Sucursal
+                    </CardTitle>
+                    <CardDescription>Cambia la contraseña de los usuarios asignados a tu sucursal</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nombre</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Rol</TableHead>
+                          <TableHead className="text-right">Contraseña</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {usuariosSucursal.map(usuario => (
+                          <TableRow key={usuario.id}>
+                            <TableCell className="font-medium">{usuario.nombre}</TableCell>
+                            <TableCell>{usuario.email}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{usuario.rol}</Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleOpenPasswordDialog(usuario)}
+                                title="Cambiar contraseña"
+                              >
+                                <Key className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+
+          {/* Admin: seguridad general (ya gestiona contraseñas desde tab Usuarios) */}
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Seguridad</CardTitle>
+                <CardDescription>Gestiona contraseñas de usuarios desde la pestaña Usuarios.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Autenticación de Dos Factores</Label>
+                    <p className="text-sm text-muted-foreground">Seguridad adicional para el inicio de sesión</p>
+                  </div>
+                  <Switch />
                 </div>
-                <Switch />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Backup Automático</Label>
-                  <p className="text-sm text-muted-foreground">Respaldo diario de datos</p>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Backup Automático</Label>
+                    <p className="text-sm text-muted-foreground">Respaldo diario de datos</p>
+                  </div>
+                  <Switch defaultChecked />
                 </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="space-y-2">
-                <Label>Cambiar Contraseña</Label>
-                <div className="space-y-2">
-                  <Input type="password" placeholder="Contraseña actual" />
-                  <Input type="password" placeholder="Nueva contraseña" />
-                  <Input type="password" placeholder="Confirmar nueva contraseña" />
-                </div>
-                <Button>Actualizar Contraseña</Button>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
+      )}
+
+      {/* Dialog: Cambiar Contraseña (compartido entre admin y branch-admin) */}
+      {(isAdmin || isBranchAdmin) && (
+        <Dialog open={isPasswordDialogOpen} onOpenChange={(open) => {
+          setIsPasswordDialogOpen(open)
+          if (!open) {
+            setPasswordUsuario(null)
+            setNewPassword("")
+            setConfirmPassword("")
+          }
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Cambiar Contraseña</DialogTitle>
+              <DialogDescription>
+                {passwordUsuario && `Actualiza la contraseña de ${passwordUsuario.nombre}`}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="newPassword">Nueva Contraseña *</Label>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  disabled={isChangingPassword}
+                />
+                <p className="text-xs text-muted-foreground">
+                  La contraseña debe tener al menos 6 caracteres
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="confirmPassword">Confirmar Contraseña *</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Repite la contraseña"
+                  disabled={isChangingPassword}
+                />
+              </div>
+              {newPassword && confirmPassword && newPassword !== confirmPassword && (
+                <div className="flex items-start gap-2 p-2 text-xs bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md">
+                  <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-800 dark:text-red-300">
+                    Las contraseñas no coinciden
+                  </p>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsPasswordDialogOpen(false)
+                  setPasswordUsuario(null)
+                  setNewPassword("")
+                  setConfirmPassword("")
+                }}
+                disabled={isChangingPassword}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleChangePassword}
+                disabled={
+                  !newPassword || 
+                  newPassword.length < 6 || 
+                  newPassword !== confirmPassword ||
+                  isChangingPassword
+                }
+              >
+                {isChangingPassword ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Actualizando...
+                  </>
+                ) : (
+                  "Actualizar Contraseña"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

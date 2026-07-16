@@ -173,3 +173,26 @@ export async function updateUsuarioPasswordAction(
   if (error) return { success: false, error: error.message }
   return { success: true }
 }
+
+export async function getUsuariosBySucursalAction(sucursalId: string): Promise<{
+  usuarios: ReturnType<typeof mapUsuario>[]
+  error?: string
+}> {
+  const { data, error } = await supabaseAdmin
+    .from('usuarios')
+    .select(USUARIO_SELECT)
+    .eq('activo', true)
+    .order('nombre', { ascending: true })
+
+  if (error) return { usuarios: [], error: error.message }
+
+  // Filtrar usuarios que tengan esta sucursal asignada (junction table o columna base)
+  const filtrados = (data || [])
+    .map(mapUsuario)
+    .filter(u =>
+      u.sucursalIds.includes(sucursalId) ||
+      u.sucursalId === sucursalId
+    )
+
+  return { usuarios: filtrados }
+}
