@@ -186,13 +186,10 @@ export async function getUsuariosBySucursalAction(sucursalId: string): Promise<{
 
   if (error) return { usuarios: [], error: error.message }
 
-  // Filtrar usuarios que tengan esta sucursal asignada (junction table o columna base)
+  // Filtrar usuarios que tengan esta sucursal asignada
   const filtrados = (data || [])
     .map(mapUsuario)
-    .filter(u =>
-      u.sucursalIds.includes(sucursalId) ||
-      u.sucursalId === sucursalId
-    )
+    .filter(u => u.sucursalId === sucursalId)
 
   return { usuarios: filtrados }
 }
