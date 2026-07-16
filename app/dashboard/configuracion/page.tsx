@@ -278,14 +278,16 @@ export default function ConfiguracionPage() {
           </div>
         </div>
       ) : (
-      <Tabs defaultValue={currentUser?.role === 'admin' ? "usuarios" : "general"} className="space-y-4">
-        <TabsList>
-          {isAdmin && <TabsTrigger value="usuarios">Usuarios</TabsTrigger>}
-          <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="notificaciones">Notificaciones</TabsTrigger>
-          <TabsTrigger value="pagos">Pagos</TabsTrigger>
-          <TabsTrigger value="seguridad">Seguridad</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue={isAdmin ? "usuarios" : "seguridad"} className="space-y-4">
+        {isAdmin && (
+          <TabsList>
+            <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
+            <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="notificaciones">Notificaciones</TabsTrigger>
+            <TabsTrigger value="pagos">Pagos</TabsTrigger>
+            <TabsTrigger value="seguridad">Seguridad</TabsTrigger>
+          </TabsList>
+        )}
 
         {isAdmin && (
           <TabsContent value="usuarios" className="space-y-4">
@@ -674,6 +676,7 @@ export default function ConfiguracionPage() {
           </TabsContent>
         )}
 
+        {isAdmin && (
         <TabsContent value="general" className="space-y-4">
           <Card>
             <CardHeader>
@@ -743,7 +746,9 @@ export default function ConfiguracionPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
+        {isAdmin && (
         <TabsContent value="notificaciones" className="space-y-4">
           <Card>
             <CardHeader>
@@ -798,7 +803,9 @@ export default function ConfiguracionPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
+        {isAdmin && (
         <TabsContent value="pagos" className="space-y-4">
           <Card>
             <CardHeader>
@@ -830,6 +837,7 @@ export default function ConfiguracionPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         <TabsContent value="seguridad" className="space-y-4">
           <Card>
