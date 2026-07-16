@@ -102,7 +102,8 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
           if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
           if (i.href === "/dashboard/empleados" && currentUser?.role !== "branch-admin") return false
           if (i.href === "/dashboard" && isSucursalScoped) return false
-          // Reportes visible para todos los roles — los datos se filtran por sucursal en la página
+          // Reportes oculto para managers (no tienen acceso); branch-admin y superiores sí lo ven
+          if (i.href === "/dashboard/reportes" && currentUser?.role === "manager") return false
           return true
         })
   const visibleModules = isGlobalAdmin
