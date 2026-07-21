@@ -42,4 +42,8 @@ next-env.d.ts
 # terminals
 /terminals/
 
+# cursor / graphify tooling (local only)
+/.cursor/
+/graphify-out/
+
 

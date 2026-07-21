@@ -41,6 +41,7 @@ import {
 import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 import { cn } from "@/lib/utils"
 import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
+import { getGastosFromDB, createGastoInDB, type Gasto } from "@/lib/data/gastos"
 import { toast } from "sonner"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -53,13 +54,17 @@ const hoy = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 }
 
-// ─── tipos locales ───────────────────────────────────────────────────────────
-interface Gasto {
-  id: string
-  descripcion: string
-  monto: number
-  categoria: string
-  hora: string
+const PAGOS_FECHA_KEY = "l27-pagos-fecha"
+const PAGOS_SUCURSAL_KEY = "l27-pagos-sucursal"
+
+function readStoredFecha(): string {
+  if (typeof window === "undefined") return hoy()
+  return sessionStorage.getItem(PAGOS_FECHA_KEY) || hoy()
+}
+
+function readStoredSucursalId(fallback: string): string {
+  if (typeof window === "undefined") return fallback
+  return sessionStorage.getItem(PAGOS_SUCURSAL_KEY) || fallback
 }
 
 // ─── StatRow helper ──────────────────────────────────────────────────────────
@@ -89,16 +94,18 @@ export default function PagosPage() {
 
   const primarySucursal = effectivePrimarySucursalId(currentUser)
 
-  const [fecha, setFecha]                       = useState(hoy())
+  const [fecha, setFecha]                       = useState(readStoredFecha)
   const [sucursales, setSucursales]             = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId]             = useState<string>(() => {
     const u = getCurrentUser()
-    if (isGlobalAdministrator(u)) return "todas"
-    const ids = collectEffectiveSucursalIds(u)
-    const principal = effectivePrimarySucursalId(u)
-    // Una sede o varias: siempre una sucursal concreta por defecto (columna sucursal_id del perfil en Supabase).
-    if (ids.length === 0) return principal ?? ""
-    return principal && ids.includes(principal) ? principal : ids[0]
+    const defaultId = (() => {
+      if (isGlobalAdministrator(u)) return "todas"
+      const ids = collectEffectiveSucursalIds(u)
+      const principal = effectivePrimarySucursalId(u)
+      if (ids.length === 0) return principal ?? ""
+      return principal && ids.includes(principal) ? principal : ids[0]
+    })()
+    return readStoredSucursalId(defaultId)
   })
   const [citas, setCitas]                       = useState<Cita[]>([])
   const [pagos, setPagos]                       = useState<Pago[]>([])
@@ -175,6 +182,10 @@ export default function PagosPage() {
       setPagos(pagosData)
       setResumen(calcularResumenDesdePagos(pagosData, fecha))
 
+      // Gastos del día (mismo filtro de sucursal que pagos; RLS acota el alcance)
+      const gastosData = await getGastosFromDB(fecha, sidFiltro)
+      setGastos(gastosData)
+
       // Citas
       if (citasSucursalSingle) {
         setCitas(citasData)
@@ -195,6 +206,14 @@ export default function PagosPage() {
   }, [fecha, sucursalId, isAdmin, userSucursalIds.join(","), primarySucursal])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
+
+  useEffect(() => {
+    sessionStorage.setItem(PAGOS_FECHA_KEY, fecha)
+  }, [fecha])
+
+  useEffect(() => {
+    if (sucursalId) sessionStorage.setItem(PAGOS_SUCURSAL_KEY, sucursalId)
+  }, [sucursalId])
 
   // ── estado derivado ─────────────────────────────────────────────────────────
   const citasPendientes = citas.filter(c =>
@@ -531,20 +550,34 @@ export default function PagosPage() {
 
   // ── acciones ────────────────────────────────────────────────────────────────
 
-  const agregarGasto = () => {
+  const agregarGasto = async () => {
     if (!nuevoGasto.descripcion || !nuevoGasto.monto) return
-    setGastos(prev => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        descripcion: nuevoGasto.descripcion,
-        monto: parseFloat(nuevoGasto.monto),
-        categoria: nuevoGasto.categoria,
-        hora: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
-      },
-    ])
+
+    if (!sucursalId || sucursalId === "todas") {
+      toast.error("Selecciona una sucursal concreta antes de agregar un gasto")
+      return
+    }
+
+    const hora = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })
+
+    const { data, error } = await createGastoInDB({
+      sucursalId,
+      fecha,
+      descripcion: nuevoGasto.descripcion,
+      monto: parseFloat(nuevoGasto.monto),
+      categoria: nuevoGasto.categoria,
+      hora,
+    })
+
+    if (error || !data) {
+      toast.error(error ?? "Error guardando el gasto")
+      return
+    }
+
+    setGastos(prev => [...prev, data])
     setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo" })
     setGastoDialogOpen(false)
+    toast.success("Gasto registrado")
   }
 
   const handleSincronizarCobrosGiftCards = async () => {
