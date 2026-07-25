@@ -422,6 +422,10 @@ export function CajaDialog({
     setGcPagoBuscando(false)
     if (!res.valida || !res.gc) { toast.error(res.error || "Gift card inválida"); return }
     setGcPagoId(res.gc.id)
+    if (descuentoAplicado?.tipo === "gift_card" && descuentoAplicado.gcId === res.gc.id) {
+      limpiarDescuento()
+      toast.warning("Se quitó el descuento de esta gift card porque ahora se usa como método de pago.")
+    }
     setGcPagoSaldo(res.gc.saldoActual)
     const montoSugerido = Math.min(res.gc.saldoActual, total)
     setPagoGiftCard(String(montoSugerido))
@@ -432,6 +436,10 @@ export function CajaDialog({
   const handleUsarGCActiva = () => {
     if (!gcActiva) return
     setGcPagoId(gcActiva.id)
+    if (descuentoAplicado?.tipo === "gift_card" && descuentoAplicado.gcId === gcActiva.id) {
+      limpiarDescuento()
+      toast.warning("Se quitó el descuento de esta gift card porque ahora se usa como método de pago.")
+    }
     setGcPagoCodigo(gcActiva.codigo)
     setGcPagoSaldo(gcActiva.saldoActual)
     const montoSugerido = Math.min(gcActiva.saldoActual, total)
@@ -520,6 +528,20 @@ export function CajaDialog({
   const handleCobrar = async () => {
     if (cobrandoRef.current) return
     cobrandoRef.current = true
+
+    // Guard: misma GC no puede ser descuento Y método de pago al mismo tiempo
+    if (
+      descuentoAplicado?.tipo === "gift_card" &&
+      descuentoAplicado.gcId &&
+      gcPagoId &&
+      gcPagoId === descuentoAplicado.gcId &&
+      gcNum > 0
+    ) {
+      toast.error("La misma gift card no puede usarse como descuento y como método de pago. Quita una de las dos.")
+      cobrandoRef.current = false
+      setIsCobrando(false)
+      return
+    }
 
     if (cart.length === 0) { toast.error("Agrega al menos un servicio o producto"); cobrandoRef.current = false; return }
     if (!clienteId) { toast.error("Selecciona un cliente"); cobrandoRef.current = false; return }
