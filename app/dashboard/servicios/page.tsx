@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag, Loader2 } from "lucide-react"
+import { Plus, Search, Clock, DollarSign, Edit, Trash2, Tag, Loader2, Power } from "lucide-react"
 import { getServiciosFromDB, createServicio, updateServicio, deleteServicio, type Servicio } from "@/lib/data/servicios"
 import { toast } from "sonner"
 import {
@@ -45,6 +45,7 @@ export default function ServiciosPage() {
   const [servicioToDelete, setServicioToDelete] = useState<Servicio | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [editCategoria, setEditCategoria] = useState("")
+  const [togglingId, setTogglingId] = useState<string | null>(null)
 
   const loadServicios = async () => {
     try {
@@ -139,6 +140,28 @@ export default function ServiciosPage() {
       toast.error('Error inesperado al crear el servicio')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleToggleActivo = async (servicio: Servicio) => {
+    setTogglingId(servicio.id)
+    try {
+      const result = await updateServicio(servicio.id, { activo: !servicio.activo })
+      if (result.success) {
+        toast.success(
+          !servicio.activo
+            ? 'Servicio activado correctamente'
+            : 'Servicio desactivado correctamente',
+        )
+        await loadServicios()
+      } else {
+        toast.error(result.error || 'Error al cambiar el estado del servicio')
+      }
+    } catch (err: any) {
+      console.error('Error cambiando estado del servicio:', err)
+      toast.error('Error inesperado al cambiar el estado del servicio')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -382,6 +405,24 @@ export default function ServiciosPage() {
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Eliminar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={
+                          servicio.activo
+                            ? "flex-1 bg-transparent text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700"
+                            : "flex-1 bg-transparent text-muted-foreground"
+                        }
+                        disabled={togglingId === servicio.id}
+                        onClick={() => handleToggleActivo(servicio)}
+                      >
+                        {togglingId === servicio.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Power className="mr-2 h-4 w-4" />
+                        )}
+                        {servicio.activo ? "Activo" : "Inactivo"}
                       </Button>
                     </div>
                   )}
