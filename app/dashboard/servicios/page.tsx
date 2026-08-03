@@ -46,12 +46,16 @@ export default function ServiciosPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [editCategoria, setEditCategoria] = useState("")
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<"todos" | "activos" | "inactivos">("todos")
+
+  const sortByActivo = (lista: Servicio[]) =>
+    [...lista].sort((a, b) => Number(b.activo) - Number(a.activo))
 
   const loadServicios = async () => {
     try {
       setIsLoading(true)
       const serviciosData = await getServiciosFromDB()
-      setServicios(serviciosData)
+      setServicios(sortByActivo(serviciosData))
     } catch (err) {
       console.error('Error cargando servicios:', err)
     } finally {
@@ -185,13 +189,16 @@ export default function ServiciosPage() {
     }
   }
 
-  const filteredServicios = searchQuery
-    ? servicios.filter(
-        (s) =>
-          s.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          s.categoria.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : servicios
+  const filteredServicios = servicios
+    .filter((s) =>
+      statusFilter === "activos" ? s.activo : statusFilter === "inactivos" ? !s.activo : true,
+    )
+    .filter(
+      (s) =>
+        !searchQuery ||
+        s.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.categoria.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
 
   const categorias = Array.from(new Set(servicios.map((s) => s.categoria)))
 
@@ -343,8 +350,8 @@ export default function ServiciosPage() {
           <CardDescription>Gestiona los servicios disponibles</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
-            <div className="relative">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar servicios..."
@@ -352,6 +359,35 @@ export default function ServiciosPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={statusFilter === "todos" ? "default" : "outline"}
+                className={statusFilter === "todos" ? "" : "bg-transparent"}
+                onClick={() => setStatusFilter("todos")}
+              >
+                Todos
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={statusFilter === "activos" ? "default" : "outline"}
+                className={statusFilter === "activos" ? "" : "bg-transparent"}
+                onClick={() => setStatusFilter("activos")}
+              >
+                Activos
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={statusFilter === "inactivos" ? "default" : "outline"}
+                className={statusFilter === "inactivos" ? "" : "bg-transparent"}
+                onClick={() => setStatusFilter("inactivos")}
+              >
+                Inactivos
+              </Button>
             </div>
           </div>
 
