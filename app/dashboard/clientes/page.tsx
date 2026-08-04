@@ -104,16 +104,22 @@ export default function ClientesPage() {
   }
 
   // Función para cargar clientes
-  const loadClientes = async (page: number = currentPage, term: string = searchActivo) => {
+  const loadClientes = async (
+    page: number = currentPage,
+    term: string = searchActivo,
+    filtroVisita: typeof visitaFilter = visitaFilter
+  ) => {
     try {
       setIsLoading(true)
       setError(null)
-      
+
+      const filtros = { soloEmbajadoras: filtroVisita === 'embajadoras' }
+
       let result
       if (term.trim()) {
-        result = await searchClientesPaginated(term.trim(), page, pageSize)
+        result = await searchClientesPaginated(term.trim(), page, pageSize, filtros)
       } else {
-        result = await getClientesPaginated(page, pageSize)
+        result = await getClientesPaginated(page, pageSize, filtros)
       }
       
       setClientes(ordenarPorUltimaVisita(result.clientes))
@@ -146,11 +152,11 @@ export default function ClientesPage() {
     loadInitialData()
   }, [])
 
-  // Cargar clientes cuando cambia la página o el término de búsqueda activo
+  // Cargar clientes cuando cambia la página, el término de búsqueda activo o el filtro de visita
   useEffect(() => {
-    loadClientes(currentPage, searchActivo)
+    loadClientes(currentPage, searchActivo, visitaFilter)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, searchActivo])
+  }, [currentPage, searchActivo, visitaFilter])
 
   const handleBuscar = () => {
     setCurrentPage(1)
@@ -586,7 +592,13 @@ export default function ClientesPage() {
               <Search className="h-4 w-4 mr-2" />
               Buscar
             </Button>
-            <Select value={visitaFilter} onValueChange={(v) => setVisitaFilter(v as typeof visitaFilter)}>
+            <Select
+              value={visitaFilter}
+              onValueChange={(v) => {
+                setVisitaFilter(v as typeof visitaFilter)
+                setCurrentPage(1)
+              }}
+            >
               <SelectTrigger className="w-52">
                 <SelectValue placeholder="Filtrar por visita" />
               </SelectTrigger>

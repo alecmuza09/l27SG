@@ -69,16 +69,22 @@ function normalizarBusqueda(texto: string): string {
 // Obtener clientes con paginación
 export async function getClientesPaginated(
   page: number = 1,
-  pageSize: number = 50
+  pageSize: number = 50,
+  filtros: { soloEmbajadoras?: boolean } = {}
 ): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
   try {
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
+    const { soloEmbajadoras } = filtros
 
-    // Obtener el total de clientes
-    const { count, error: countError } = await supabase
+    // Obtener el total de clientes (aplicando el filtro de embajadoras en la BD)
+    let countQuery = supabase
       .from('clientes')
       .select('*', { count: 'exact', head: true })
+
+    if (soloEmbajadoras) countQuery = countQuery.eq('embajadora', true)
+
+    const { count, error: countError } = await countQuery
 
     if (countError) {
       console.error('Error obteniendo conteo de clientes:', countError)
@@ -89,12 +95,16 @@ export async function getClientesPaginated(
     const totalPages = Math.ceil(total / pageSize)
 
     // Obtener los clientes de la página actual con sus citas
-    const { data, error } = await supabase
+    let dataQuery = supabase
       .from('clientes')
       .select(`
         *,
         citas!left(fecha, estado)
       `)
+
+    if (soloEmbajadoras) dataQuery = dataQuery.eq('embajadora', true)
+
+    const { data, error } = await dataQuery
       .order('created_at', { ascending: false })
       .range(from, to)
 
@@ -194,7 +204,8 @@ export async function searchClientes(
 export async function searchClientesPaginated(
   query: string,
   page: number = 1,
-  pageSize: number = 50
+  pageSize: number = 50,
+  filtros: { soloEmbajadoras?: boolean } = {}
 ): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
   try {
     if (!query || query.trim() === '') {
@@ -209,10 +220,16 @@ export async function searchClientesPaginated(
       return { clientes: [], total: 0, totalPages: 0 }
     }
 
-    const total = allData?.length ?? 0
+    // La búsqueda usa un RPC que no admite filtros adicionales,
+    // así que el filtro de embajadoras se aplica sobre el resultado ya obtenido de la BD.
+    const filteredData = filtros.soloEmbajadoras
+      ? (allData ?? []).filter((row: any) => row.embajadora === true)
+      : (allData ?? [])
+
+    const total = filteredData.length
     const totalPages = Math.ceil(total / pageSize)
     const from = (page - 1) * pageSize
-    const paginatedData = (allData ?? []).slice(from, from + pageSize)
+    const paginatedData = filteredData.slice(from, from + pageSize)
 
     return {
       clientes: paginatedData.map((row: any) => ({
