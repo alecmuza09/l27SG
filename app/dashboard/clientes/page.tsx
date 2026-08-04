@@ -47,6 +47,16 @@ import {
 } from "@/components/ui/pagination"
 import { getCurrentUser, type User } from "@/lib/auth"
 
+// Ordena clientes por última visita descendente; quienes no tienen visitas van al final
+function ordenarPorUltimaVisita(clientes: Cliente[]): Cliente[] {
+  return [...clientes].sort((a, b) => {
+    if (!a.ultimaVisita && !b.ultimaVisita) return 0
+    if (!a.ultimaVisita) return 1
+    if (!b.ultimaVisita) return -1
+    return new Date(b.ultimaVisita).getTime() - new Date(a.ultimaVisita).getTime()
+  })
+}
+
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [stats, setStats] = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
@@ -103,7 +113,7 @@ export default function ClientesPage() {
         result = await getClientesPaginated(page, pageSize)
       }
       
-      setClientes(result.clientes)
+      setClientes(ordenarPorUltimaVisita(result.clientes))
       setTotalClientes(result.total)
       setTotalPages(result.totalPages)
     } catch (err) {
