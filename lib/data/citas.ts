@@ -9,6 +9,7 @@ export interface Cita {
   servicioId: string
   servicioNombre: string
   sucursalId: string
+  sucursalNombre?: string
   fecha: string
   horaInicio: string
   horaFin: string
@@ -269,7 +270,7 @@ function normalizarHora(hora: string): string {
 }
 
 // Función helper para transformar datos de la BD al formato de la interfaz
-function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }): Cita {
+function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }, sucursal?: { nombre: string }): Cita {
   const { notas, creadoPor, modificadoPor } = parsearNotasMeta(cita.notas)
   return {
     id: cita.id,
@@ -280,6 +281,7 @@ function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: stri
     servicioId: cita.servicio_id,
     servicioNombre: servicio?.nombre || 'Servicio desconocido',
     sucursalId: cita.sucursal_id,
+    sucursalNombre: sucursal?.nombre,
     fecha: cita.fecha,
     horaInicio: normalizarHora(cita.hora_inicio),
     horaFin: normalizarHora(cita.hora_fin),
@@ -409,7 +411,8 @@ export async function getCitasByClienteIdFromDB(clienteId: string): Promise<Cita
         *,
         cliente:clientes(nombre, apellido),
         servicio:servicios(nombre),
-        empleado:empleados(nombre, apellido)
+        empleado:empleados(nombre, apellido),
+        sucursal:sucursales(nombre)
       `)
       .eq('cliente_id', clienteId)
       .order('fecha', { ascending: false })
@@ -427,7 +430,8 @@ export async function getCitasByClienteIdFromDB(clienteId: string): Promise<Cita
         cita,
         cita.cliente,
         cita.servicio,
-        cita.empleado
+        cita.empleado,
+        cita.sucursal
       )
     )
   } catch (error) {

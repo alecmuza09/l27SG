@@ -411,7 +411,10 @@ function ClienteDetailContent() {
                             })}
                           </span>
                           <span>{cita.horaInicio}</span>
-                          <span>{cita.empleadoNombre}</span>
+                          <span>
+                            {cita.empleadoNombre}
+                            {cita.sucursalNombre && ` · ${cita.sucursalNombre}`}
+                          </span>
                           <span>{cita.duracion} min</span>
                         </div>
                         {cita.createdAt && (
