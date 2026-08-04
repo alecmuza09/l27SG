@@ -24,6 +24,7 @@ export interface Cliente {
   alergias?: string[]
   sucursalPreferida?: string
   estado: "activo" | "inactivo" | "vip"
+  embajadora: boolean
 }
 
 // Función helper para transformar datos de la BD al formato de la interfaz
@@ -48,6 +49,7 @@ function transformCliente(cliente: ClienteRow): Cliente {
     alergias: cliente.alergias && cliente.alergias.length > 0 ? cliente.alergias : undefined,
     sucursalPreferida: cliente.sucursal_preferida || undefined,
     estado: cliente.estado || 'activo',
+    embajadora: cliente.embajadora ?? false,
   }
 }
 
@@ -483,6 +485,29 @@ export async function updateCliente(
     return { success: true, cliente: transformCliente(data as ClienteRow) }
   } catch (error: any) {
     console.error('Error inesperado actualizando cliente:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Alternar el estado de embajadora de un cliente
+export async function updateClienteEmbajadora(
+  clienteId: string,
+  embajadora: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('clientes')
+      .update({ embajadora })
+      .eq('id', clienteId)
+
+    if (error) {
+      console.error('Error actualizando embajadora:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando embajadora:', error)
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }

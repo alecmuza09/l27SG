@@ -19,8 +19,9 @@ import {
   Trash2,
   Download,
   Loader2,
+  Star,
 } from "lucide-react"
-import { getClientesPaginated, searchClientesPaginated, getClientesStats, createCliente, updateCliente, type Cliente } from "@/lib/data/clientes"
+import { getClientesPaginated, searchClientesPaginated, getClientesStats, createCliente, updateCliente, updateClienteEmbajadora, type Cliente } from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -45,7 +46,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
-import { getCurrentUser, type User } from "@/lib/auth"
+import { getCurrentUser, isGlobalAdministrator, type User } from "@/lib/auth"
 
 // Ordena clientes por última visita descendente; quienes no tienen visitas van al final
 function ordenarPorUltimaVisita(clientes: Cliente[]): Cliente[] {
@@ -74,7 +75,9 @@ export default function ClientesPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalClientes, setTotalClientes] = useState(0)
   const [pageSize] = useState(50) // 50 clientes por página
-  const [visitaFilter, setVisitaFilter] = useState<'todos' | 'sin-visita-reciente' | 'sin-visitas'>('todos')
+  const [visitaFilter, setVisitaFilter] = useState<'todos' | 'sin-visita-reciente' | 'sin-visitas' | 'embajadoras'>('todos')
+  const [embajadoraUpdatingId, setEmbajadoraUpdatingId] = useState<string | null>(null)
+  const isAdmin = isGlobalAdministrator(currentUser)
 
   // Estado del formulario (genero y sucursal con valores no vacíos por requisito de Select)
   const [formData, setFormData] = useState({
@@ -230,6 +233,34 @@ export default function ClientesPage() {
     }
   }
 
+  // Alternar el estado de embajadora de un cliente (solo admins)
+  const handleToggleEmbajadora = async (cliente: Cliente) => {
+    if (!isAdmin || embajadoraUpdatingId) return
+
+    const nuevoValor = !cliente.embajadora
+    setEmbajadoraUpdatingId(cliente.id)
+    try {
+      const result = await updateClienteEmbajadora(cliente.id, nuevoValor)
+      if (result.success) {
+        setClientes((prev) =>
+          prev.map((c) => (c.id === cliente.id ? { ...c, embajadora: nuevoValor } : c))
+        )
+        toast.success(
+          nuevoValor
+            ? `${cliente.nombre} ${cliente.apellido} ahora es embajadora`
+            : `${cliente.nombre} ${cliente.apellido} ya no es embajadora`
+        )
+      } else {
+        toast.error(`Error al actualizar embajadora: ${result.error}`)
+      }
+    } catch (err) {
+      console.error('Error actualizando embajadora:', err)
+      toast.error('Error inesperado al actualizar embajadora')
+    } finally {
+      setEmbajadoraUpdatingId(null)
+    }
+  }
+
   // Manejar edición de cliente
   const handleEdit = (cliente: Cliente) => {
     setEditingCliente(cliente)
@@ -330,6 +361,7 @@ export default function ClientesPage() {
     if (visitaFilter === 'sin-visitas') return !c.ultimaVisita
     if (visitaFilter === 'sin-visita-reciente')
       return !c.ultimaVisita || new Date(c.ultimaVisita + 'T12:00:00').getTime() < hoy60
+    if (visitaFilter === 'embajadoras') return c.embajadora
     return true
   })
 
@@ -560,6 +592,7 @@ export default function ClientesPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="embajadoras">Embajadoras</SelectItem>
                 <SelectItem value="sin-visita-reciente">Sin visita reciente (+60 días)</SelectItem>
                 <SelectItem value="sin-visitas">Sin visitas</SelectItem>
               </SelectContent>
@@ -598,11 +631,40 @@ export default function ClientesPage() {
                   clientesFiltrados.map((cliente) => (
                   <TableRow key={cliente.id}>
                     <TableCell>
-                      <div>
-                        <p className="font-medium">
-                          {cliente.nombre} {cliente.apellido}
-                        </p>
-                        <p className="text-xs text-muted-foreground">ID: {cliente.id}</p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleEmbajadora(cliente)}
+                          disabled={!isAdmin || embajadoraUpdatingId === cliente.id}
+                          className={isAdmin ? "cursor-pointer" : "cursor-default"}
+                          title={
+                            isAdmin
+                              ? cliente.embajadora
+                                ? "Quitar como embajadora"
+                                : "Marcar como embajadora"
+                              : cliente.embajadora
+                                ? "Embajadora"
+                                : undefined
+                          }
+                        >
+                          {embajadoraUpdatingId === cliente.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          ) : (
+                            <Star
+                              className={
+                                cliente.embajadora
+                                  ? "h-4 w-4 fill-yellow-400 text-yellow-400"
+                                  : "h-4 w-4 text-muted-foreground"
+                              }
+                            />
+                          )}
+                        </button>
+                        <div>
+                          <p className="font-medium">
+                            {cliente.nombre} {cliente.apellido}
+                          </p>
+                          <p className="text-xs text-muted-foreground">ID: {cliente.id}</p>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>

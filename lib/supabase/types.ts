@@ -134,6 +134,7 @@ export type Database = {
           alergias: string[] | null
           sucursal_preferida: string | null
           estado: 'activo' | 'inactivo' | 'vip'
+          embajadora: boolean | null
           created_at: string
           updated_at: string
         }
@@ -157,6 +158,7 @@ export type Database = {
           alergias?: string[] | null
           sucursal_preferida?: string | null
           estado?: 'activo' | 'inactivo' | 'vip'
+          embajadora?: boolean | null
           created_at?: string
           updated_at?: string
         }
@@ -180,6 +182,7 @@ export type Database = {
           alergias?: string[] | null
           sucursal_preferida?: string | null
           estado?: 'activo' | 'inactivo' | 'vip'
+          embajadora?: boolean | null
           created_at?: string
           updated_at?: string
         }

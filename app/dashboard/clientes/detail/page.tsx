@@ -19,12 +19,14 @@ import {
   AlertCircle,
   Heart,
   Loader2,
+  Star,
 } from "lucide-react"
-import { getClienteById, type Cliente } from "@/lib/data/clientes"
+import { getClienteById, updateClienteEmbajadora, type Cliente } from "@/lib/data/clientes"
 import { getCitasByClienteIdFromDB, type Cita } from "@/lib/data/citas"
 import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
-import { getCurrentUser } from "@/lib/auth"
+import { getCurrentUser, isGlobalAdministrator } from "@/lib/auth"
+import { toast } from "sonner"
 
 function ClienteDetailContent() {
   const searchParams = useSearchParams()
@@ -33,7 +35,31 @@ function ClienteDetailContent() {
   const [historialCitas, setHistorialCitas] = useState<Cita[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const isManager = getCurrentUser()?.role === 'manager'
+  const [isUpdatingEmbajadora, setIsUpdatingEmbajadora] = useState(false)
+  const currentUser = getCurrentUser()
+  const isManager = currentUser?.role === 'manager'
+  const isAdmin = isGlobalAdministrator(currentUser)
+
+  const handleToggleEmbajadora = async () => {
+    if (!cliente || !isAdmin || isUpdatingEmbajadora) return
+
+    const nuevoValor = !cliente.embajadora
+    setIsUpdatingEmbajadora(true)
+    try {
+      const result = await updateClienteEmbajadora(cliente.id, nuevoValor)
+      if (result.success) {
+        setCliente({ ...cliente, embajadora: nuevoValor })
+        toast.success(nuevoValor ? "Cliente marcado como embajadora" : "Cliente ya no es embajadora")
+      } else {
+        toast.error(`Error al actualizar embajadora: ${result.error}`)
+      }
+    } catch (err) {
+      console.error("Error actualizando embajadora:", err)
+      toast.error("Error inesperado al actualizar embajadora")
+    } finally {
+      setIsUpdatingEmbajadora(false)
+    }
+  }
 
   useEffect(() => {
     if (!id) { setError("ID de cliente no especificado"); setIsLoading(false); return }
@@ -103,9 +129,41 @@ function ClienteDetailContent() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-3xl font-bold text-foreground">
-              {cliente.nombre} {cliente.apellido}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold text-foreground">
+                {cliente.nombre} {cliente.apellido}
+              </h1>
+              <button
+                type="button"
+                onClick={handleToggleEmbajadora}
+                disabled={!isAdmin || isUpdatingEmbajadora}
+                className={isAdmin ? "cursor-pointer" : "cursor-default"}
+                title={
+                  isAdmin
+                    ? cliente.embajadora
+                      ? "Quitar como embajadora"
+                      : "Marcar como embajadora"
+                    : cliente.embajadora
+                      ? "Embajadora"
+                      : undefined
+                }
+              >
+                {isUpdatingEmbajadora ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : (
+                  <Star
+                    className={
+                      cliente.embajadora
+                        ? "h-5 w-5 fill-yellow-400 text-yellow-400"
+                        : "h-5 w-5 text-muted-foreground"
+                    }
+                  />
+                )}
+              </button>
+              {cliente.embajadora && (
+                <Badge className="bg-yellow-400 text-yellow-950 hover:bg-yellow-400">Embajadora</Badge>
+              )}
+            </div>
             <p className="text-muted-foreground">Perfil del cliente</p>
           </div>
         </div>
