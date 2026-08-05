@@ -1923,7 +1923,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                           {/* Nombre cliente */}
                                           {!isCompact && (
                                             <p className="flex-1 font-semibold text-[11px] text-foreground leading-tight truncate min-w-0" title={cita.clienteNombre}>
-                                              {cita.clienteNombre}
+                                              {cita.clienteNombre}{cita.clienteEmbajadora && "⭐"}
                                             </p>
                                           )}
 
@@ -1949,7 +1949,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                             >
                                               {/* Info del cliente en cabecera del menú */}
                                               <div className="px-2 py-1.5 border-b mb-1">
-                                                <p className="text-xs font-semibold truncate max-w-[180px]">{cita.clienteNombre}</p>
+                                                <p className="text-xs font-semibold truncate max-w-[180px]">{cita.clienteNombre}{cita.clienteEmbajadora && "⭐"}</p>
                                                 <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">{cita.servicioNombre}</p>
                                               </div>
                                               <DropdownMenuItem
@@ -2018,7 +2018,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         {/* Nombre en modo compacto */}
                                         {isCompact && (
                                           <p className="text-[9px] font-medium text-foreground leading-tight truncate">
-                                            {cita.clienteNombre}
+                                            {cita.clienteNombre}{cita.clienteEmbajadora && "⭐"}
                                           </p>
                                         )}
 
@@ -2136,7 +2136,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                     >
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-foreground truncate" title={c.clienteNombre}>
-                          {c.clienteNombre}
+                          {c.clienteNombre}{c.clienteEmbajadora && "⭐"}
                         </div>
                         <div className="text-xs text-muted-foreground truncate mt-0.5" title={c.servicioNombre}>
                           {c.servicioNombre}
@@ -2999,7 +2999,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                 <div className={cn("px-5 pt-5 pb-4", cardStyle.bg)}>
                   <div className={cn("h-1 w-full rounded-full mb-4", cardStyle.bar)} />
                   <SheetHeader className="p-0 space-y-1">
-                    <SheetTitle className="text-base font-bold leading-tight">{detalleCita.clienteNombre}</SheetTitle>
+                    <SheetTitle className="text-base font-bold leading-tight">{detalleCita.clienteNombre}{detalleCita.clienteEmbajadora && "⭐"}</SheetTitle>
                     <p className="text-sm text-muted-foreground">{detalleCita.servicioNombre}</p>
                   </SheetHeader>
                   <div className="mt-3 flex items-center gap-2">
