@@ -140,6 +140,39 @@ function calcularPropinasPorEmpleada(pagos: Pago[]): PropinaEmpleadaRow[] {
     .sort((a, b) => b.totalPropinas - a.totalPropinas)
 }
 
+interface EmbajadoraVisitaAgrupada {
+  key: string
+  fecha: string
+  sucursalNombre: string
+  nServicios: number
+  valorTotal: number
+  servicios: EmbajadoraReporteRow["visitas"]
+}
+
+/** Agrupa las citas completadas de una embajadora por día + sucursal (una fila = una visita). */
+function agruparVisitasPorFecha(visitas: EmbajadoraReporteRow["visitas"]): EmbajadoraVisitaAgrupada[] {
+  const map = new Map<string, EmbajadoraVisitaAgrupada>()
+  for (const v of visitas) {
+    const key = `${v.fecha}|${v.sucursalId}`
+    const prev = map.get(key)
+    if (prev) {
+      prev.nServicios += 1
+      prev.valorTotal += v.monto
+      prev.servicios.push(v)
+    } else {
+      map.set(key, {
+        key,
+        fecha: v.fecha,
+        sucursalNombre: v.sucursalNombre,
+        nServicios: 1,
+        valorTotal: v.monto,
+        servicios: [v],
+      })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.fecha.localeCompare(a.fecha))
+}
+
 function calcularPeriodoAnterior(periodo: Periodo, customDesde?: string, customHasta?: string): { fechaDesde: string; fechaHasta: string } {
   const hoy = new Date()
   switch (periodo) {
@@ -1873,6 +1906,7 @@ export default function ReportesPage() {
   const [embajadorasReporte,   setEmbajadorasReporte]   = useState<EmbajadoraReporteRow[]>([])
   const [embajadoraFilter,     setEmbajadoraFilter]     = useState<string>("all")
   const [embajadorasExpandidas, setEmbajadorasExpandidas] = useState<Set<string>>(new Set())
+  const [visitasExpandidas,     setVisitasExpandidas]     = useState<Set<string>>(new Set())
   const [isLoadingEmbajadoras, setIsLoadingEmbajadoras] = useState(true)
 
   // ── Filtros LOCALES del tab Embajadoras (independientes de los filtros globales) ──
@@ -2347,6 +2381,15 @@ export default function ReportesPage() {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
+      return next
+    })
+  }
+
+  const toggleVisitaDesglose = (key: string) => {
+    setVisitasExpandidas(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -3192,23 +3235,63 @@ export default function ReportesPage() {
                                             <TableRow>
                                               <TableHead>Fecha</TableHead>
                                               <TableHead>Sucursal</TableHead>
-                                              <TableHead>Servicio</TableHead>
-                                              <TableHead>Empleada</TableHead>
-                                              <TableHead className="text-right">Monto</TableHead>
-                                              <TableHead>Método de pago</TableHead>
+                                              <TableHead className="text-right">Nº Servicios</TableHead>
+                                              <TableHead className="text-right">Valor total de la visita</TableHead>
+                                              <TableHead className="text-center no-print">Ver desglose</TableHead>
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
-                                            {e.visitas.map(v => (
-                                              <TableRow key={v.citaId}>
-                                                <TableCell className="text-sm">{v.fecha}</TableCell>
-                                                <TableCell className="text-sm">{v.sucursalNombre}</TableCell>
-                                                <TableCell className="text-sm">{v.servicio}</TableCell>
-                                                <TableCell className="text-sm">{v.empleadoNombre}</TableCell>
-                                                <TableCell className="text-right text-sm tabular-nums">{fmtMXN(v.monto)}</TableCell>
-                                                <TableCell className="text-sm">{v.metodoPago}</TableCell>
-                                              </TableRow>
-                                            ))}
+                                            {agruparVisitasPorFecha(e.visitas).map(visita => {
+                                              const visitaKey = `${e.clienteId}::${visita.key}`
+                                              const desglosada = visitasExpandidas.has(visitaKey)
+                                              return (
+                                                <Fragment key={visitaKey}>
+                                                  <TableRow>
+                                                    <TableCell className="text-sm">{visita.fecha}</TableCell>
+                                                    <TableCell className="text-sm">{visita.sucursalNombre}</TableCell>
+                                                    <TableCell className="text-right text-sm tabular-nums">{visita.nServicios}</TableCell>
+                                                    <TableCell className="text-right text-sm tabular-nums font-semibold">{fmtMXN(visita.valorTotal)}</TableCell>
+                                                    <TableCell className="text-center no-print">
+                                                      <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => toggleVisitaDesglose(visitaKey)}
+                                                      >
+                                                        {desglosada ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                      </Button>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                  {desglosada && (
+                                                    <TableRow className="bg-white hover:bg-white">
+                                                      <TableCell colSpan={5} className="p-0">
+                                                        <div className="p-3 pl-8">
+                                                          <Table>
+                                                            <TableHeader>
+                                                              <TableRow>
+                                                                <TableHead>Servicio</TableHead>
+                                                                <TableHead>Empleada</TableHead>
+                                                                <TableHead className="text-right">Valor</TableHead>
+                                                                <TableHead className="text-right">Pagó</TableHead>
+                                                              </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                              {visita.servicios.map(s => (
+                                                                <TableRow key={s.citaId}>
+                                                                  <TableCell className="text-sm">{s.servicio}</TableCell>
+                                                                  <TableCell className="text-sm">{s.empleadoNombre}</TableCell>
+                                                                  <TableCell className="text-right text-sm tabular-nums">{fmtMXN(s.monto)}</TableCell>
+                                                                  <TableCell className="text-right text-sm tabular-nums">{fmtMXN(s.pagoMonto)}</TableCell>
+                                                                </TableRow>
+                                                              ))}
+                                                            </TableBody>
+                                                          </Table>
+                                                        </div>
+                                                      </TableCell>
+                                                    </TableRow>
+                                                  )}
+                                                </Fragment>
+                                              )
+                                            })}
                                           </TableBody>
                                         </Table>
                                       )}

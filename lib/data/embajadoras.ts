@@ -20,6 +20,8 @@ export interface EmbajadoraVisitaRow {
   empleadoNombre: string
   monto: number
   metodoPago: string
+  /** Monto realmente cobrado según `pagos` para esta cita (puede ser $0, ej. cortesías). */
+  pagoMonto: number
 }
 
 export interface EmbajadoraReporteRow {
@@ -174,6 +176,7 @@ export async function getReporteEmbajadorasFromDB(
           empleadoNombre,
           monto,
           metodoPago: etiquetaMetodoPagoCita(cita.metodo_pago),
+          pagoMonto: 0,
         })
       }
     }
@@ -181,6 +184,37 @@ export async function getReporteEmbajadorasFromDB(
     for (const fila of filas.values()) {
       fila.numVisitas = visitasUnicasPorCliente.get(fila.clienteId)?.size ?? 0
       fila.visitas.sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora))
+    }
+
+    // Segunda pasada: monto realmente cobrado por cita según `pagos` (puede ser $0).
+    const todasLasVisitas = Array.from(filas.values()).flatMap(f => f.visitas)
+    if (todasLasVisitas.length > 0) {
+      const montoPorCita = new Map<string, number>()
+      const citaIds = todasLasVisitas.map(v => v.citaId)
+      const citaChunks: string[][] = []
+      for (let i = 0; i < citaIds.length; i += CHUNK_SIZE) citaChunks.push(citaIds.slice(i, i + CHUNK_SIZE))
+
+      for (const citaChunk of citaChunks) {
+        const { data: pagosData, error: pagosError } = await supabase
+          .from('pagos')
+          .select('cita_id, monto, estado')
+          .in('cita_id', citaChunk)
+          .eq('estado', 'completado')
+
+        if (pagosError) {
+          console.error('Error obteniendo pagos de citas de embajadoras:', pagosError)
+          continue
+        }
+
+        for (const pago of (pagosData ?? []) as any[]) {
+          if (!pago.cita_id) continue
+          montoPorCita.set(pago.cita_id, (montoPorCita.get(pago.cita_id) ?? 0) + (Number(pago.monto) || 0))
+        }
+      }
+
+      for (const v of todasLasVisitas) {
+        v.pagoMonto = montoPorCita.get(v.citaId) ?? 0
+      }
     }
 
     return Array.from(filas.values()).sort((a, b) => b.totalGastado - a.totalGastado)
