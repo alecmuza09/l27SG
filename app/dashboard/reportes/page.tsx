@@ -2363,18 +2363,21 @@ export default function ReportesPage() {
     ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
     : (sucursales.find(s => s.id === embajadorasSucursalFilter)?.nombre ?? "")
 
-  const embajadorasActivas   = embajadorasReporte.filter(e => e.numVisitas > 0)
+  // Las tarjetas resumen deben calcularse sobre el MISMO dataset filtrado que renderiza
+  // la tabla, para que ambos permanezcan siempre sincronizados.
+  const embajadorasFiltradas = embajadoraFilter === "all"
+    ? embajadorasReporte
+    : embajadorasReporte.filter(e => e.clienteId === embajadoraFilter)
+
+  const embajadorasActivas   = embajadorasFiltradas.filter(e => e.numVisitas > 0)
   const embajadorasKpis = {
     activas: embajadorasActivas.length,
-    totalGenerado: embajadorasReporte.reduce((s, e) => s + e.totalGastado, 0),
-    citasCompletadas: embajadorasReporte.reduce((s, e) => s + e.serviciosRealizados, 0),
+    totalGenerado: embajadorasFiltradas.reduce((s, e) => s + e.totalGastado, 0),
+    citasCompletadas: embajadorasFiltradas.reduce((s, e) => s + e.serviciosRealizados, 0),
     ticketPromedio: embajadorasActivas.length > 0
       ? Math.round(embajadorasActivas.reduce((s, e) => s + e.totalGastado, 0) / embajadorasActivas.length)
       : 0,
   }
-  const embajadorasFiltradas = embajadoraFilter === "all"
-    ? embajadorasReporte
-    : embajadorasReporte.filter(e => e.clienteId === embajadoraFilter)
 
   const toggleEmbajadoraDetalle = (id: string) => {
     setEmbajadorasExpandidas(prev => {
