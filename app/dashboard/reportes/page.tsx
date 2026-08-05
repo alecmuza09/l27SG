@@ -1873,6 +1873,13 @@ export default function ReportesPage() {
   const [embajadorasReporte,   setEmbajadorasReporte]   = useState<EmbajadoraReporteRow[]>([])
   const [embajadoraFilter,     setEmbajadoraFilter]     = useState<string>("all")
   const [embajadorasExpandidas, setEmbajadorasExpandidas] = useState<Set<string>>(new Set())
+  const [isLoadingEmbajadoras, setIsLoadingEmbajadoras] = useState(true)
+
+  // ── Filtros LOCALES del tab Embajadoras (independientes de los filtros globales) ──
+  const [embajadorasPeriodo,          setEmbajadorasPeriodo]          = useState<Periodo>("año")
+  const [embajadorasFechaCustomDesde, setEmbajadorasFechaCustomDesde] = useState<string>("")
+  const [embajadorasFechaCustomHasta, setEmbajadorasFechaCustomHasta] = useState<string>("")
+  const [embajadorasSucursalFilter,   setEmbajadorasSucursalFilter]   = useState<string>("all")
   const [isExportingPdf,       setIsExportingPdf]       = useState(false)
   const [isExportingGcPdf,     setIsExportingGcPdf]     = useState(false)
   const [isExportingNominaPdf, setIsExportingNominaPdf] = useState(false)
@@ -1966,12 +1973,6 @@ export default function ReportesPage() {
       let cliStats: Awaited<ReturnType<typeof getClientesStats>>
       let topCli: Awaited<ReturnType<typeof getTopClientesPorGasto>>
       let metSuc: MetricaSucursal[]
-
-      // Reporte de embajadoras: se dispara en paralelo con el resto de la fase 2.
-      const sucursalIdsEmbajadoras = esMultiBranchAll
-        ? branchIds
-        : (sucIdParaRest ? [sucIdParaRest] : undefined)
-      const embajadorasPromise = getReporteEmbajadorasFromDB(fechaDesde, fechaHasta, sucursalIdsEmbajadoras)
 
       if (esMultiBranchAll) {
         const [citasArr, servArr, emp10Arr, emp200Arr, cliArr, topCliArr] = await Promise.all([
@@ -2070,7 +2071,6 @@ export default function ReportesPage() {
       setClientesStats(cliStats)
       setTopClientes(topCli)
       setMetricasSucursales(metSuc)
-      setEmbajadorasReporte(await embajadorasPromise)
 
       const totalSvc = servicios.reduce((s, x) => s + x.count, 0)
       setServiciosMasVendidos(servicios.map(s => ({
@@ -2104,6 +2104,40 @@ export default function ReportesPage() {
     if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
     cargarDatos()
   }, [cargarDatos, periodo, fechaCustomDesde, fechaCustomHasta])
+
+  // ── Carga de datos del tab Embajadoras (usa filtros LOCALES, no los globales) ──
+  const cargarEmbajadoras = useCallback(async () => {
+    setIsLoadingEmbajadoras(true)
+    try {
+      const { fechaDesde, fechaHasta } = calcularPeriodo(
+        embajadorasPeriodo, embajadorasFechaCustomDesde, embajadorasFechaCustomHasta,
+      )
+
+      const sucId =
+        isAdmin
+          ? (embajadorasSucursalFilter === "all" ? undefined : embajadorasSucursalFilter)
+          : embajadorasSucursalFilter !== "all"
+            ? embajadorasSucursalFilter
+            : sucursalFija
+
+      const esMultiBranchAllEmbajadoras = !isAdmin && multiBranch && embajadorasSucursalFilter === "all"
+      const sucursalIdsEmbajadoras = esMultiBranchAllEmbajadoras
+        ? branchIds
+        : (sucId ? [sucId] : undefined)
+
+      const reporte = await getReporteEmbajadorasFromDB(fechaDesde, fechaHasta, sucursalIdsEmbajadoras)
+      setEmbajadorasReporte(reporte)
+    } catch (err) {
+      console.error("Error cargando reporte de embajadoras:", err)
+    } finally {
+      setIsLoadingEmbajadoras(false)
+    }
+  }, [embajadorasPeriodo, embajadorasFechaCustomDesde, embajadorasFechaCustomHasta, embajadorasSucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
+
+  useEffect(() => {
+    if (embajadorasPeriodo === "personalizado" && (!embajadorasFechaCustomDesde || !embajadorasFechaCustomHasta)) return
+    cargarEmbajadoras()
+  }, [cargarEmbajadoras, embajadorasPeriodo, embajadorasFechaCustomDesde, embajadorasFechaCustomHasta])
 
   // ── Exportar PDF ──────────────────────────────────────────────────────────
   const handleExportPDF = async () => {
@@ -2287,6 +2321,13 @@ export default function ReportesPage() {
     : 0
 
   const { label: periodoLabel } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+
+  const { label: embajadorasPeriodoLabel } = calcularPeriodo(
+    embajadorasPeriodo, embajadorasFechaCustomDesde, embajadorasFechaCustomHasta,
+  )
+  const embajadorasSucNombreActiva = embajadorasSucursalFilter === "all"
+    ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
+    : (sucursales.find(s => s.id === embajadorasSucursalFilter)?.nombre ?? "")
 
   const embajadorasActivas   = embajadorasReporte.filter(e => e.numVisitas > 0)
   const embajadorasKpis = {
@@ -2972,20 +3013,79 @@ export default function ReportesPage() {
 
           {/* ══════════════ EMBAJADORAS ══════════════ */}
           <TabsContent value="embajadoras" className="space-y-4">
-            {/* Filtro por embajadora específica */}
-            <div className="flex flex-wrap items-center gap-2 no-print">
-              <Select value={embajadoraFilter} onValueChange={setEmbajadoraFilter}>
-                <SelectTrigger className="w-64">
-                  <Star className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
-                  <SelectValue placeholder="Embajadora" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las embajadoras</SelectItem>
-                  {embajadorasReporte.map(e => (
-                    <SelectItem key={e.clienteId} value={e.clienteId}>{e.nombre}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Filtros LOCALES del tab (independientes de los filtros globales de la página) */}
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-3 no-print">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mr-1 shrink-0">
+                  Filtros de Embajadoras
+                </span>
+
+                {(isAdmin || multiBranch) && sucursales.length > 0 && (
+                  <Select value={embajadorasSucursalFilter} onValueChange={setEmbajadorasSucursalFilter}>
+                    <SelectTrigger className="w-52 bg-white">
+                      <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                      <SelectValue placeholder="Sucursal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{multiBranch ? "Todas mis sucursales" : "Todas las sucursales"}</SelectItem>
+                      {sucursales.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                <div className="flex items-center gap-1.5">
+                  <Select value={embajadorasPeriodo} onValueChange={(v) => setEmbajadorasPeriodo(v as Periodo)}>
+                    <SelectTrigger className="h-9 w-44 text-sm bg-white">
+                      <Calendar className="h-4 w-4 mr-1.5 text-muted-foreground" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="semana">Esta Semana</SelectItem>
+                      <SelectItem value="mes">Este Mes</SelectItem>
+                      <SelectItem value="trimestre">Trimestre</SelectItem>
+                      <SelectItem value="año">Este Año</SelectItem>
+                      <SelectItem value="personalizado">Personalizado…</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {embajadorasPeriodo === "personalizado" && (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={embajadorasFechaCustomDesde}
+                        onChange={e => setEmbajadorasFechaCustomDesde(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-white px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <span className="text-muted-foreground text-sm">—</span>
+                      <input
+                        type="date"
+                        value={embajadorasFechaCustomHasta}
+                        onChange={e => setEmbajadorasFechaCustomHasta(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-white px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <Select value={embajadoraFilter} onValueChange={setEmbajadoraFilter}>
+                  <SelectTrigger className="w-64 bg-white">
+                    <Star className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Embajadora" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las embajadoras</SelectItem>
+                    {embajadorasReporte.map(e => (
+                      <SelectItem key={e.clienteId} value={e.clienteId}>{e.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button variant="outline" size="icon" className="bg-white" onClick={cargarEmbajadoras} title="Actualizar embajadoras">
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             {/* Tarjetas resumen */}
@@ -3027,10 +3127,10 @@ export default function ReportesPage() {
                 <CardTitle className="flex items-center gap-2">
                   <Star className="h-5 w-5" />Embajadoras
                 </CardTitle>
-                <CardDescription>{periodoLabel}</CardDescription>
+                <CardDescription>{embajadorasSucNombreActiva} · {embajadorasPeriodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isLoadingEmbajadoras ? (
                   <div className="space-y-2">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="h-10 rounded bg-muted animate-pulse" />
