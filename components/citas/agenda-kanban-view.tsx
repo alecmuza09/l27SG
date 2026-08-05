@@ -1922,8 +1922,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
                                           {/* Nombre cliente */}
                                           {!isCompact && (
-                                            <p className="flex-1 font-semibold text-[11px] text-foreground leading-tight truncate min-w-0" title={cita.clienteNombre}>
-                                              {cita.clienteNombre}{cita.clienteEmbajadora && "⭐"}
+                                            <p className="flex-1 flex items-center gap-0.5 font-semibold text-[11px] text-foreground leading-tight min-w-0" title={cita.clienteNombre}>
+                                              <span className="truncate min-w-0">{cita.clienteNombre}</span>
+                                              {cita.clienteEmbajadora && <span className="shrink-0" title="Embajadora">⭐</span>}
                                             </p>
                                           )}
 
@@ -2017,8 +2018,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
                                         {/* Nombre en modo compacto */}
                                         {isCompact && (
-                                          <p className="text-[9px] font-medium text-foreground leading-tight truncate">
-                                            {cita.clienteNombre}{cita.clienteEmbajadora && "⭐"}
+                                          <p className="flex items-center gap-0.5 text-[9px] font-medium text-foreground leading-tight min-w-0">
+                                            <span className="truncate min-w-0">{cita.clienteNombre}</span>
+                                            {cita.clienteEmbajadora && <span className="shrink-0" title="Embajadora">⭐</span>}
                                           </p>
                                         )}
 
@@ -2999,7 +3001,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                 <div className={cn("px-5 pt-5 pb-4", cardStyle.bg)}>
                   <div className={cn("h-1 w-full rounded-full mb-4", cardStyle.bar)} />
                   <SheetHeader className="p-0 space-y-1">
-                    <SheetTitle className="text-base font-bold leading-tight">{detalleCita.clienteNombre}{detalleCita.clienteEmbajadora && "⭐"}</SheetTitle>
+                    <SheetTitle className="text-base font-bold leading-tight">{detalleCita.clienteNombre}{detalleCita.clienteEmbajadora && " ⭐"}</SheetTitle>
+                    {detalleCita.clienteEmbajadora && (
+                      <span className="inline-flex w-fit items-center gap-1 text-xs font-semibold text-amber-500">
+                        ⭐ Embajadora
+                      </span>
+                    )}
                     <p className="text-sm text-muted-foreground">{detalleCita.servicioNombre}</p>
                   </SheetHeader>
                   <div className="mt-3 flex items-center gap-2">
