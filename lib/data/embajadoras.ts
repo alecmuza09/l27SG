@@ -1,8 +1,9 @@
 // Reporte de embajadoras: clientas marcadas como `embajadora` en `clientes`
-// junto con sus visitas (pagos completados) en un período y sucursal(es) dados.
+// junto con sus citas COMPLETADAS (estado = 'completada') en un período y
+// sucursal(es) dados. Citas canceladas, pendientes o no-asistio se excluyen
+// de todos los totales.
 
 import { supabase } from '@/lib/supabase/client'
-import { etiquetaMetodosPago, type Pago } from '@/lib/data/pagos'
 
 export interface EmbajadoraCliente {
   id: string
@@ -11,7 +12,6 @@ export interface EmbajadoraCliente {
 
 export interface EmbajadoraVisitaRow {
   citaId: string
-  pagoId: string
   fecha: string
   hora: string
   sucursalId: string
@@ -34,6 +34,27 @@ export interface EmbajadoraReporteRow {
 }
 
 const CHUNK_SIZE = 300
+
+/** Único estado de `citas` que cuenta como completada para este reporte. */
+const ESTADO_CITA_COMPLETADA = 'completada'
+
+const METODO_PAGO_LABELS: Record<string, string> = {
+  efectivo: 'Efectivo',
+  tarjeta: 'Tarjeta',
+  transferencia: 'Transferencia',
+  otro: 'Otro',
+}
+
+function etiquetaMetodoPagoCita(metodo: string | null | undefined): string {
+  if (!metodo) return '—'
+  return METODO_PAGO_LABELS[metodo.toLowerCase()] ?? metodo
+}
+
+function normalizarHora(hora: string | null | undefined): string {
+  if (!hora) return ''
+  if (hora.includes(':') && hora.split(':').length === 3) return hora.substring(0, 5)
+  return hora
+}
 
 /** Todas las clientas marcadas como embajadora (para selector y filas base del reporte). */
 export async function getEmbajadorasFromDB(): Promise<EmbajadoraCliente[]> {
@@ -58,9 +79,11 @@ export async function getEmbajadorasFromDB(): Promise<EmbajadoraCliente[]> {
 }
 
 /**
- * Reporte de visitas y gasto de las embajadoras en un período, opcionalmente
- * filtrado por una o varias sucursales. Incluye a TODAS las embajadoras
- * (con ceros) aunque no tengan visitas en el período/sucursal seleccionados.
+ * Reporte de citas COMPLETADAS y valor de servicios de las embajadoras en un
+ * período, opcionalmente filtrado por una o varias sucursales. Incluye a
+ * TODAS las embajadoras (con ceros) aunque no tengan citas completadas en el
+ * período/sucursal seleccionados. Citas canceladas, pendientes, en progreso
+ * o no-asistio quedan excluidas de todos los totales.
  */
 export async function getReporteEmbajadorasFromDB(
   fechaDesde: string,
@@ -89,81 +112,75 @@ export async function getReporteEmbajadorasFromDB(
     const chunks: string[][] = []
     for (let i = 0; i < ids.length; i += CHUNK_SIZE) chunks.push(ids.slice(i, i + CHUNK_SIZE))
 
+    // "Nº visitas" = ocasiones distintas (fecha + sucursal) con al menos una cita
+    // completada, para no inflar el conteo cuando una misma visita incluye
+    // varios servicios (varias citas el mismo día en la misma sucursal).
+    const visitasUnicasPorCliente = new Map<string, Set<string>>()
+
     for (const chunk of chunks) {
       let query = supabase
-        .from('pagos')
+        .from('citas')
         .select(`
-          id, cita_id, cliente_id, sucursal_id,
-          monto, metodo_pago, fecha, hora, servicios,
-          descuento_tipo, monto_efectivo, monto_tarjeta, gift_card_codigo,
+          id, cliente_id, sucursal_id, fecha, hora_inicio, precio, metodo_pago, estado,
+          servicio:servicios(nombre),
           empleado:empleados(nombre, apellido),
           sucursal:sucursales(nombre)
         `)
-        .eq('estado', 'completado')
+        .eq('estado', ESTADO_CITA_COMPLETADA)
         .in('cliente_id', chunk)
         .gte('fecha', fechaDesde)
         .lte('fecha', fechaHasta)
         .order('fecha', { ascending: false })
-        .order('hora', { ascending: false })
+        .order('hora_inicio', { ascending: false })
 
       if (sucursalIds && sucursalIds.length > 0) query = query.in('sucursal_id', sucursalIds)
 
       const { data, error } = await query
       if (error) {
-        console.error('Error obteniendo visitas de embajadoras:', error)
+        console.error('Error obteniendo citas completadas de embajadoras:', error)
         continue
       }
 
-      for (const pago of (data ?? []) as any[]) {
-        const fila = filas.get(pago.cliente_id)
+      for (const cita of (data ?? []) as any[]) {
+        // Defensivo: nunca contar algo que no sea explícitamente 'completada'.
+        if (cita.estado !== ESTADO_CITA_COMPLETADA) continue
+
+        const fila = filas.get(cita.cliente_id)
         if (!fila) continue
 
-        const sucursalNombre = pago.sucursal?.nombre ?? 'Sin sucursal'
-        const empleadoNombre = pago.empleado
-          ? `${pago.empleado.nombre} ${pago.empleado.apellido}`
+        const sucursalNombre = cita.sucursal?.nombre ?? 'Sin sucursal'
+        const empleadoNombre = cita.empleado
+          ? `${cita.empleado.nombre} ${cita.empleado.apellido}`
           : 'Sin empleado'
-        const servicios: string[] = Array.isArray(pago.servicios) ? pago.servicios : []
-        const monto = Number(pago.monto) || 0
+        const servicioNombre = cita.servicio?.nombre || 'Servicio desconocido'
+        const monto = Number(cita.precio) || 0
 
-        const pagoParaEtiqueta: Pago = {
-          id: pago.id,
-          citaId: pago.cita_id || '',
-          clienteId: pago.cliente_id,
-          clienteNombre: fila.nombre,
-          monto,
-          metodoPago: pago.metodo_pago,
-          estado: 'completado',
-          fecha: pago.fecha,
-          hora: pago.hora || '',
-          sucursalId: pago.sucursal_id,
-          empleadoId: null,
-          empleadoNombre,
-          servicios,
-          descuentoTipo: pago.descuento_tipo || undefined,
-          montoEfectivo: Number(pago.monto_efectivo) || 0,
-          montoTarjeta: Number(pago.monto_tarjeta) || 0,
-          giftCardCodigo: pago.gift_card_codigo || undefined,
-        }
+        const visitasSet = visitasUnicasPorCliente.get(cita.cliente_id) ?? new Set<string>()
+        visitasSet.add(`${cita.fecha}|${cita.sucursal_id}`)
+        visitasUnicasPorCliente.set(cita.cliente_id, visitasSet)
 
-        fila.numVisitas += 1
-        fila.serviciosRealizados += servicios.length
+        fila.serviciosRealizados += 1
         fila.totalGastado += monto
         if (!fila.sucursales.includes(sucursalNombre)) fila.sucursales.push(sucursalNombre)
-        if (!fila.ultimaVisita || pago.fecha > fila.ultimaVisita) fila.ultimaVisita = pago.fecha
+        if (!fila.ultimaVisita || cita.fecha > fila.ultimaVisita) fila.ultimaVisita = cita.fecha
 
         fila.visitas.push({
-          citaId: pago.cita_id || '',
-          pagoId: pago.id,
-          fecha: pago.fecha,
-          hora: pago.hora || '',
-          sucursalId: pago.sucursal_id,
+          citaId: cita.id,
+          fecha: cita.fecha,
+          hora: normalizarHora(cita.hora_inicio),
+          sucursalId: cita.sucursal_id,
           sucursalNombre,
-          servicio: servicios.length > 0 ? servicios.join(', ') : 'Sin servicio registrado',
+          servicio: servicioNombre,
           empleadoNombre,
           monto,
-          metodoPago: etiquetaMetodosPago(pagoParaEtiqueta),
+          metodoPago: etiquetaMetodoPagoCita(cita.metodo_pago),
         })
       }
+    }
+
+    for (const fila of filas.values()) {
+      fila.numVisitas = visitasUnicasPorCliente.get(fila.clienteId)?.size ?? 0
+      fila.visitas.sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora))
     }
 
     return Array.from(filas.values()).sort((a, b) => b.totalGastado - a.totalGastado)

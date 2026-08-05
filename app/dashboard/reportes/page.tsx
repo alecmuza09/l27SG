@@ -2292,7 +2292,7 @@ export default function ReportesPage() {
   const embajadorasKpis = {
     activas: embajadorasActivas.length,
     totalGenerado: embajadorasReporte.reduce((s, e) => s + e.totalGastado, 0),
-    citasCompletadas: embajadorasReporte.reduce((s, e) => s + e.numVisitas, 0),
+    citasCompletadas: embajadorasReporte.reduce((s, e) => s + e.serviciosRealizados, 0),
     ticketPromedio: embajadorasActivas.length > 0
       ? Math.round(embajadorasActivas.reduce((s, e) => s + e.totalGastado, 0) / embajadorasActivas.length)
       : 0,
@@ -3100,7 +3100,7 @@ export default function ReportesPage() {
                                           </TableHeader>
                                           <TableBody>
                                             {e.visitas.map(v => (
-                                              <TableRow key={v.pagoId}>
+                                              <TableRow key={v.citaId}>
                                                 <TableCell className="text-sm">{v.fecha}</TableCell>
                                                 <TableCell className="text-sm">{v.sucursalNombre}</TableCell>
                                                 <TableCell className="text-sm">{v.servicio}</TableCell>

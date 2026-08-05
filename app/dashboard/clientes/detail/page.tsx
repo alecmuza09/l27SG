@@ -417,11 +417,16 @@ function ClienteDetailContent() {
                           </span>
                           <span>{cita.duracion} min</span>
                         </div>
-                        {cita.createdAt && (
-                          <span className="text-xs text-muted-foreground">
-                            Agendada el {new Date(cita.createdAt + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </span>
-                        )}
+                        {(() => {
+                          if (!cita.createdAt) return null
+                          const agendadaEl = new Date(cita.createdAt)
+                          if (Number.isNaN(agendadaEl.getTime())) return null
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              Agendada el {agendadaEl.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          )
+                        })()}
                       </div>
                       <div className="text-right">
                         <p className="font-semibold">${cita.precio.toLocaleString()}</p>
