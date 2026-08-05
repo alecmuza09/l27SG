@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, type ReactNode, type ComponentType } from "react"
+import { useState, useEffect, useCallback, Fragment, type ReactNode, type ComponentType } from "react"
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card"
@@ -10,7 +10,7 @@ import {
   Download, FileText, TrendingUp, TrendingDown,
   Users, Calendar, Loader2, RefreshCw, Building2,
   CheckCircle2, XCircle, Clock, AlertCircle, DollarSign,
-  BarChart3, Star, Gift, Receipt, UserPlus,
+  BarChart3, Star, Gift, Receipt, UserPlus, ChevronDown, ChevronUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -32,6 +32,7 @@ import {
   type MetricaSucursal,
 } from "@/lib/data/dashboard"
 import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
+import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
@@ -1869,6 +1870,9 @@ export default function ReportesPage() {
   const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
   const [metodosPago,          setMetodosPago]          = useState<Array<{ metodo: string; monto: number; count: number }>>([])
   const [metricasSucursales,   setMetricasSucursales]   = useState<MetricaSucursal[]>([])
+  const [embajadorasReporte,   setEmbajadorasReporte]   = useState<EmbajadoraReporteRow[]>([])
+  const [embajadoraFilter,     setEmbajadoraFilter]     = useState<string>("all")
+  const [embajadorasExpandidas, setEmbajadorasExpandidas] = useState<Set<string>>(new Set())
   const [isExportingPdf,       setIsExportingPdf]       = useState(false)
   const [isExportingGcPdf,     setIsExportingGcPdf]     = useState(false)
   const [isExportingNominaPdf, setIsExportingNominaPdf] = useState(false)
@@ -1962,6 +1966,12 @@ export default function ReportesPage() {
       let cliStats: Awaited<ReturnType<typeof getClientesStats>>
       let topCli: Awaited<ReturnType<typeof getTopClientesPorGasto>>
       let metSuc: MetricaSucursal[]
+
+      // Reporte de embajadoras: se dispara en paralelo con el resto de la fase 2.
+      const sucursalIdsEmbajadoras = esMultiBranchAll
+        ? branchIds
+        : (sucIdParaRest ? [sucIdParaRest] : undefined)
+      const embajadorasPromise = getReporteEmbajadorasFromDB(fechaDesde, fechaHasta, sucursalIdsEmbajadoras)
 
       if (esMultiBranchAll) {
         const [citasArr, servArr, emp10Arr, emp200Arr, cliArr, topCliArr] = await Promise.all([
@@ -2060,6 +2070,7 @@ export default function ReportesPage() {
       setClientesStats(cliStats)
       setTopClientes(topCli)
       setMetricasSucursales(metSuc)
+      setEmbajadorasReporte(await embajadorasPromise)
 
       const totalSvc = servicios.reduce((s, x) => s + x.count, 0)
       setServiciosMasVendidos(servicios.map(s => ({
@@ -2276,6 +2287,29 @@ export default function ReportesPage() {
     : 0
 
   const { label: periodoLabel } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+
+  const embajadorasActivas   = embajadorasReporte.filter(e => e.numVisitas > 0)
+  const embajadorasKpis = {
+    activas: embajadorasActivas.length,
+    totalGenerado: embajadorasReporte.reduce((s, e) => s + e.totalGastado, 0),
+    citasCompletadas: embajadorasReporte.reduce((s, e) => s + e.numVisitas, 0),
+    ticketPromedio: embajadorasActivas.length > 0
+      ? Math.round(embajadorasActivas.reduce((s, e) => s + e.totalGastado, 0) / embajadorasActivas.length)
+      : 0,
+  }
+  const embajadorasFiltradas = embajadoraFilter === "all"
+    ? embajadorasReporte
+    : embajadorasReporte.filter(e => e.clienteId === embajadoraFilter)
+
+  const toggleEmbajadoraDetalle = (id: string) => {
+    setEmbajadorasExpandidas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const sucNombreActiva = sucursalFilter === "all"
     ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
     : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? "")
@@ -2529,6 +2563,7 @@ export default function ReportesPage() {
             <TabsTrigger value="empleados">Empleados</TabsTrigger>
             {!isManager && <TabsTrigger value="nomina">Nómina</TabsTrigger>}
             <TabsTrigger value="clientes">Clientes</TabsTrigger>
+            <TabsTrigger value="embajadoras">Embajadoras</TabsTrigger>
             {isAdmin && <TabsTrigger value="sucursales">Sucursales</TabsTrigger>}
           </TabsList>
 
@@ -2933,6 +2968,163 @@ export default function ReportesPage() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* ══════════════ EMBAJADORAS ══════════════ */}
+          <TabsContent value="embajadoras" className="space-y-4">
+            {/* Filtro por embajadora específica */}
+            <div className="flex flex-wrap items-center gap-2 no-print">
+              <Select value={embajadoraFilter} onValueChange={setEmbajadoraFilter}>
+                <SelectTrigger className="w-64">
+                  <Star className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="Embajadora" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las embajadoras</SelectItem>
+                  {embajadorasReporte.map(e => (
+                    <SelectItem key={e.clienteId} value={e.clienteId}>{e.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Tarjetas resumen */}
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+              <KpiCard
+                icon={Users}
+                iconBg="bg-blue-50"
+                iconColor="text-blue-500"
+                title="Embajadoras Activas"
+                value={embajadorasKpis.activas}
+                subtitle={<p className="text-[10px] text-muted-foreground leading-tight">Con visitas en el período</p>}
+              />
+              <KpiCard
+                icon={DollarSign}
+                iconBg="bg-green-50"
+                iconColor="text-green-500"
+                title="Total Generado"
+                value={fmtMXN(embajadorasKpis.totalGenerado)}
+                subtitle={<p className="text-[10px] text-muted-foreground leading-tight">Por embajadoras en el período</p>}
+              />
+              <KpiCard
+                icon={CheckCircle2}
+                iconBg="bg-emerald-50"
+                iconColor="text-emerald-500"
+                title="Citas Completadas"
+                value={embajadorasKpis.citasCompletadas}
+              />
+              <KpiCard
+                icon={Receipt}
+                iconBg="bg-orange-50"
+                iconColor="text-orange-500"
+                title="Ticket Prom. por Embajadora"
+                value={fmtMXN(embajadorasKpis.ticketPromedio)}
+              />
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Star className="h-5 w-5" />Embajadoras
+                </CardTitle>
+                <CardDescription>{periodoLabel}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                    ))}
+                  </div>
+                ) : embajadorasFiltradas.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-muted-foreground">
+                    <Star className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p>Sin embajadoras registradas</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nombre</TableHead>
+                          <TableHead>Sucursales visitadas</TableHead>
+                          <TableHead className="text-right">Nº visitas</TableHead>
+                          <TableHead className="text-right">Servicios realizados</TableHead>
+                          <TableHead className="text-right">Total $ gastado</TableHead>
+                          <TableHead>Última visita</TableHead>
+                          <TableHead className="text-center no-print">Ver detalle</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {embajadorasFiltradas.map(e => {
+                          const expandida = embajadorasExpandidas.has(e.clienteId)
+                          return (
+                            <Fragment key={e.clienteId}>
+                              <TableRow>
+                                <TableCell className="font-medium">{e.nombre}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {e.sucursales.length > 0 ? e.sucursales.join(", ") : "—"}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">{e.numVisitas}</TableCell>
+                                <TableCell className="text-right tabular-nums">{e.serviciosRealizados}</TableCell>
+                                <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(e.totalGastado)}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{e.ultimaVisita ?? "Sin visitas"}</TableCell>
+                                <TableCell className="text-center no-print">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => toggleEmbajadoraDetalle(e.clienteId)}
+                                    disabled={e.visitas.length === 0}
+                                  >
+                                    {expandida ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                              {expandida && (
+                                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                  <TableCell colSpan={7} className="p-0">
+                                    <div className="p-4">
+                                      {e.visitas.length === 0 ? (
+                                        <p className="text-center py-4 text-sm text-muted-foreground">Sin visitas en este período</p>
+                                      ) : (
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>Fecha</TableHead>
+                                              <TableHead>Sucursal</TableHead>
+                                              <TableHead>Servicio</TableHead>
+                                              <TableHead>Empleada</TableHead>
+                                              <TableHead className="text-right">Monto</TableHead>
+                                              <TableHead>Método de pago</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {e.visitas.map(v => (
+                                              <TableRow key={v.pagoId}>
+                                                <TableCell className="text-sm">{v.fecha}</TableCell>
+                                                <TableCell className="text-sm">{v.sucursalNombre}</TableCell>
+                                                <TableCell className="text-sm">{v.servicio}</TableCell>
+                                                <TableCell className="text-sm">{v.empleadoNombre}</TableCell>
+                                                <TableCell className="text-right text-sm tabular-nums">{fmtMXN(v.monto)}</TableCell>
+                                                <TableCell className="text-sm">{v.metodoPago}</TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ══════════════ SUCURSALES (solo admin) ══════════════ */}
