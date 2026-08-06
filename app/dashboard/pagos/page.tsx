@@ -42,7 +42,29 @@ import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 import { cn } from "@/lib/utils"
 import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
 import { getGastosFromDB, createGastoInDB, type Gasto } from "@/lib/data/gastos"
+import { supabase } from "@/lib/supabase/client"
 import { toast } from "sonner"
+
+// ── Auditoría: registra el snapshot completo antes de eliminar/cancelar ─────
+async function registrarEliminacionEnLog(params: {
+  tabla: "pagos" | "citas"
+  registroId: string
+  datosEliminados: unknown
+  sucursalId?: string | null
+}): Promise<{ success: boolean; error?: string }> {
+  const currentUser = getCurrentUser()
+  const { error } = await (supabase as any)
+    .from("eliminaciones_log")
+    .insert({
+      tabla: params.tabla,
+      registro_id: params.registroId,
+      datos_eliminados: params.datosEliminados,
+      sucursal_id: params.sucursalId ?? null,
+      eliminado_por: currentUser?.id ?? null,
+    })
+  if (error) return { success: false, error: error.message }
+  return { success: true }
+}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 const fmtMXN = (n: number) =>
@@ -361,6 +383,20 @@ export default function PagosPage() {
   const handleCancelarCita = async () => {
     if (!citaDetalle) return
     setIsSavingCita(true)
+
+    // Auditoría: registrar el snapshot ANTES de cancelar. Si falla, no continuar.
+    const log = await registrarEliminacionEnLog({
+      tabla: "citas",
+      registroId: citaDetalle.id,
+      datosEliminados: citaDetalle,
+      sucursalId: citaDetalle.sucursalId,
+    })
+    if (!log.success) {
+      setIsSavingCita(false)
+      toast.error(`No se pudo registrar la auditoría, cancelación abortada: ${log.error}`)
+      return
+    }
+
     const res = await updateCitaEstado(citaDetalle.id, "cancelada")
     setIsSavingCita(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
@@ -530,6 +566,21 @@ export default function PagosPage() {
   const handleEliminarPago = async () => {
     if (!pagoDetalle) return
     setIsSavingPago(true)
+
+    // Auditoría: registrar el snapshot completo ANTES de eliminar. Si falla,
+    // abortar la eliminación — es mejor cancelar que eliminar sin dejar rastro.
+    const log = await registrarEliminacionEnLog({
+      tabla: "pagos",
+      registroId: pagoDetalle.id,
+      datosEliminados: pagoDetalle,
+      sucursalId: pagoDetalle.sucursalId,
+    })
+    if (!log.success) {
+      setIsSavingPago(false)
+      toast.error(`No se pudo registrar la auditoría, eliminación abortada: ${log.error}`)
+      return
+    }
+
     // Pasa el citaId para que la cita vuelva a pendiente-por-cobrar
     const res = await deletePago(pagoDetalle.id, pagoDetalle.citaId || null)
     setIsSavingPago(false)
