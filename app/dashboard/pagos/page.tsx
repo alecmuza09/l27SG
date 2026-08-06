@@ -143,6 +143,9 @@ export default function PagosPage() {
   const [editClienteResultados, setEditClienteResultados] = useState<Cliente[]>([])
   const [editClienteBuscando, setEditClienteBuscando]   = useState(false)
   const [isDeletePagoOpen, setIsDeletePagoOpen]         = useState(false)
+  const [isDeletePagoConfirmOpen, setIsDeletePagoConfirmOpen] = useState(false)
+  const [isCancelCitaOpen, setIsCancelCitaOpen]         = useState(false)
+  const [isCancelCitaConfirmOpen, setIsCancelCitaConfirmOpen] = useState(false)
   const [isSavingPago, setIsSavingPago]                 = useState(false)
   const [syncingGcPagos, setSyncingGcPagos]             = useState(false)
 
@@ -357,12 +360,12 @@ export default function PagosPage() {
 
   const handleCancelarCita = async () => {
     if (!citaDetalle) return
-    if (!confirm("¿Cancelar esta cita? Esta acción no se puede deshacer fácilmente.")) return
     setIsSavingCita(true)
     const res = await updateCitaEstado(citaDetalle.id, "cancelada")
     setIsSavingCita(false)
     if (!res.success) { alert(`Error: ${res.error}`); return }
     setCitas(prev => prev.map(c => c.id === citaDetalle.id ? { ...c, estado: "cancelada" } as Cita : c))
+    setIsCancelCitaConfirmOpen(false)
     setCitaDetalle(null)
   }
 
@@ -536,6 +539,7 @@ export default function PagosPage() {
     setPagos(pagosSinEliminado)
     setResumen(calcularResumenDesdePagos(pagosSinEliminado, fecha))
     setIsDeletePagoOpen(false)
+    setIsDeletePagoConfirmOpen(false)
     setPagoDetalle(null)
 
     // Recargar citas para que aparezca nuevamente en la lista de cobro
@@ -1308,7 +1312,7 @@ export default function PagosPage() {
       />
 
       {/* ════ DIALOG DETALLE / EDICIÓN DE CITA ══════════════════════════════════ */}
-      <Dialog open={!!citaDetalle} onOpenChange={v => { if (!v) { setCitaDetalle(null); setEditandoCita(false) } }}>
+      <Dialog open={!!citaDetalle} onOpenChange={v => { if (!v) { setCitaDetalle(null); setEditandoCita(false); setIsCancelCitaOpen(false); setIsCancelCitaConfirmOpen(false) } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1397,7 +1401,7 @@ export default function PagosPage() {
                 </div>
               ) : (
                 <div className="flex gap-2 pt-1">
-                  <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50 border-red-200" onClick={handleCancelarCita} disabled={isSavingCita}>
+                  <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50 border-red-200" onClick={() => setIsCancelCitaOpen(true)} disabled={isSavingCita}>
                     <X className="h-3.5 w-3.5 mr-1" /> Cancelar cita
                   </Button>
                   <Button variant="outline" size="sm" className="text-blue-600 hover:bg-blue-50 border-blue-200" onClick={() => setEditandoCita(true)}>
@@ -1422,7 +1426,7 @@ export default function PagosPage() {
       </Dialog>
 
       {/* ════ DIALOG DETALLE / EDICIÓN DE PAGO ════════════════════════════════ */}
-      <Dialog open={!!pagoDetalle} onOpenChange={v => { if (!v) { setPagoDetalle(null); setEditando(false) } }}>
+      <Dialog open={!!pagoDetalle} onOpenChange={v => { if (!v) { setPagoDetalle(null); setEditando(false); setIsDeletePagoOpen(false); setIsDeletePagoConfirmOpen(false) } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1748,12 +1752,12 @@ export default function PagosPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ════ DIALOG CONFIRMAR ELIMINACIÓN DE COBRO ═══════════════════════════ */}
+      {/* ════ DIALOG CONFIRMAR ELIMINACIÓN DE COBRO — PASO 1 ══════════════════ */}
       <Dialog open={isDeletePagoOpen} onOpenChange={setIsDeletePagoOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="h-5 w-5" /> ¿Eliminar este cobro?
+              <AlertTriangle className="h-5 w-5" /> ¿Estás seguro de que quieres eliminar este cobro?
             </DialogTitle>
           </DialogHeader>
           {pagoDetalle && (
@@ -1764,32 +1768,134 @@ export default function PagosPage() {
                 <p><span className="text-muted-foreground">Fecha:</span> {pagoDetalle.fecha} · {pagoDetalle.hora?.slice(0, 5)}</p>
                 <p><span className="text-muted-foreground">Total:</span> <strong className="text-red-700">{fmtMXN(pagoDetalle.monto)}</strong></p>
               </div>
-              <p className="text-muted-foreground text-xs">
-                Esta acción eliminará el cobro de forma permanente y no se puede deshacer.
-              </p>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
                   className="flex-1"
                   onClick={() => setIsDeletePagoOpen(false)}
-                  disabled={isSavingPago}
                 >
                   Cancelar
                 </Button>
                 <Button
                   variant="destructive"
                   className="flex-1"
-                  onClick={handleEliminarPago}
-                  disabled={isSavingPago}
+                  onClick={() => { setIsDeletePagoOpen(false); setIsDeletePagoConfirmOpen(true) }}
                 >
-                  {isSavingPago
-                    ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-                    : <Trash2 className="h-4 w-4 mr-1.5" />}
-                  Eliminar cobro
+                  Sí, eliminar
                 </Button>
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ DIALOG CONFIRMAR ELIMINACIÓN DE COBRO — PASO 2 (FINAL) ══════════ */}
+      <Dialog open={isDeletePagoConfirmOpen} onOpenChange={setIsDeletePagoConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> Esta acción no se puede deshacer
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1 text-sm">
+            <p className="text-muted-foreground">
+              ¿Confirmas la eliminación de este cobro? Se eliminará de forma permanente y no se puede deshacer.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setIsDeletePagoConfirmOpen(false)}
+                disabled={isSavingPago}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={handleEliminarPago}
+                disabled={isSavingPago}
+              >
+                {isSavingPago
+                  ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  : <Trash2 className="h-4 w-4 mr-1.5" />}
+                Confirmar eliminación
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ DIALOG CONFIRMAR CANCELACIÓN DE CITA — PASO 1 ═══════════════════ */}
+      <Dialog open={isCancelCitaOpen} onOpenChange={setIsCancelCitaOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> ¿Estás seguro de que quieres cancelar esta cita?
+            </DialogTitle>
+          </DialogHeader>
+          {citaDetalle && (
+            <div className="space-y-4 pt-1 text-sm">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+                <p><span className="text-muted-foreground">Cliente:</span> <strong>{citaDetalle.clienteNombre}</strong></p>
+                <p><span className="text-muted-foreground">Servicio:</span> {citaDetalle.servicioNombre}</p>
+                <p><span className="text-muted-foreground">Horario:</span> {citaDetalle.horaInicio} – {citaDetalle.horaFin}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setIsCancelCitaOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => { setIsCancelCitaOpen(false); setIsCancelCitaConfirmOpen(true) }}
+                >
+                  Sí, cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ DIALOG CONFIRMAR CANCELACIÓN DE CITA — PASO 2 (FINAL) ═══════════ */}
+      <Dialog open={isCancelCitaConfirmOpen} onOpenChange={setIsCancelCitaConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> Esta acción no se puede deshacer
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1 text-sm">
+            <p className="text-muted-foreground">
+              ¿Confirmas la cancelación de esta cita? Esta acción no se puede deshacer fácilmente.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setIsCancelCitaConfirmOpen(false)}
+                disabled={isSavingCita}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={handleCancelarCita}
+                disabled={isSavingCita}
+              >
+                {isSavingCita
+                  ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  : <X className="h-4 w-4 mr-1.5" />}
+                Confirmar cancelación
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
