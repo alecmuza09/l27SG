@@ -75,7 +75,7 @@ export default function ClientesPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalClientes, setTotalClientes] = useState(0)
   const [pageSize] = useState(50) // 50 clientes por página
-  const [visitaFilter, setVisitaFilter] = useState<'todos' | 'sin-visita-reciente' | 'sin-visitas' | 'embajadoras'>('todos')
+  const [visitaFilter, setVisitaFilter] = useState<'todos' | 'sin-visita-reciente' | 'sin-visitas' | 'embajadoras' | 'vetadas' | 'problematicas' | 'descuento'>('todos')
   const [embajadoraUpdatingId, setEmbajadoraUpdatingId] = useState<string | null>(null)
   const isAdmin = isGlobalAdministrator(currentUser)
 
@@ -113,7 +113,12 @@ export default function ClientesPage() {
       setIsLoading(true)
       setError(null)
 
-      const filtros = { soloEmbajadoras: filtroVisita === 'embajadoras' }
+      const filtros = {
+        soloEmbajadoras: filtroVisita === 'embajadoras',
+        soloVetadas: filtroVisita === 'vetadas',
+        soloProblematicas: filtroVisita === 'problematicas',
+        soloDescuento: filtroVisita === 'descuento',
+      }
 
       let result
       if (term.trim()) {
@@ -368,6 +373,9 @@ export default function ClientesPage() {
     if (visitaFilter === 'sin-visita-reciente')
       return !c.ultimaVisita || new Date(c.ultimaVisita + 'T12:00:00').getTime() < hoy60
     if (visitaFilter === 'embajadoras') return c.embajadora
+    if (visitaFilter === 'vetadas') return c.esVetado
+    if (visitaFilter === 'problematicas') return c.esProblematico
+    if (visitaFilter === 'descuento') return c.esDescuento
     return true
   })
 
@@ -607,6 +615,13 @@ export default function ClientesPage() {
                 <SelectItem value="embajadoras">Embajadoras</SelectItem>
                 <SelectItem value="sin-visita-reciente">Sin visita reciente (+60 días)</SelectItem>
                 <SelectItem value="sin-visitas">Sin visitas</SelectItem>
+                {isAdmin && (
+                  <>
+                    <SelectItem value="vetadas">Vetadas</SelectItem>
+                    <SelectItem value="problematicas">Problemáticas</SelectItem>
+                    <SelectItem value="descuento">Descuento</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
             <div className="text-sm text-muted-foreground">
@@ -672,9 +687,20 @@ export default function ClientesPage() {
                           )}
                         </button>
                         <div>
-                          <p className="font-medium">
-                            {cliente.nombre} {cliente.apellido}
-                          </p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium">
+                              {cliente.nombre} {cliente.apellido}
+                            </p>
+                            {isAdmin && cliente.esVetado && (
+                              <Badge className="bg-red-600 text-white hover:bg-red-600">🚫 Vetada</Badge>
+                            )}
+                            {isAdmin && cliente.esProblematico && (
+                              <Badge className="bg-orange-500 text-white hover:bg-orange-500">⚠️ Problemática</Badge>
+                            )}
+                            {isAdmin && cliente.esDescuento && (
+                              <Badge className="bg-blue-500 text-white hover:bg-blue-500">% Descuento</Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">ID: {cliente.id}</p>
                         </div>
                       </div>

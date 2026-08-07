@@ -25,6 +25,9 @@ export interface Cliente {
   sucursalPreferida?: string
   estado: "activo" | "inactivo" | "vip"
   embajadora: boolean
+  esVetado: boolean
+  esProblematico: boolean
+  esDescuento: boolean
 }
 
 // Función helper para transformar datos de la BD al formato de la interfaz
@@ -50,6 +53,9 @@ function transformCliente(cliente: ClienteRow): Cliente {
     sucursalPreferida: cliente.sucursal_preferida || undefined,
     estado: cliente.estado || 'activo',
     embajadora: cliente.embajadora ?? false,
+    esVetado: (cliente as any).es_vetado ?? false,
+    esProblematico: (cliente as any).es_problematico ?? false,
+    esDescuento: (cliente as any).es_descuento ?? false,
   }
 }
 
@@ -70,19 +76,22 @@ function normalizarBusqueda(texto: string): string {
 export async function getClientesPaginated(
   page: number = 1,
   pageSize: number = 50,
-  filtros: { soloEmbajadoras?: boolean } = {}
+  filtros: { soloEmbajadoras?: boolean; soloVetadas?: boolean; soloProblematicas?: boolean; soloDescuento?: boolean } = {}
 ): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
   try {
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
-    const { soloEmbajadoras } = filtros
+    const { soloEmbajadoras, soloVetadas, soloProblematicas, soloDescuento } = filtros
 
-    // Obtener el total de clientes (aplicando el filtro de embajadoras en la BD)
+    // Obtener el total de clientes (aplicando los filtros de clasificación en la BD)
     let countQuery = supabase
       .from('clientes')
       .select('*', { count: 'exact', head: true })
 
     if (soloEmbajadoras) countQuery = countQuery.eq('embajadora', true)
+    if (soloVetadas) countQuery = countQuery.eq('es_vetado', true)
+    if (soloProblematicas) countQuery = countQuery.eq('es_problematico', true)
+    if (soloDescuento) countQuery = countQuery.eq('es_descuento', true)
 
     const { count, error: countError } = await countQuery
 
@@ -103,6 +112,9 @@ export async function getClientesPaginated(
       `)
 
     if (soloEmbajadoras) dataQuery = dataQuery.eq('embajadora', true)
+    if (soloVetadas) dataQuery = dataQuery.eq('es_vetado', true)
+    if (soloProblematicas) dataQuery = dataQuery.eq('es_problematico', true)
+    if (soloDescuento) dataQuery = dataQuery.eq('es_descuento', true)
 
     const { data, error } = await dataQuery
       .order('created_at', { ascending: false })
@@ -205,7 +217,7 @@ export async function searchClientesPaginated(
   query: string,
   page: number = 1,
   pageSize: number = 50,
-  filtros: { soloEmbajadoras?: boolean } = {}
+  filtros: { soloEmbajadoras?: boolean; soloVetadas?: boolean; soloProblematicas?: boolean; soloDescuento?: boolean } = {}
 ): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
   try {
     if (!query || query.trim() === '') {
@@ -221,10 +233,12 @@ export async function searchClientesPaginated(
     }
 
     // La búsqueda usa un RPC que no admite filtros adicionales,
-    // así que el filtro de embajadoras se aplica sobre el resultado ya obtenido de la BD.
-    const filteredData = filtros.soloEmbajadoras
-      ? (allData ?? []).filter((row: any) => row.embajadora === true)
-      : (allData ?? [])
+    // así que los filtros de clasificación se aplican sobre el resultado ya obtenido de la BD.
+    let filteredData = allData ?? []
+    if (filtros.soloEmbajadoras) filteredData = filteredData.filter((row: any) => row.embajadora === true)
+    if (filtros.soloVetadas) filteredData = filteredData.filter((row: any) => row.es_vetado === true)
+    if (filtros.soloProblematicas) filteredData = filteredData.filter((row: any) => row.es_problematico === true)
+    if (filtros.soloDescuento) filteredData = filteredData.filter((row: any) => row.es_descuento === true)
 
     const total = filteredData.length
     const totalPages = Math.ceil(total / pageSize)
@@ -525,6 +539,75 @@ export async function updateClienteEmbajadora(
     return { success: true }
   } catch (error: any) {
     console.error('Error inesperado actualizando embajadora:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Alternar el estado de vetado de un cliente
+export async function updateClienteVetado(
+  clienteId: string,
+  esVetado: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('clientes')
+      .update({ es_vetado: esVetado })
+      .eq('id', clienteId)
+
+    if (error) {
+      console.error('Error actualizando es_vetado:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando es_vetado:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Alternar el estado de problemático de un cliente
+export async function updateClienteProblematico(
+  clienteId: string,
+  esProblematico: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('clientes')
+      .update({ es_problematico: esProblematico })
+      .eq('id', clienteId)
+
+    if (error) {
+      console.error('Error actualizando es_problematico:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando es_problematico:', error)
+    return { success: false, error: error.message || 'Error desconocido' }
+  }
+}
+
+// Alternar el estado de descuento de un cliente
+export async function updateClienteDescuento(
+  clienteId: string,
+  esDescuento: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('clientes')
+      .update({ es_descuento: esDescuento })
+      .eq('id', clienteId)
+
+    if (error) {
+      console.error('Error actualizando es_descuento:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error inesperado actualizando es_descuento:', error)
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }

@@ -135,6 +135,9 @@ export type Database = {
           sucursal_preferida: string | null
           estado: 'activo' | 'inactivo' | 'vip'
           embajadora: boolean | null
+          es_vetado: boolean | null
+          es_problematico: boolean | null
+          es_descuento: boolean | null
           created_at: string
           updated_at: string
         }
@@ -159,6 +162,9 @@ export type Database = {
           sucursal_preferida?: string | null
           estado?: 'activo' | 'inactivo' | 'vip'
           embajadora?: boolean | null
+          es_vetado?: boolean | null
+          es_problematico?: boolean | null
+          es_descuento?: boolean | null
           created_at?: string
           updated_at?: string
         }
@@ -183,6 +189,9 @@ export type Database = {
           sucursal_preferida?: string | null
           estado?: 'activo' | 'inactivo' | 'vip'
           embajadora?: boolean | null
+          es_vetado?: boolean | null
+          es_problematico?: boolean | null
+          es_descuento?: boolean | null
           created_at?: string
           updated_at?: string
         }

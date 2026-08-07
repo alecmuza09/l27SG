@@ -21,7 +21,14 @@ import {
   Loader2,
   Star,
 } from "lucide-react"
-import { getClienteById, updateClienteEmbajadora, type Cliente } from "@/lib/data/clientes"
+import {
+  getClienteById,
+  updateClienteEmbajadora,
+  updateClienteVetado,
+  updateClienteProblematico,
+  updateClienteDescuento,
+  type Cliente,
+} from "@/lib/data/clientes"
 import { getCitasByClienteIdFromDB, type Cita } from "@/lib/data/citas"
 import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
@@ -36,6 +43,9 @@ function ClienteDetailContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isUpdatingEmbajadora, setIsUpdatingEmbajadora] = useState(false)
+  const [updatingClasificacion, setUpdatingClasificacion] = useState<
+    "vetado" | "problematico" | "descuento" | null
+  >(null)
   const currentUser = getCurrentUser()
   const isManager = currentUser?.role === 'manager'
   const isAdmin = isGlobalAdministrator(currentUser)
@@ -58,6 +68,66 @@ function ClienteDetailContent() {
       toast.error("Error inesperado al actualizar embajadora")
     } finally {
       setIsUpdatingEmbajadora(false)
+    }
+  }
+
+  const handleToggleVetado = async () => {
+    if (!cliente || !isAdmin || updatingClasificacion) return
+    const nuevoValor = !cliente.esVetado
+    setUpdatingClasificacion("vetado")
+    try {
+      const result = await updateClienteVetado(cliente.id, nuevoValor)
+      if (result.success) {
+        setCliente({ ...cliente, esVetado: nuevoValor })
+        toast.success(nuevoValor ? "Cliente marcado como vetada" : "Cliente ya no está vetada")
+      } else {
+        toast.error(`Error al actualizar vetado: ${result.error}`)
+      }
+    } catch (err) {
+      console.error("Error actualizando es_vetado:", err)
+      toast.error("Error inesperado al actualizar vetado")
+    } finally {
+      setUpdatingClasificacion(null)
+    }
+  }
+
+  const handleToggleProblematico = async () => {
+    if (!cliente || !isAdmin || updatingClasificacion) return
+    const nuevoValor = !cliente.esProblematico
+    setUpdatingClasificacion("problematico")
+    try {
+      const result = await updateClienteProblematico(cliente.id, nuevoValor)
+      if (result.success) {
+        setCliente({ ...cliente, esProblematico: nuevoValor })
+        toast.success(nuevoValor ? "Cliente marcado como problemática" : "Cliente ya no es problemática")
+      } else {
+        toast.error(`Error al actualizar problemática: ${result.error}`)
+      }
+    } catch (err) {
+      console.error("Error actualizando es_problematico:", err)
+      toast.error("Error inesperado al actualizar problemática")
+    } finally {
+      setUpdatingClasificacion(null)
+    }
+  }
+
+  const handleToggleDescuento = async () => {
+    if (!cliente || !isAdmin || updatingClasificacion) return
+    const nuevoValor = !cliente.esDescuento
+    setUpdatingClasificacion("descuento")
+    try {
+      const result = await updateClienteDescuento(cliente.id, nuevoValor)
+      if (result.success) {
+        setCliente({ ...cliente, esDescuento: nuevoValor })
+        toast.success(nuevoValor ? "Cliente marcado con descuento" : "Cliente ya no tiene descuento")
+      } else {
+        toast.error(`Error al actualizar descuento: ${result.error}`)
+      }
+    } catch (err) {
+      console.error("Error actualizando es_descuento:", err)
+      toast.error("Error inesperado al actualizar descuento")
+    } finally {
+      setUpdatingClasificacion(null)
     }
   }
 
@@ -163,8 +233,65 @@ function ClienteDetailContent() {
               {cliente.embajadora && (
                 <Badge className="bg-yellow-400 text-yellow-950 hover:bg-yellow-400">Embajadora</Badge>
               )}
+              {isAdmin && cliente.esVetado && (
+                <Badge className="bg-red-600 text-white hover:bg-red-600">🚫 Vetada</Badge>
+              )}
+              {isAdmin && cliente.esProblematico && (
+                <Badge className="bg-orange-500 text-white hover:bg-orange-500">⚠️ Problemática</Badge>
+              )}
+              {isAdmin && cliente.esDescuento && (
+                <Badge className="bg-blue-500 text-white hover:bg-blue-500">% Descuento</Badge>
+              )}
             </div>
             <p className="text-muted-foreground">Perfil del cliente</p>
+            {isAdmin && (
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={cliente.embajadora ? "default" : "outline"}
+                  className={cliente.embajadora ? "bg-yellow-400 text-yellow-950 hover:bg-yellow-400" : "text-muted-foreground"}
+                  onClick={handleToggleEmbajadora}
+                  disabled={isUpdatingEmbajadora}
+                >
+                  {isUpdatingEmbajadora ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Star className="mr-1 h-3.5 w-3.5" />}
+                  Embajadora
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={cliente.esVetado ? "default" : "outline"}
+                  className={cliente.esVetado ? "bg-red-600 text-white hover:bg-red-600" : "text-muted-foreground"}
+                  onClick={handleToggleVetado}
+                  disabled={updatingClasificacion !== null}
+                >
+                  {updatingClasificacion === "vetado" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : "🚫"}
+                  <span className="ml-1">Vetada</span>
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={cliente.esProblematico ? "default" : "outline"}
+                  className={cliente.esProblematico ? "bg-orange-500 text-white hover:bg-orange-500" : "text-muted-foreground"}
+                  onClick={handleToggleProblematico}
+                  disabled={updatingClasificacion !== null}
+                >
+                  {updatingClasificacion === "problematico" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : "⚠️"}
+                  <span className="ml-1">Problemática</span>
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={cliente.esDescuento ? "default" : "outline"}
+                  className={cliente.esDescuento ? "bg-blue-500 text-white hover:bg-blue-500" : "text-muted-foreground"}
+                  onClick={handleToggleDescuento}
+                  disabled={updatingClasificacion !== null}
+                >
+                  {updatingClasificacion === "descuento" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : "%"}
+                  <span className="ml-1">Descuento</span>
+                </Button>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex gap-2">

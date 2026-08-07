@@ -5,6 +5,8 @@ export interface Cita {
   clienteId: string
   clienteNombre: string
   clienteEmbajadora?: boolean
+  clienteVetado?: boolean
+  clienteProblematico?: boolean
   empleadoId: string
   empleadoNombre: string
   servicioId: string
@@ -271,13 +273,15 @@ function normalizarHora(hora: string): string {
 }
 
 // Función helper para transformar datos de la BD al formato de la interfaz
-function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string; embajadora?: boolean | null }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }, sucursal?: { nombre: string }): Cita {
+function transformCita(cita: CitaRow, cliente?: { nombre: string; apellido: string; embajadora?: boolean | null; es_vetado?: boolean | null; es_problematico?: boolean | null }, servicio?: { nombre: string }, empleado?: { nombre: string; apellido: string }, sucursal?: { nombre: string }): Cita {
   const { notas, creadoPor, modificadoPor } = parsearNotasMeta(cita.notas)
   return {
     id: cita.id,
     clienteId: cita.cliente_id,
     clienteNombre: cliente ? `${cliente.nombre} ${cliente.apellido}` : 'Cliente desconocido',
     clienteEmbajadora: cliente?.embajadora ?? false,
+    clienteVetado: cliente?.es_vetado ?? false,
+    clienteProblematico: cliente?.es_problematico ?? false,
     empleadoId: cita.empleado_id,
     empleadoNombre: empleado ? `${empleado.nombre} ${empleado.apellido}` : 'Empleado desconocido',
     servicioId: cita.servicio_id,
@@ -307,7 +311,7 @@ export async function getCitasByDateAndSucursalFromDB(fecha: string, sucursalId:
       .from('citas')
       .select(`
         *,
-        cliente:clientes(nombre, apellido, embajadora),
+        cliente:clientes(nombre, apellido, embajadora, es_vetado, es_problematico),
         servicio:servicios(nombre),
         empleado:empleados(nombre, apellido)
       `)
@@ -345,7 +349,7 @@ export async function getCitasByDateAndSucursalesFromDB(fecha: string, sucursalI
       .from("citas")
       .select(`
         *,
-        cliente:clientes(nombre, apellido, embajadora),
+        cliente:clientes(nombre, apellido, embajadora, es_vetado, es_problematico),
         servicio:servicios(nombre),
         empleado:empleados(nombre, apellido)
       `)
@@ -375,7 +379,7 @@ export async function getCitasByEmpleadoAndDateFromDB(empleadoId: string, fecha:
       .from('citas')
       .select(`
         *,
-        cliente:clientes(nombre, apellido, embajadora),
+        cliente:clientes(nombre, apellido, embajadora, es_vetado, es_problematico),
         servicio:servicios(nombre),
         empleado:empleados(nombre, apellido)
       `)
@@ -411,7 +415,7 @@ export async function getCitasByClienteIdFromDB(clienteId: string): Promise<Cita
       .from('citas')
       .select(`
         *,
-        cliente:clientes(nombre, apellido, embajadora),
+        cliente:clientes(nombre, apellido, embajadora, es_vetado, es_problematico),
         servicio:servicios(nombre),
         empleado:empleados(nombre, apellido),
         sucursal:sucursales(nombre)
