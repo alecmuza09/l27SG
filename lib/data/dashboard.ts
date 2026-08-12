@@ -338,6 +338,70 @@ export async function getServiciosPopulares(
   }
 }
 
+export interface ServicioPorEmpleado {
+  nombre: string
+  cantidad: number
+  ingresos: number
+}
+
+// Obtener el desglose de servicios realizados por un empleado en un período (para reportes)
+export async function getServiciosPorEmpleadoFromDB(
+  empleadoId: string,
+  fechaDesde: string,
+  fechaHasta: string,
+  sucursalIds?: string | string[],
+): Promise<ServicioPorEmpleado[]> {
+  try {
+    let citasQuery = supabase
+      .from('citas')
+      .select(`
+        precio,
+        servicio:servicios(nombre)
+      `)
+      .eq('empleado_id', empleadoId)
+      .eq('estado', 'completada')
+      .not('servicio_id', 'is', null)
+      .gte('fecha', fechaDesde)
+      .lte('fecha', fechaHasta)
+
+    if (Array.isArray(sucursalIds)) {
+      if (sucursalIds.length > 0) citasQuery = citasQuery.in('sucursal_id', sucursalIds)
+    } else if (sucursalIds) {
+      citasQuery = citasQuery.eq('sucursal_id', sucursalIds)
+    }
+
+    const { data: citas, error } = await citasQuery
+
+    if (error) {
+      console.error('Error obteniendo servicios por empleado:', error)
+      return []
+    }
+
+    if (!citas || citas.length === 0) return []
+
+    const serviciosMap = new Map<string, { cantidad: number; ingresos: number }>()
+
+    citas.forEach((cita: any) => {
+      const nombre = cita.servicio?.nombre || 'Servicio desconocido'
+      const precio = Number(cita.precio || 0)
+      const prev = serviciosMap.get(nombre)
+      if (prev) {
+        prev.cantidad++
+        prev.ingresos += precio
+      } else {
+        serviciosMap.set(nombre, { cantidad: 1, ingresos: precio })
+      }
+    })
+
+    return Array.from(serviciosMap.entries())
+      .map(([nombre, v]) => ({ nombre, cantidad: v.cantidad, ingresos: v.ingresos }))
+      .sort((a, b) => b.cantidad - a.cantidad)
+  } catch (error) {
+    console.error('Error inesperado obteniendo servicios por empleado:', error)
+    return []
+  }
+}
+
 // Obtener resumen por sucursal
 export async function getResumenSucursales(sucursalId?: string): Promise<Array<{ nombre: string; ingresos: number; citas: number; tendencia: string }>> {
   try {

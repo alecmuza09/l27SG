@@ -29,7 +29,9 @@ import {
   getTopEmpleadosFromDB,
   getCitasResumenPeriodo,
   getMetricasSucursales,
+  getServiciosPorEmpleadoFromDB,
   type MetricaSucursal,
+  type ServicioPorEmpleado,
 } from "@/lib/data/dashboard"
 import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
@@ -40,7 +42,7 @@ import { supabase } from "@/lib/supabase/client"
 
 interface VentaDia        { etiqueta: string; fecha: string; ventas: number; ventasAnt: number }
 interface ServicioRow     { name: string; cantidad: number; ingresos: number; pctTotal: number }
-interface EmpleadoRow     { nombre: string; apellido: string; sucursal: string; servicios: number; ingresos: number; comision: number; ocupacion: number }
+interface EmpleadoRow     { empleadoId: string; nombre: string; apellido: string; sucursal: string; servicios: number; ingresos: number; comision: number; ocupacion: number }
 interface PropinaEmpleadaRow { empleadoId: string; nombre: string; totalPropinas: number; cobros: number; promedio: number }
 interface RendimientoEmpleadaPdfRow { nombre: string; servicios: number; ingresos: number; propinas: number; ticketPromedio: number }
 interface GiftCardVentaPdfRow { codigo: string; cliente: string; monto: number; metodo: string; fecha: string; sucursal: string }
@@ -1898,6 +1900,9 @@ export default function ReportesPage() {
   const [serviciosMasVendidos, setServiciosMasVendidos] = useState<ServicioRow[]>([])
   const [empleadosTop,         setEmpleadosTop]         = useState<EmpleadoRow[]>([])
   const [todasEmpleadasNomina, setTodasEmpleadasNomina] = useState<EmpleadoRow[]>([])
+  const [empleadoExpandidoId,  setEmpleadoExpandidoId]  = useState<string | null>(null)
+  const [empleadoServicios,    setEmpleadoServicios]    = useState<Record<string, ServicioPorEmpleado[]>>({})
+  const [isLoadingEmpleadoServicios, setIsLoadingEmpleadoServicios] = useState(false)
   const [propinasEmpleadas,    setPropinasEmpleadas]    = useState<PropinaEmpleadaRow[]>([])
   const [clientesStats,        setClientesStats]        = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
   const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
@@ -2113,6 +2118,7 @@ export default function ReportesPage() {
       })))
 
       setEmpleadosTop(empleados.map(e => ({
+        empleadoId: e.empleadoId,
         nombre: e.nombre, apellido: e.apellido,
         sucursal: e.sucursalNombre,
         servicios: e.citas, ingresos: e.ingresos,
@@ -2120,6 +2126,7 @@ export default function ReportesPage() {
         ocupacion: e.ocupacion,
       })))
       setTodasEmpleadasNomina(todasEmpleadas.map(e => ({
+        empleadoId: e.empleadoId,
         nombre: e.nombre, apellido: e.apellido,
         sucursal: e.sucursalNombre,
         servicios: e.citas, ingresos: e.ingresos,
@@ -2395,6 +2402,36 @@ export default function ReportesPage() {
       else next.add(key)
       return next
     })
+  }
+
+  const toggleEmpleadoDetalle = async (empleadoId: string) => {
+    if (empleadoExpandidoId === empleadoId) {
+      setEmpleadoExpandidoId(null)
+      return
+    }
+    setEmpleadoExpandidoId(empleadoId)
+    if (empleadoServicios[empleadoId]) return
+
+    setIsLoadingEmpleadoServicios(true)
+    try {
+      const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+      const sucId =
+        isAdmin
+          ? (sucursalFilter === "all" ? undefined : sucursalFilter)
+          : sucursalFilter !== "all"
+            ? sucursalFilter
+            : sucursalFija
+      const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
+      const sucursalIds = esMultiBranchAll ? branchIds : sucId
+
+      const detalle = await getServiciosPorEmpleadoFromDB(empleadoId, fechaDesde, fechaHasta, sucursalIds)
+      setEmpleadoServicios(prev => ({ ...prev, [empleadoId]: detalle }))
+    } catch (err) {
+      console.error("Error cargando servicios del empleado:", err)
+      setEmpleadoServicios(prev => ({ ...prev, [empleadoId]: [] }))
+    } finally {
+      setIsLoadingEmpleadoServicios(false)
+    }
   }
 
   const sucNombreActiva = sucursalFilter === "all"
@@ -2899,38 +2936,92 @@ export default function ReportesPage() {
                             </>
                           )}
                           <TableHead className="text-right">Ocupación</TableHead>
+                          <TableHead className="text-center no-print">Ver detalle</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {empleadosTop.map((e, i) => (
-                          <TableRow key={`${e.nombre}-${e.apellido}-${i}`}>
-                            <TableCell className="text-muted-foreground font-mono text-xs">{i + 1}</TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <span className="font-medium">{e.nombre} {e.apellido}</span>
-                                {!isManager && (
-                                  <BarraHorizontal
-                                    valor={e.ingresos}
-                                    max={maxEmpleado}
-                                    gradientClass={BARRA_AZUL_GRADIENT}
-                                  />
+                        {empleadosTop.map((e, i) => {
+                          const expandido = empleadoExpandidoId === e.empleadoId
+                          const empleadosColSpan = 4 + (isAdmin ? 1 : 0) + (!isManager ? 2 : 0)
+                          const detalle = empleadoServicios[e.empleadoId]
+                          return (
+                            <Fragment key={`${e.empleadoId}-${i}`}>
+                              <TableRow>
+                                <TableCell className="text-muted-foreground font-mono text-xs">{i + 1}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    <span className="font-medium">{e.nombre} {e.apellido}</span>
+                                    {!isManager && (
+                                      <BarraHorizontal
+                                        valor={e.ingresos}
+                                        max={maxEmpleado}
+                                        gradientClass={BARRA_AZUL_GRADIENT}
+                                      />
+                                    )}
+                                  </div>
+                                </TableCell>
+                                {isAdmin && (
+                                  <TableCell className="text-muted-foreground text-sm">{e.sucursal}</TableCell>
                                 )}
-                              </div>
-                            </TableCell>
-                            {isAdmin && (
-                              <TableCell className="text-muted-foreground text-sm">{e.sucursal}</TableCell>
-                            )}
-                            {!isManager && (
-                              <>
-                                <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(e.ingresos)}</TableCell>
-                                <TableCell className="text-right tabular-nums text-green-600 font-semibold">{fmtMXN(e.comision)}</TableCell>
-                              </>
-                            )}
-                            <TableCell className="text-right">
-                              <BadgeOcupacion pct={e.ocupacion} />
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                                {!isManager && (
+                                  <>
+                                    <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(e.ingresos)}</TableCell>
+                                    <TableCell className="text-right tabular-nums text-green-600 font-semibold">{fmtMXN(e.comision)}</TableCell>
+                                  </>
+                                )}
+                                <TableCell className="text-right">
+                                  <BadgeOcupacion pct={e.ocupacion} />
+                                </TableCell>
+                                <TableCell className="text-center no-print">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => toggleEmpleadoDetalle(e.empleadoId)}
+                                    disabled={!e.empleadoId}
+                                  >
+                                    {expandido ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                              {expandido && (
+                                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                  <TableCell colSpan={empleadosColSpan} className="p-0">
+                                    <div className="p-4">
+                                      {isLoadingEmpleadoServicios && !detalle ? (
+                                        <div className="space-y-2">
+                                          {Array.from({ length: 3 }).map((_, j) => (
+                                            <div key={j} className="h-8 rounded bg-muted animate-pulse" />
+                                          ))}
+                                        </div>
+                                      ) : !detalle || detalle.length === 0 ? (
+                                        <p className="text-center py-4 text-sm text-muted-foreground">Sin servicios registrados en este período</p>
+                                      ) : (
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>Servicio</TableHead>
+                                              <TableHead className="text-right">Cantidad</TableHead>
+                                              <TableHead className="text-right">Ingresos</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {detalle.map(s => (
+                                              <TableRow key={s.nombre}>
+                                                <TableCell className="text-sm">{s.nombre}</TableCell>
+                                                <TableCell className="text-right text-sm tabular-nums">{s.cantidad}</TableCell>
+                                                <TableCell className="text-right text-sm tabular-nums font-semibold">{fmtMXN(s.ingresos)}</TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>
