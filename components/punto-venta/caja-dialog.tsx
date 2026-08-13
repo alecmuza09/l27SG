@@ -30,6 +30,7 @@ import {
 import { updateCitaEstado } from "@/lib/data/citas"
 import { supabase } from "@/lib/supabase/client"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
 
 // ─── Tipos internos ────────────────────────────────────────────────────────
 
@@ -150,6 +151,13 @@ export function CajaDialog({
   // ── Sucursal ───────────────────────────────────────────────────────────
   const [sucursalId, setSucursalId] = useState("")
 
+  // Sucursal(es) a la(s) que el usuario actual tiene acceso — usada para
+  // pre-seleccionar su propia sucursal y, si aplica, ocultar el selector.
+  const currentUser = getCurrentUser()
+  const isAdminGlobal = isGlobalAdministrator(currentUser)
+  const userSucursalIds = collectEffectiveSucursalIds(currentUser)
+  const propiaSucursalId = effectivePrimarySucursalId(currentUser)
+
   // ── Carrito ────────────────────────────────────────────────────────────
   const [cart, setCart]               = useState<CartItem[]>([])
   const [searchServicio, setSearchServicio] = useState("")
@@ -247,9 +255,22 @@ export function CajaDialog({
         setClientes(cls)
         setServicios(svcs)
         setProductos(prods.filter(p => p.disponibleVenta === true))
-        setSucursales(sucs)
-        // Auto-seleccionar: prioriza la sucursal del padre, sino la única disponible
-        if (!sucursalIdInicial && sucs.length === 1) setSucursalId(sucs[0].id)
+
+        // No-admins solo ven/eligen entre sus propias sucursales asignadas.
+        const sucursalesDisponibles = !isAdminGlobal && userSucursalIds.length > 0
+          ? sucs.filter(s => userSucursalIds.includes(s.id))
+          : sucs
+        setSucursales(sucursalesDisponibles)
+
+        // Auto-seleccionar: prioriza la sucursal explícita del padre, luego la
+        // propia sucursal del usuario, y si no aplica, la única disponible.
+        if (!sucursalIdInicial) {
+          if (propiaSucursalId && sucursalesDisponibles.some(s => s.id === propiaSucursalId)) {
+            setSucursalId(propiaSucursalId)
+          } else if (sucursalesDisponibles.length === 1) {
+            setSucursalId(sucursalesDisponibles[0].id)
+          }
+        }
       })
       .catch(() => toast.error("Error cargando datos"))
       .finally(() => setIsLoadingData(false))
@@ -819,14 +840,20 @@ export function CajaDialog({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label className="text-[10px] font-semibold uppercase text-muted-foreground">Sucursal *</Label>
-                    <select
-                      value={sucursalId}
-                      onChange={e => setSucursalId(e.target.value)}
-                      className="w-full h-8 mt-0.5 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                    >
-                      <option value="">Seleccionar…</option>
-                      {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-                    </select>
+                    {sucursales.length <= 1 ? (
+                      <div className="w-full h-8 mt-0.5 rounded-md border border-input bg-muted/40 px-2 text-sm flex items-center text-muted-foreground truncate">
+                        {sucursales.find(s => s.id === sucursalId)?.nombre ?? "—"}
+                      </div>
+                    ) : (
+                      <select
+                        value={sucursalId}
+                        onChange={e => setSucursalId(e.target.value)}
+                        className="w-full h-8 mt-0.5 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="">Seleccionar…</option>
+                        {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                      </select>
+                    )}
                   </div>
                   {/* Búsqueda de cliente */}
                   <div ref={clienteRef} className="relative">
