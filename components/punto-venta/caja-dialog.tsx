@@ -21,7 +21,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { getClientes, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
-import { getProductosInventarioFromDB, type ProductoInventario } from "@/lib/data/inventario"
+import { getProductosInventarioFromDB, descontarStockPorVenta, type ProductoInventario } from "@/lib/data/inventario"
 import {
   registrarPago, validarCuponByCode, validarGiftCard,
   getHistorialClienteFromDB, getGiftCardActivaClienteFromDB, getSaldoPendienteClienteFromDB,
@@ -87,6 +87,13 @@ const fmtMXN = (n: number) =>
 
 const fmtFecha = (iso: string) =>
   new Date(iso + "T12:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short" })
+
+// Sólo productos reales del catálogo (no personalizados) descuentan stock de la sucursal.
+function itemsProductoParaDescontarStock(cart: { id: string; tipo: string; cantidad: number }[]) {
+  return cart
+    .filter((i) => i.tipo === "producto" && !i.id.startsWith("custom-"))
+    .map((i) => ({ productoId: i.id, cantidad: i.cantidad }))
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────
 
@@ -517,6 +524,14 @@ export function CajaDialog({
     const citasIds = cart.filter(i => i.tipo === "servicio" && i.citaId).map(i => i.citaId!)
     await Promise.all(citasIds.map(id => updateCitaEstado(id, "completada", true)))
 
+    // Descontar stock de productos vendidos como cortesía (no bloquea la venta si falla)
+    const itemsProducto = itemsProductoParaDescontarStock(cart)
+    if (itemsProducto.length > 0) {
+      descontarStockPorVenta(sucursalId, itemsProducto).catch((err) =>
+        console.error("Error descontando stock por cortesía:", err),
+      )
+    }
+
     toast.success("Cortesía registrada", {
       description: `${cart.length} servicio(s) registrado(s) como cortesía`,
     })
@@ -736,6 +751,14 @@ export function CajaDialog({
           .update({ cliente_id: clienteId })
           .eq("id", gcPagoId)
       }
+    }
+
+    // Descontar stock de productos vendidos en esta sucursal (no bloquea la venta si falla)
+    const itemsProducto = itemsProductoParaDescontarStock(cart)
+    if (itemsProducto.length > 0) {
+      descontarStockPorVenta(sucursalId, itemsProducto).catch((err) =>
+        console.error("Error descontando stock por venta:", err),
+      )
     }
 
     toast.success("¡Cobro registrado!", {

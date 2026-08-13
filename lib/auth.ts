@@ -202,10 +202,19 @@ export const SAN_JERONIMO_ALLOWED_ROUTE_PREFIXES = [
   "/dashboard/vacaciones",
   "/dashboard/ausencias",
   "/dashboard/reportes",
+  "/dashboard/inventario/sucursal",
 ] as const
 
 export function pathnameAllowedForSanJeronimoUser(pathname: string): boolean {
   return SAN_JERONIMO_ALLOWED_ROUTE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   )
+}
+
+/**
+ * Habilitado para cualquier usuario con una sucursal asignada (todas las sucursales).
+ * Usado para mostrar/permitir el módulo de stock por sucursal (`/dashboard/inventario/sucursal`).
+ */
+export function usuarioPuedeVerStockSucursal(user: User | null): boolean {
+  return !!effectivePrimarySucursalId(user)
 }

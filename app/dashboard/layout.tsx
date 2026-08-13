@@ -7,7 +7,13 @@ import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Loader2 } from "lucide-react"
-import { refreshSession, collectEffectiveSucursalIds, isSanJeronimoRestrictedNavUser, pathnameAllowedForSanJeronimoUser } from "@/lib/auth"
+import {
+  refreshSession,
+  collectEffectiveSucursalIds,
+  isSanJeronimoRestrictedNavUser,
+  pathnameAllowedForSanJeronimoUser,
+  usuarioPuedeVerStockSucursal,
+} from "@/lib/auth"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
 
 // Catálogo y configuración global: sólo admin / superadmin
@@ -17,6 +23,9 @@ const GLOBAL_ADMIN_ONLY_ROUTES = [
   "/dashboard/sucursales",
   "/dashboard/promociones",
 ]
+
+// Excepción: stock por sucursal, disponible para cualquier usuario con sucursal asignada (ver lib/auth.ts)
+const INVENTARIO_SUCURSAL_ROUTE = "/dashboard/inventario/sucursal"
 
 // Empleados: admin global superadmin + branch-admin (lectura equipo de su sucursal)
 const EMPLEADOS_ROUTE = "/dashboard/empleados"
@@ -43,9 +52,15 @@ export default function DashboardLayout({
       const branchIds = collectEffectiveSucursalIds(user)
       const managerMultiSucursal = user.role === "manager" && branchIds.length > 1
 
+      const isInventarioSucursalRoute = pathname.startsWith(INVENTARIO_SUCURSAL_ROUTE)
+
       if (!isGlobalAdmin) {
-        const onGlobalStrict = GLOBAL_ADMIN_ONLY_ROUTES.some((r) => pathname.startsWith(r))
+        const onGlobalStrict = GLOBAL_ADMIN_ONLY_ROUTES.some((r) => pathname.startsWith(r)) && !isInventarioSucursalRoute
         if (onGlobalStrict) {
+          router.replace("/dashboard/citas")
+          return
+        }
+        if (isInventarioSucursalRoute && !usuarioPuedeVerStockSucursal(user)) {
           router.replace("/dashboard/citas")
           return
         }

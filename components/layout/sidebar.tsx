@@ -24,7 +24,12 @@ import {
   FileSpreadsheet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { logout, getCurrentUser, isSanJeronimoRestrictedNavUser } from "@/lib/auth"
+import {
+  logout,
+  getCurrentUser,
+  isSanJeronimoRestrictedNavUser,
+  usuarioPuedeVerStockSucursal,
+} from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { canAccessVacacionesModule, userIsSucursalScopedLike } from "@/lib/auth-vacaciones"
 
@@ -94,10 +99,17 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const sanJerRestrictedMenu =
     !isGlobalAdmin && isSanJeronimoRestrictedNavUser(currentUser)
 
+  // Inventario > Stock por sucursal: visible para cualquier usuario con sucursal asignada (ver lib/auth.ts)
+  const mostrarStockSucursal = usuarioPuedeVerStockSucursal(currentUser)
+  const stockSucursalNavItem = { name: "Stock Sucursal", href: "/dashboard/inventario/sucursal", icon: Package }
+
   const visibleNav = isGlobalAdmin
     ? navigation
     : sanJerRestrictedMenu
-      ? navigation.filter((i) => SAN_JERONIMO_NAV_HREFS.has(i.href))
+      ? [
+          ...navigation.filter((i) => SAN_JERONIMO_NAV_HREFS.has(i.href)),
+          ...(mostrarStockSucursal ? [stockSucursalNavItem] : []),
+        ]
       : navigation.filter((i) => {
           if (GLOBAL_ADMIN_ONLY.has(i.href)) return false
           if (i.href === "/dashboard/empleados" && currentUser?.role !== "branch-admin") return false
@@ -105,7 +117,7 @@ export function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
           // Reportes oculto para managers (no tienen acceso); branch-admin y superiores sí lo ven
           if (i.href === "/dashboard/reportes" && currentUser?.role === "manager") return false
           return true
-        })
+        }).concat(mostrarStockSucursal ? [stockSucursalNavItem] : [])
   const visibleModules = isGlobalAdmin
     ? newModules
     : sanJerRestrictedMenu

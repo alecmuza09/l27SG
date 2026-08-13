@@ -330,6 +330,55 @@ export async function getStockPorSucursal(sucursalId: string): Promise<ProductoI
   })
 }
 
+// Stock inicial al crear una fila nueva en inventario_stock (cuando aún no existe registro para esa sucursal+producto).
+const STOCK_INICIAL_DEFAULT = 5
+
+// Actualiza un solo campo (stock actual o mínimo) del stock de un producto en una sucursal.
+// Si no existe fila para ese producto+sucursal, la crea usando STOCK_INICIAL_DEFAULT como
+// cantidad inicial (salvo que el campo editado sea justo el stock actual, en cuyo caso se usa el valor dado).
+export async function actualizarCampoStockSucursal(
+  productoId: string,
+  sucursalId: string,
+  campo: 'actual' | 'minimo',
+  valor: number,
+): Promise<{ stockActual: number; stockMinimo: number }> {
+  const { data: existente, error: errSelect } = await supabase
+    .from('inventario_stock')
+    .select('stock_actual, stock_minimo')
+    .eq('producto_id', productoId)
+    .eq('sucursal_id', sucursalId)
+    .maybeSingle()
+
+  if (errSelect) throw errSelect
+
+  if (!existente) {
+    const stockActual = campo === 'actual' ? valor : STOCK_INICIAL_DEFAULT
+    const stockMinimo = campo === 'minimo' ? valor : 0
+
+    const { error } = await supabase.from('inventario_stock').insert({
+      producto_id: productoId,
+      sucursal_id: sucursalId,
+      stock_actual: stockActual,
+      stock_minimo: stockMinimo,
+      updated_at: new Date().toISOString(),
+    })
+    if (error) throw error
+    return { stockActual, stockMinimo }
+  }
+
+  const stockActual = campo === 'actual' ? valor : (existente.stock_actual ?? 0)
+  const stockMinimo = campo === 'minimo' ? valor : (existente.stock_minimo ?? 0)
+
+  const { error } = await supabase
+    .from('inventario_stock')
+    .update({ stock_actual: stockActual, stock_minimo: stockMinimo, updated_at: new Date().toISOString() })
+    .eq('producto_id', productoId)
+    .eq('sucursal_id', sucursalId)
+  if (error) throw error
+
+  return { stockActual, stockMinimo }
+}
+
 // Actualizar stock de un producto en una sucursal (upsert por UNIQUE constraint)
 export async function upsertStock(
   productoId: string,
@@ -351,6 +400,55 @@ export async function upsertStock(
     )
 
   if (error) throw error
+}
+
+// Descontar stock por sucursal al vender productos (cobro espontáneo, etc.)
+// No bloquea la venta: si no existe fila para ese producto+sucursal, se crea con
+// stock_actual = STOCK_INICIAL_DEFAULT y luego se resta (puede quedar negativo, señal de que falta registrar stock).
+export async function descontarStockPorVenta(
+  sucursalId: string,
+  items: { productoId: string; cantidad: number }[],
+): Promise<void> {
+  for (const item of items) {
+    if (!item.productoId || item.cantidad <= 0) continue
+    try {
+      const { data: existente, error: errSelect } = await supabase
+        .from('inventario_stock')
+        .select('stock_actual')
+        .eq('producto_id', item.productoId)
+        .eq('sucursal_id', sucursalId)
+        .maybeSingle()
+
+      if (errSelect) {
+        console.error('Error consultando stock para descuento:', errSelect)
+        continue
+      }
+
+      if (!existente) {
+        const { error: errInsert } = await supabase
+          .from('inventario_stock')
+          .insert({
+            producto_id: item.productoId,
+            sucursal_id: sucursalId,
+            stock_actual: STOCK_INICIAL_DEFAULT - item.cantidad,
+            stock_minimo: 0,
+            updated_at: new Date().toISOString(),
+          })
+        if (errInsert) console.error('Error creando stock para descuento:', errInsert)
+        continue
+      }
+
+      const nuevoStock = (existente.stock_actual ?? 0) - item.cantidad
+      const { error: errUpdate } = await supabase
+        .from('inventario_stock')
+        .update({ stock_actual: nuevoStock, updated_at: new Date().toISOString() })
+        .eq('producto_id', item.productoId)
+        .eq('sucursal_id', sucursalId)
+      if (errUpdate) console.error('Error actualizando stock para descuento:', errUpdate)
+    } catch (error) {
+      console.error('Error inesperado descontando stock por venta:', error)
+    }
+  }
 }
 
 // Obtener productos próximos a vencer desde BD
