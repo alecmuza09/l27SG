@@ -1543,37 +1543,40 @@ export function CajaDialog({
                     <span className="text-[10px] text-red-700">Falta asignar: {fmtMXN(faltante)}</span>
                   </div>
                 )}
-                <div className="flex gap-2 pt-1">
-                  <Button variant="outline" className="h-9 text-sm" onClick={() => onOpenChange(false)} disabled={isCobrandо}>
+                <div className="flex gap-1 pt-1 items-center">
+                  <Button variant="outline" size="sm" className="h-8 px-2 text-xs shrink-0" onClick={() => onOpenChange(false)} disabled={isCobrandо}>
                     Cancelar
                   </Button>
                   <Button
                     variant="outline"
-                    className="h-9 text-sm border-pink-300 text-pink-700 hover:bg-pink-50 gap-1.5"
+                    size="sm"
+                    className="h-8 px-2 text-xs shrink-0 border-pink-300 text-pink-700 hover:bg-pink-50 gap-1"
                     onClick={handleCortesia}
                     disabled={isCobrandо || cart.length === 0 || !clienteId || !sucursalId}
                     title="Registrar como cortesía (sin cobro)"
                   >
-                    <Heart className="h-4 w-4" />
+                    <Heart className="h-3.5 w-3.5" />
                     Cortesía
                   </Button>
                   <Button
                     variant="outline"
-                    className="h-9 text-sm border-teal-300 text-teal-700 hover:bg-teal-50 gap-1.5"
+                    size="sm"
+                    className="h-8 px-2 text-xs shrink-0 border-teal-300 text-teal-700 hover:bg-teal-50 gap-1"
                     onClick={handleGarantia}
                     disabled={isCobrandо || cart.length === 0 || !clienteId || !sucursalId}
                     title="Registrar como garantía (sin cobro)"
                   >
-                    <ShieldCheck className="h-4 w-4" />
+                    <ShieldCheck className="h-3.5 w-3.5" />
                     Garantía
                   </Button>
                   <Button
-                    className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                    size="sm"
+                    className="flex-1 min-w-0 h-8 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
                     onClick={handleCobrar}
                     disabled={isCobrandо || cart.length === 0 || faltante > 0.01 || hayErrorMontos}
                   >
-                    {isCobrandо ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    {isCobrandо ? "Registrando…" : "Cobrar"}
+                    {isCobrandо ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /> : <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+                    <span className="truncate">{isCobrandо ? "Registrando…" : "Cobrar"}</span>
                   </Button>
                 </div>
               </div>
