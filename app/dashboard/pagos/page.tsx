@@ -10,6 +10,7 @@ import {
   CreditCard, Banknote, ArrowLeftRight, Plus, ShoppingBag,
   RefreshCw, Receipt, Search, Gift, Loader2, Wallet,
   Eye, Pencil, X, Check, Star, ChevronDown, Trash2, AlertTriangle, MoreVertical,
+  ShieldCheck,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
@@ -69,6 +70,15 @@ async function registrarEliminacionEnLog(params: {
 // ─── helpers ────────────────────────────────────────────────────────────────
 const fmtMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
+
+// Cortesía: creada desde el botón de Caja (descuento_codigo = "CORTESIA") o editada
+// manualmente en el formulario (descuento_tipo = "cortesia").
+const esPagoCortesia = (p: Pick<Pago, "descuentoTipo" | "descuentoCodigo">) =>
+  p.descuentoTipo === "cortesia" || p.descuentoCodigo === "CORTESIA"
+
+// Garantía: creada desde el botón de Caja (descuento_codigo = "GARANTIA").
+const esPagoGarantia = (p: Pick<Pago, "descuentoCodigo">) =>
+  p.descuentoCodigo === "GARANTIA"
 
 // Usa fecha local para que no cambie de día a las 6 PM (UTC−6)
 const hoy = () => {
@@ -147,6 +157,7 @@ export default function PagosPage() {
   const [gastoDialogOpen, setGastoDialogOpen]   = useState(false)
   const [nuevoGasto, setNuevoGasto]             = useState({ descripcion: "", monto: "", categoria: "operativo" })
   const [busqueda, setBusqueda]                 = useState("")
+  const [tipoFiltroCobros, setTipoFiltroCobros] = useState<"todos" | "cortesia" | "garantia">("todos")
   const [busquedaCitas, setBusquedaCitas]       = useState("")
   const [citaDetalle, setCitaDetalle]           = useState<Cita | null>(null)
   const [editandoCita, setEditandoCita]         = useState(false)
@@ -264,15 +275,20 @@ export default function PagosPage() {
     : citasPendientes
 
   const qBusquedaPagos = busqueda.trim().toLowerCase()
-  const pagosFiltrados = qBusquedaPagos
-    ? pagos.filter(p => {
-        const enCliente = p.clienteNombre.toLowerCase().includes(qBusquedaPagos)
-        const enEmp = (p.empleadoNombre ?? "").toLowerCase().includes(qBusquedaPagos)
-        const enServ = (p.servicios ?? []).some(s => s.toLowerCase().includes(qBusquedaPagos))
-        const enRef = (p.referencia ?? "").toLowerCase().includes(qBusquedaPagos)
-        return enCliente || enEmp || enServ || enRef
-      })
-    : pagos
+  const pagosFiltrados = pagos
+    .filter(p => {
+      if (tipoFiltroCobros === "cortesia") return esPagoCortesia(p)
+      if (tipoFiltroCobros === "garantia") return esPagoGarantia(p)
+      return true
+    })
+    .filter(p => {
+      if (!qBusquedaPagos) return true
+      const enCliente = p.clienteNombre.toLowerCase().includes(qBusquedaPagos)
+      const enEmp = (p.empleadoNombre ?? "").toLowerCase().includes(qBusquedaPagos)
+      const enServ = (p.servicios ?? []).some(s => s.toLowerCase().includes(qBusquedaPagos))
+      const enRef = (p.referencia ?? "").toLowerCase().includes(qBusquedaPagos)
+      return enCliente || enEmp || enServ || enRef
+    })
 
   let totalEfectivo = 0
   let totalTarjeta = 0
@@ -1042,15 +1058,27 @@ export default function PagosPage() {
 
           {/* ─── TAB: Cobros ───────────────────────────────────────────────── */}
           <TabsContent value="cobros" className="flex-1 overflow-auto m-0 p-4">
-            {/* Buscador */}
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por cliente o empleada…"
-                value={busqueda}
-                onChange={e => setBusqueda(e.target.value)}
-                className="pl-9 h-9 text-sm"
-              />
+            {/* Buscador + filtro por tipo */}
+            <div className="flex gap-2 mb-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por cliente o empleada…"
+                  value={busqueda}
+                  onChange={e => setBusqueda(e.target.value)}
+                  className="pl-9 h-9 text-sm"
+                />
+              </div>
+              <Select value={tipoFiltroCobros} onValueChange={v => setTipoFiltroCobros(v as typeof tipoFiltroCobros)}>
+                <SelectTrigger className="h-9 text-sm w-[160px] shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos los cobros</SelectItem>
+                  <SelectItem value="cortesia">Cortesía</SelectItem>
+                  <SelectItem value="garantia">Garantía</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="rounded-lg border overflow-hidden">
               <div className="px-4 py-3 bg-muted/40 border-b flex items-center justify-between">
@@ -1104,10 +1132,11 @@ export default function PagosPage() {
                         <TableCell>
                           {(() => {
                             const d = distribuirMontoPago(pago)
-                            const lbl = etiquetaMetodosPago(pago)
                             const isVip = pago.descuentoTipo === "vip_pass"
                             const isGC = !isVip && (!!pago.giftCardCodigo || pago.descuentoTipo === "gift_card")
-                            const isCortesia = pago.descuentoTipo === "cortesia"
+                            const isCortesia = esPagoCortesia(pago)
+                            const isGarantia = !isCortesia && esPagoGarantia(pago)
+                            const lbl = isGarantia ? "Garantía" : etiquetaMetodosPago(pago)
                             const soloOtro = d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009)
                             return (
                               <span className={cn(
@@ -1115,10 +1144,12 @@ export default function PagosPage() {
                                 isVip && "border-amber-300 bg-amber-50 text-amber-700",
                                 isGC && "border-violet-300 bg-violet-50 text-violet-700",
                                 isCortesia && "border-gray-200 bg-gray-50 text-gray-500",
+                                isGarantia && "border-teal-300 bg-teal-50 text-teal-700",
                               )}>
                                 {d.efectivo > 0.009 && <Banknote className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden />}
                                 {d.tarjeta > 0.009 && <CreditCard className="h-3 w-3 text-blue-500 shrink-0" aria-hidden />}
                                 {d.transferencia > 0.009 && <ArrowLeftRight className="h-3 w-3 text-indigo-500 shrink-0" aria-hidden />}
+                                {isGarantia && <ShieldCheck className="h-3 w-3 text-teal-600 shrink-0" aria-hidden />}
                                 {soloOtro && (
                                   isVip
                                     ? <Star className="h-3 w-3 text-amber-500 shrink-0" aria-hidden />
@@ -1126,7 +1157,9 @@ export default function PagosPage() {
                                       ? <Gift className="h-3 w-3 text-violet-500 shrink-0" aria-hidden />
                                       : isCortesia
                                         ? null
-                                        : <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
+                                        : isGarantia
+                                          ? null
+                                          : <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
                                 )}
                                 {isCortesia && !soloOtro && (
                                   <span className="text-gray-400 text-[10px] leading-none">✕</span>
@@ -1589,10 +1622,11 @@ export default function PagosPage() {
                   ) : (
                     (() => {
                       const d = distribuirMontoPago(pagoDetalle)
-                      const lbl = etiquetaMetodosPago(pagoDetalle)
                       const isVip = pagoDetalle.descuentoTipo === "vip_pass"
                       const isGC = !isVip && (!!pagoDetalle.giftCardCodigo || pagoDetalle.descuentoTipo === "gift_card")
-                      const isCortesia = pagoDetalle.descuentoTipo === "cortesia"
+                      const isCortesia = esPagoCortesia(pagoDetalle)
+                      const isGarantia = !isCortesia && esPagoGarantia(pagoDetalle)
+                      const lbl = isGarantia ? "Garantía" : etiquetaMetodosPago(pagoDetalle)
                       const soloOtro = d.otro > 0.009 && !(d.efectivo > 0.009 || d.tarjeta > 0.009 || d.transferencia > 0.009)
                       return (
                         <span className={cn(
@@ -1600,16 +1634,18 @@ export default function PagosPage() {
                           isVip && "border-amber-300 bg-amber-50 text-amber-700",
                           isGC && "border-violet-300 bg-violet-50 text-violet-700",
                           isCortesia && "border-gray-200 bg-gray-50 text-gray-500",
+                          isGarantia && "border-teal-300 bg-teal-50 text-teal-700",
                         )}>
                           {d.efectivo > 0.009 && <Banknote className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden />}
                           {d.tarjeta > 0.009 && <CreditCard className="h-3 w-3 text-blue-500 shrink-0" aria-hidden />}
                           {d.transferencia > 0.009 && <ArrowLeftRight className="h-3 w-3 text-indigo-500 shrink-0" aria-hidden />}
+                          {isGarantia && <ShieldCheck className="h-3 w-3 text-teal-600 shrink-0" aria-hidden />}
                           {soloOtro && (
                             isVip
                               ? <Star className="h-3 w-3 text-amber-500 shrink-0" aria-hidden />
                               : isGC
                                 ? <Gift className="h-3 w-3 text-violet-500 shrink-0" aria-hidden />
-                                : !isCortesia
+                                : !isCortesia && !isGarantia
                                   ? <Wallet className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden />
                                   : null
                           )}

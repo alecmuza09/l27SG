@@ -15,7 +15,7 @@ import {
   Plus, Minus, X, Search, Banknote, CreditCard, ArrowLeftRight,
   CheckCircle2, Loader2, ShoppingCart, User, Tag, Gift, Scissors,
   Package, BadgePercent, Receipt, Clock, Star, AlertTriangle,
-  Sparkles, Wallet, History, TrendingDown, Heart, Crown,
+  Sparkles, Wallet, History, TrendingDown, Heart, Crown, ShieldCheck,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -581,6 +581,59 @@ export function CajaDialog({
 
     toast.success("Cortesía registrada", {
       description: `${cart.length} servicio(s) registrado(s) como cortesía`,
+    })
+    onPagoCompletado?.(0)
+    onOpenChange(false)
+  }
+
+  // ── Garantía ──────────────────────────────────────────────────────────
+  const handleGarantia = async () => {
+    if (cart.length === 0) { toast.error("Agrega al menos un servicio o producto"); return }
+    if (!clienteId) { toast.error("Selecciona un cliente"); return }
+    if (!sucursalId) { toast.error("Selecciona una sucursal"); return }
+
+    const confirmado = window.confirm("¿Registrar este cobro como Garantía?")
+    if (!confirmado) return
+
+    setIsCobrando(true)
+    const empleadoPrincipal = cart.find(i => i.tipo === "servicio" && i.empleadoId)?.empleadoId ?? null
+    const serviciosNombre = cart.map(i => `${i.nombre} x${i.cantidad}`).join(", ")
+
+    const res = await registrarPago({
+      citaId: null,
+      clienteId,
+      empleadoId: empleadoPrincipal as any,
+      sucursalId,
+      servicioNombre: serviciosNombre,
+      subtotal,
+      descuentoMonto: subtotal,
+      descuentoTipo: "manual",
+      descuentoCodigo: "GARANTIA",
+      propina: 0,
+      total: 0,
+      metodoPago: "otro",
+      montoEfectivo: 0,
+      montoTarjeta: 0,
+      montoGiftCard: 0,
+      notas: `GARANTÍA${notasVenta.trim() ? ` — ${notasVenta.trim()}` : ""}`,
+    })
+
+    setIsCobrando(false)
+    if (!res.success) { toast.error(`Error: ${res.error}`); return }
+
+    const citasIds = cart.filter(i => i.tipo === "servicio" && i.citaId).map(i => i.citaId!)
+    await Promise.all(citasIds.map(id => updateCitaEstado(id, "completada", true)))
+
+    // Descontar stock de productos vendidos como garantía (no bloquea la venta si falla)
+    const itemsProducto = itemsProductoParaDescontarStock(cart)
+    if (itemsProducto.length > 0) {
+      descontarStockPorVenta(sucursalId, itemsProducto).catch((err) =>
+        console.error("Error descontando stock por garantía:", err),
+      )
+    }
+
+    toast.success("Garantía registrada", {
+      description: `${cart.length} servicio(s) registrado(s) como garantía`,
     })
     onPagoCompletado?.(0)
     onOpenChange(false)
@@ -1503,6 +1556,16 @@ export function CajaDialog({
                   >
                     <Heart className="h-4 w-4" />
                     Cortesía
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-9 text-sm border-teal-300 text-teal-700 hover:bg-teal-50 gap-1.5"
+                    onClick={handleGarantia}
+                    disabled={isCobrandо || cart.length === 0 || !clienteId || !sucursalId}
+                    title="Registrar como garantía (sin cobro)"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    Garantía
                   </Button>
                   <Button
                     className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
