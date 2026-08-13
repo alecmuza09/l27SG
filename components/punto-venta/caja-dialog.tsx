@@ -833,15 +833,6 @@ export function CajaDialog({
   const clienteSeleccionado = clientes.find(c => c.id === clienteId)
   const hayMultiMetodo = (efNum > 0 ? 1 : 0) + (tarNum > 0 ? 1 : 0) + (trfNum > 0 ? 1 : 0) + (gcNum > 0 ? 1 : 0) + (vipNum > 0 ? 1 : 0) > 1
 
-  // TODO(debug): quitar una vez confirmado en producción que la lista de
-  // sucursales del selector siempre coincide con el alcance real del usuario.
-  if (open && !isLoadingData) {
-    console.log("[CajaDialog] sucursales en dropdown:", sucursales.map(s => `${s.nombre} (${s.id})`))
-    console.log("[CajaDialog] sucursalId seleccionado:", sucursalId)
-    console.log("[CajaDialog] sucursalIdInicial (prop del padre):", sucursalIdInicial)
-    console.log("[CajaDialog] userSucursalIds (alcance del usuario):", userSucursalIds)
-  }
-
   // ════════════════════════════════════════════════════════════════════════
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
