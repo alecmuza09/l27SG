@@ -29,7 +29,7 @@ import {
 } from "@/lib/data/pagos"
 import { updateCitaEstado } from "@/lib/data/citas"
 import { supabase } from "@/lib/supabase/client"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { getSucursalesActivasFromDB, getSucursalByIdFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
 
 // ─── Tipos internos ────────────────────────────────────────────────────────
@@ -251,15 +251,25 @@ export function CajaDialog({
       getProductosInventarioFromDB(),
       getSucursalesActivasFromDB(),
     ])
-      .then(([cls, svcs, prods, sucs]) => {
+      .then(async ([cls, svcs, prods, sucs]) => {
         setClientes(cls)
         setServicios(svcs)
         setProductos(prods.filter(p => p.disponibleVenta === true))
 
         // No-admins solo ven/eligen entre sus propias sucursales asignadas.
-        const sucursalesDisponibles = !isAdminGlobal && userSucursalIds.length > 0
+        let sucursalesDisponibles = !isAdminGlobal && userSucursalIds.length > 0
           ? sucs.filter(s => userSucursalIds.includes(s.id))
           : sucs
+
+        // Si la sucursal propia del usuario (o la indicada por el padre) no viene
+        // en el listado (p. ej. quedó inactiva o hay un desfase de datos), la
+        // buscamos directamente por ID para no dejar el nombre en blanco.
+        const idAResolver = sucursalIdInicial || propiaSucursalId
+        if (idAResolver && !sucursalesDisponibles.some(s => s.id === idAResolver)) {
+          const faltante = await getSucursalByIdFromDB(idAResolver)
+          if (faltante) sucursalesDisponibles = [...sucursalesDisponibles, faltante]
+        }
+
         setSucursales(sucursalesDisponibles)
 
         // Auto-seleccionar: prioriza la sucursal explícita del padre, luego la
