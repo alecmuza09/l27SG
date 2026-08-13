@@ -221,7 +221,14 @@ export function CajaDialog({
     setReferencia(""); setNotasVenta("")
     setVipPassInput(""); setVipPassId(""); setVipPassCodigo(""); setVipPassSaldo(0)
     setVipPassDiferencia(""); setPagoVipPass("")
-    setSucursalId(sucursalIdInicial || "")
+    // Solo se confía en la sucursal indicada por el padre si el usuario es admin
+    // global o si esa sucursal está dentro de su alcance — evita heredar un valor
+    // ajeno cacheado (p. ej. sessionStorage de otra sesión en el mismo navegador).
+    const sucursalIdInicialValida =
+      sucursalIdInicial && (isAdminGlobal || userSucursalIds.includes(sucursalIdInicial))
+        ? sucursalIdInicial
+        : ""
+    setSucursalId(sucursalIdInicialValida)
     setShowProductoCustom(false); setProductoCustomNombre(""); setProductoCustomPrecio("")
 
     // Pre-cargar citas seleccionadas como items del carrito
@@ -261,10 +268,19 @@ export function CajaDialog({
           ? sucs.filter(s => userSucursalIds.includes(s.id))
           : sucs
 
-        // Si la sucursal propia del usuario (o la indicada por el padre) no viene
-        // en el listado (p. ej. quedó inactiva o hay un desfase de datos), la
-        // buscamos directamente por ID para no dejar el nombre en blanco.
-        const idAResolver = sucursalIdInicial || propiaSucursalId
+        // Solo se usa la sucursal indicada por el padre si es admin global o si
+        // esa sucursal está dentro del alcance del usuario (nunca se confía a
+        // ciegas en el prop — puede venir de un valor cacheado ajeno).
+        const sucursalIdInicialValida =
+          sucursalIdInicial && (isAdminGlobal || userSucursalIds.includes(sucursalIdInicial))
+            ? sucursalIdInicial
+            : ""
+
+        // Si la sucursal propia del usuario (o la indicada por el padre, ya
+        // validada) no viene en el listado (p. ej. quedó inactiva o hay un
+        // desfase de datos), la buscamos directamente por ID para no dejar el
+        // nombre en blanco.
+        const idAResolver = sucursalIdInicialValida || propiaSucursalId
         if (idAResolver && !sucursalesDisponibles.some(s => s.id === idAResolver)) {
           const faltante = await getSucursalByIdFromDB(idAResolver)
           if (faltante) sucursalesDisponibles = [...sucursalesDisponibles, faltante]
@@ -272,9 +288,9 @@ export function CajaDialog({
 
         setSucursales(sucursalesDisponibles)
 
-        // Auto-seleccionar: prioriza la sucursal explícita del padre, luego la
-        // propia sucursal del usuario, y si no aplica, la única disponible.
-        if (!sucursalIdInicial) {
+        // Auto-seleccionar: prioriza la sucursal explícita del padre (validada),
+        // luego la propia sucursal del usuario, y si no aplica, la única disponible.
+        if (!sucursalIdInicialValida) {
           if (propiaSucursalId && sucursalesDisponibles.some(s => s.id === propiaSucursalId)) {
             setSucursalId(propiaSucursalId)
           } else if (sucursalesDisponibles.length === 1) {
@@ -816,6 +832,15 @@ export function CajaDialog({
 
   const clienteSeleccionado = clientes.find(c => c.id === clienteId)
   const hayMultiMetodo = (efNum > 0 ? 1 : 0) + (tarNum > 0 ? 1 : 0) + (trfNum > 0 ? 1 : 0) + (gcNum > 0 ? 1 : 0) + (vipNum > 0 ? 1 : 0) > 1
+
+  // TODO(debug): quitar una vez confirmado en producción que la lista de
+  // sucursales del selector siempre coincide con el alcance real del usuario.
+  if (open && !isLoadingData) {
+    console.log("[CajaDialog] sucursales en dropdown:", sucursales.map(s => `${s.nombre} (${s.id})`))
+    console.log("[CajaDialog] sucursalId seleccionado:", sucursalId)
+    console.log("[CajaDialog] sucursalIdInicial (prop del padre):", sucursalIdInicial)
+    console.log("[CajaDialog] userSucursalIds (alcance del usuario):", userSucursalIds)
+  }
 
   // ════════════════════════════════════════════════════════════════════════
   return (

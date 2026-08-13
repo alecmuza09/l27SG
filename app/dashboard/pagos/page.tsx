@@ -84,9 +84,16 @@ function readStoredFecha(): string {
   return sessionStorage.getItem(PAGOS_FECHA_KEY) || hoy()
 }
 
-function readStoredSucursalId(fallback: string): string {
+// `allowedIds` son los IDs de sucursal a los que el usuario actual tiene acceso.
+// Si el valor cacheado en sessionStorage (de una sesión anterior en este mismo
+// navegador, p. ej. otro usuario o "todas") ya no es válido para este usuario,
+// se ignora y se usa el fallback — evita filtrar por una sucursal ajena.
+function readStoredSucursalId(fallback: string, allowedIds: string[], isAdmin: boolean): string {
   if (typeof window === "undefined") return fallback
-  return sessionStorage.getItem(PAGOS_SUCURSAL_KEY) || fallback
+  const stored = sessionStorage.getItem(PAGOS_SUCURSAL_KEY)
+  if (!stored) return fallback
+  if (isAdmin || stored === "todas") return isAdmin ? stored : fallback
+  return allowedIds.includes(stored) ? stored : fallback
 }
 
 // ─── StatRow helper ──────────────────────────────────────────────────────────
@@ -120,14 +127,15 @@ export default function PagosPage() {
   const [sucursales, setSucursales]             = useState<Sucursal[]>([])
   const [sucursalId, setSucursalId]             = useState<string>(() => {
     const u = getCurrentUser()
+    const isAdminU = isGlobalAdministrator(u)
+    const ids = collectEffectiveSucursalIds(u)
+    const principal = effectivePrimarySucursalId(u)
     const defaultId = (() => {
-      if (isGlobalAdministrator(u)) return "todas"
-      const ids = collectEffectiveSucursalIds(u)
-      const principal = effectivePrimarySucursalId(u)
+      if (isAdminU) return "todas"
       if (ids.length === 0) return principal ?? ""
       return principal && ids.includes(principal) ? principal : ids[0]
     })()
-    return readStoredSucursalId(defaultId)
+    return readStoredSucursalId(defaultId, ids, isAdminU)
   })
   const [citas, setCitas]                       = useState<Cita[]>([])
   const [pagos, setPagos]                       = useState<Pago[]>([])
