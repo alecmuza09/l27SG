@@ -88,6 +88,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { CitasPendientesWarningDialog } from "@/components/empleados/citas-pendientes-warning-dialog"
+import { getCitasPendientesFuturasByEmpleado, esFechaVencidaOProxima, type CitaPendienteResumen } from "@/lib/data/citas-pendientes"
 
 function formatearFechaEmpleadoMX(iso: string | null | undefined) {
   if (!iso) return ""
@@ -119,6 +121,12 @@ export default function EmpleadosPage() {
   const [empleadoToDelete, setEmpleadoToDelete] = useState<Empleado | null>(null)
   const [desactivarDialogOpen, setDesactivarDialogOpen] = useState(false)
   const [empleadoToDesactivar, setEmpleadoToDesactivar] = useState<Empleado | null>(null)
+  const [citasWarningOpen, setCitasWarningOpen] = useState(false)
+  const [citasWarningLista, setCitasWarningLista] = useState<CitaPendienteResumen[]>([])
+  const [citasWarningEmpleadoNombre, setCitasWarningEmpleadoNombre] = useState("")
+  const [citasWarningAccion, setCitasWarningAccion] = useState("")
+  const [citasWarningOnContinuar, setCitasWarningOnContinuar] = useState<(() => void) | null>(null)
+  const [citasWarningChecking, setCitasWarningChecking] = useState(false)
   const [activeTab, setActiveTab] = useState<"activos" | "eliminados" | "inactivas">("activos")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formNuevo, setFormNuevo] = useState({
@@ -281,6 +289,29 @@ export default function EmpleadosPage() {
     if (!fecha) return null
     const diff = new Date(fecha + "T12:00:00").getTime() - new Date().getTime()
     return Math.ceil(diff / 86400000)
+  }
+
+  /** Revisa si el empleado tiene citas pendientes futuras; si las tiene, muestra advertencia antes de proceder. */
+  const checkCitasPendientesYProceder = async (
+    empleado: Empleado,
+    accion: string,
+    proceder: () => void,
+  ) => {
+    setCitasWarningChecking(true)
+    try {
+      const citas = await getCitasPendientesFuturasByEmpleado(empleado.id)
+      if (citas.length > 0) {
+        setCitasWarningLista(citas)
+        setCitasWarningEmpleadoNombre(`${empleado.nombre} ${empleado.apellido}`)
+        setCitasWarningAccion(accion)
+        setCitasWarningOnContinuar(() => proceder)
+        setCitasWarningOpen(true)
+      } else {
+        proceder()
+      }
+    } finally {
+      setCitasWarningChecking(false)
+    }
   }
 
   const handleEliminar = async () => {
@@ -1088,8 +1119,10 @@ export default function EmpleadosPage() {
                                   ? "text-amber-500 hover:text-amber-700"
                                   : "text-muted-foreground hover:text-foreground"}
                                 onClick={() => {
-                                  setEmpleadoToDesactivar(empleado)
-                                  setDesactivarDialogOpen(true)
+                                  void checkCitasPendientesYProceder(empleado, "desactivarla", () => {
+                                    setEmpleadoToDesactivar(empleado)
+                                    setDesactivarDialogOpen(true)
+                                  })
                                 }}
                               >
                                 <UserX className="h-4 w-4" />
@@ -1098,8 +1131,10 @@ export default function EmpleadosPage() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => {
-                                  setEmpleadoToDelete(empleado)
-                                  setDeleteDialogOpen(true)
+                                  void checkCitasPendientesYProceder(empleado, "eliminarla", () => {
+                                    setEmpleadoToDelete(empleado)
+                                    setDeleteDialogOpen(true)
+                                  })
                                 }}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -1222,6 +1257,20 @@ export default function EmpleadosPage() {
         </Card>
       )}
 
+      {/* Advertencia de citas pendientes antes de eliminar/desactivar/vencer contrato */}
+      <CitasPendientesWarningDialog
+        open={citasWarningOpen}
+        onOpenChange={setCitasWarningOpen}
+        empleadoNombre={citasWarningEmpleadoNombre}
+        accion={citasWarningAccion}
+        citas={citasWarningLista}
+        isProcessing={citasWarningChecking}
+        onContinuar={() => {
+          setCitasWarningOpen(false)
+          citasWarningOnContinuar?.()
+        }}
+      />
+
       {/* Diálogo de confirmación de eliminación */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -1320,12 +1369,12 @@ function EditarEmpleadoDialog({
   })
   const [diasTrabajo, setDiasTrabajo] = useState<number[]>(empleado.diasTrabajo || [])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [citasWarningOpen, setCitasWarningOpen] = useState(false)
+  const [citasWarningLista, setCitasWarningLista] = useState<CitaPendienteResumen[]>([])
   const diasSemana = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const guardarCambios = async () => {
     setIsSubmitting(true)
-
     try {
       const result = await updateEmpleado(empleado.id, {
         nombre: formData.nombre,
@@ -1355,6 +1404,26 @@ function EditarEmpleadoDialog({
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    const nuevaFechaContrato = formData.fechaContratoHasta.trim() || null
+    const fechaContratoCambio = nuevaFechaContrato !== (empleado.fechaContratoHasta ?? null)
+
+    if (fechaContratoCambio && nuevaFechaContrato && esFechaVencidaOProxima(nuevaFechaContrato)) {
+      setIsSubmitting(true)
+      const citas = await getCitasPendientesFuturasByEmpleado(empleado.id)
+      setIsSubmitting(false)
+      if (citas.length > 0) {
+        setCitasWarningLista(citas)
+        setCitasWarningOpen(true)
+        return
+      }
+    }
+
+    await guardarCambios()
   }
 
   const toggleDia = (index: number) => {
@@ -1538,6 +1607,19 @@ function EditarEmpleadoDialog({
           )}
         </Button>
       </div>
+
+      <CitasPendientesWarningDialog
+        open={citasWarningOpen}
+        onOpenChange={setCitasWarningOpen}
+        empleadoNombre={`${empleado.nombre} ${empleado.apellido}`}
+        accion="fijar esta fecha de vencimiento de contrato"
+        citas={citasWarningLista}
+        isProcessing={isSubmitting}
+        onContinuar={() => {
+          setCitasWarningOpen(false)
+          void guardarCambios()
+        }}
+      />
     </form>
   )
 }
