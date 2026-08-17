@@ -176,35 +176,55 @@ function agruparVisitasPorFecha(visitas: EmbajadoraReporteRow["visitas"]): Embaj
 }
 
 function calcularPeriodoAnterior(periodo: Periodo, customDesde?: string, customHasta?: string): { fechaDesde: string; fechaHasta: string } {
-  const hoy = new Date()
+  // hoy normalizado al mediodía para evitar corrimientos de un día por husos horarios
+  const hoy = new Date(localFmt(new Date()) + "T12:00:00")
   switch (periodo) {
     case "semana": {
+      // Comparamos contra la misma cantidad de días transcurridos, pero en la semana anterior
+      // (p. ej. lunes–miércoles de esta semana vs. lunes–miércoles de la semana pasada, no la semana completa).
       const diaSemana = hoy.getDay()
       const diasDesdeElLunes = diaSemana === 0 ? 6 : diaSemana - 1
       const lunesEstaSemana = new Date(hoy)
       lunesEstaSemana.setDate(hoy.getDate() - diasDesdeElLunes)
-      const domingo = new Date(lunesEstaSemana)
-      domingo.setDate(lunesEstaSemana.getDate() - 1)
-      const lunesAnterior = new Date(domingo)
-      lunesAnterior.setDate(domingo.getDate() - 6)
-      return { fechaDesde: localFmt(lunesAnterior), fechaHasta: localFmt(domingo) }
+      const diasTranscurridos = Math.round((hoy.getTime() - lunesEstaSemana.getTime()) / 86400000) + 1
+      const lunesSemanaAnterior = new Date(lunesEstaSemana)
+      lunesSemanaAnterior.setDate(lunesEstaSemana.getDate() - 7)
+      const finSemanaAnterior = new Date(lunesSemanaAnterior)
+      finSemanaAnterior.setDate(lunesSemanaAnterior.getDate() + diasTranscurridos - 1)
+      return { fechaDesde: localFmt(lunesSemanaAnterior), fechaHasta: localFmt(finSemanaAnterior) }
     }
     case "mes": {
-      const fin   = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
-      const ini   = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
-      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+      // Comparamos contra la misma cantidad de días del mes anterior, no el mes anterior completo
+      // (p. ej. 1–14 ago vs. 1–14 jul, no 1–31 jul).
+      const diasTranscurridos = hoy.getDate()
+      const ultimoDiaMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0).getDate()
+      const inicioMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
+      const finMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, Math.min(diasTranscurridos, ultimoDiaMesAnterior))
+      return { fechaDesde: localFmt(inicioMesAnterior), fechaHasta: localFmt(finMesAnterior) }
     }
     case "trimestre": {
-      const fin   = new Date(hoy); fin.setMonth(hoy.getMonth() - 3)
-      const ini   = new Date(fin); ini.setMonth(fin.getMonth() - 3)
-      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+      // Los últimos 90 días vs. los 90 días inmediatamente anteriores.
+      const { fechaDesde, fechaHasta } = calcularPeriodo(periodo)
+      const desde = new Date(fechaDesde + "T12:00:00")
+      const hasta = new Date(fechaHasta + "T12:00:00")
+      const dias = Math.round((hasta.getTime() - desde.getTime()) / 86400000) + 1
+      const finAnt = new Date(desde)
+      finAnt.setDate(finAnt.getDate() - 1)
+      const iniAnt = new Date(finAnt)
+      iniAnt.setDate(iniAnt.getDate() - (dias - 1))
+      return { fechaDesde: localFmt(iniAnt), fechaHasta: localFmt(finAnt) }
     }
     case "año": {
-      const fin   = new Date(hoy.getFullYear() - 1, 11, 31)
-      const ini   = new Date(hoy.getFullYear() - 1, 0, 1)
-      return { fechaDesde: localFmt(ini), fechaHasta: localFmt(fin) }
+      // Mismos días transcurridos del año anterior, no el año anterior completo.
+      const inicioAñoActual = new Date(hoy.getFullYear(), 0, 1)
+      const diasTranscurridos = Math.round((hoy.getTime() - inicioAñoActual.getTime()) / 86400000) + 1
+      const inicioAñoAnterior = new Date(hoy.getFullYear() - 1, 0, 1)
+      const finAñoAnterior = new Date(inicioAñoAnterior)
+      finAñoAnterior.setDate(inicioAñoAnterior.getDate() + diasTranscurridos - 1)
+      return { fechaDesde: localFmt(inicioAñoAnterior), fechaHasta: localFmt(finAñoAnterior) }
     }
     case "personalizado": {
+      // El período de la misma duración inmediatamente anterior al rango seleccionado.
       if (!customDesde || !customHasta) return { fechaDesde: "", fechaHasta: "" }
       const dias = Math.round((new Date(customHasta).getTime() - new Date(customDesde).getTime()) / 86400000)
       const fin = new Date(customDesde + "T12:00:00")
