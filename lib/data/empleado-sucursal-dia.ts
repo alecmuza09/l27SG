@@ -51,6 +51,37 @@ function efectivaDesdeMap(
   return overrides.get(empleadoId) ?? sucursalBaseId
 }
 
+function sinAcentos(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+}
+
+/**
+ * FIX PUNTUAL: hoy ninguna pantalla de agenda respeta `dias_trabajo` (es un campo
+ * puramente informativo), así que cualquier empleada activa aparece todos los días
+ * sin importar qué días tenga marcados. Eso es invisible para quienes trabajan casi
+ * toda la semana, pero rompe visiblemente el caso de Vanesa López, que solo debe
+ * aparecer el/los día(s) que tiene marcados (p. ej. solo Sábado).
+ *
+ * Esto NO generaliza el filtrado por `dias_trabajo` a todo el equipo (para no
+ * cambiar el comportamiento actual de otras empleadas ni su forma de almacenarse);
+ * es un filtro acotado únicamente a esta empleada por nombre. Si en el futuro se
+ * decide aplicar `dias_trabajo` a todas las empleadas, este filtro debe eliminarse
+ * a favor de una solución general.
+ */
+function filtrarSoloDiasTrabajoVanesaLopez(empleados: Empleado[], fecha: string): Empleado[] {
+  const diaSemana = new Date(fecha + "T12:00:00").getDay()
+  return empleados.filter((e) => {
+    const esVanesaLopez = sinAcentos(e.nombre) === "vanesa" && sinAcentos(e.apellido) === "lopez"
+    if (!esVanesaLopez) return true
+    if (!e.diasTrabajo || e.diasTrabajo.length === 0) return true
+    return e.diasTrabajo.includes(diaSemana)
+  })
+}
+
 /**
  * Empleadas activas cuya sucursal efectiva en `fecha` coincide con `sucursalId`.
  */
@@ -98,10 +129,11 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
       `${a.nombre} ${a.apellido}`.localeCompare(`${b.nombre} ${b.apellido}`, "es"),
     )
     const fechaAgenda = fecha
-    return list.map(transformEmpleado).filter(e => {
+    const conVigenciaValida = list.map(transformEmpleado).filter(e => {
       if (!e.fechaContratoHasta) return true
       return e.fechaContratoHasta >= fechaAgenda
     })
+    return filtrarSoloDiasTrabajoVanesaLopez(conVigenciaValida, fecha)
   } catch (e) {
     console.error("getEmpleadosParaAgendaPorSucursalYDia:", e)
     return []

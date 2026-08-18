@@ -422,7 +422,8 @@ export default function EmpleadosPage() {
     esteticistas: empleados.filter((e) => e.rol === "esteticista").length,
   }
 
-  const diasSemana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+  // Mismo orden que la BD y que el diálogo de edición: 0=Domingo … 6=Sábado.
+  const diasSemana = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
   const handleSubmitNuevo = async (e: React.FormEvent) => {
     e.preventDefault()
