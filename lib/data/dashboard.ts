@@ -32,7 +32,11 @@ function contarDiasLaboralesEmpleado(
   return Math.max(dias, 1)
 }
 
-/** Rango «Este Mes» y mes anterior (alineado con Reportes → calcularPeriodo / calcularPeriodoAnterior). */
+/**
+ * Rango «Este Mes» y mes anterior (alineado con Reportes → calcularPeriodo / calcularPeriodoAnterior).
+ * El período anterior cubre la misma cantidad de días transcurridos del mes anterior,
+ * no el mes anterior completo (p. ej. 1–18 ago vs. 1–18 jul, no 1–31 jul).
+ */
 function rangosMesReportes(): {
   fechaDesde: string
   fechaHasta: string
@@ -42,8 +46,10 @@ function rangosMesReportes(): {
   const hoy = new Date()
   const fechaDesde = localFmt(new Date(hoy.getFullYear(), hoy.getMonth(), 1))
   const fechaHasta = localFmt(hoy)
-  const mesAnteriorFin = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
+  const diasTranscurridos = hoy.getDate()
+  const ultimoDiaMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0).getDate()
   const mesAnteriorInicio = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
+  const mesAnteriorFin = new Date(hoy.getFullYear(), hoy.getMonth() - 1, Math.min(diasTranscurridos, ultimoDiaMesAnterior))
   return {
     fechaDesde,
     fechaHasta,
