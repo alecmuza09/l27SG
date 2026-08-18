@@ -78,6 +78,41 @@ export async function createGastoInDB(gasto: {
   }
 }
 
+export async function updateGastoInDB(id: string, cambios: {
+  descripcion: string
+  monto: number
+  categoria: string
+}): Promise<{ data: Gasto | null; error: string | null }> {
+  const { data, error } = await (supabase as any)
+    .from("gastos")
+    .update({
+      descripcion: cambios.descripcion,
+      monto: cambios.monto,
+      categoria: cambios.categoria,
+    })
+    .eq("id", id)
+    .select("*")
+    .single()
+
+  if (error || !data) {
+    console.error("[updateGastoInDB]", error?.message)
+    return { data: null, error: error?.message ?? "Error actualizando gasto" }
+  }
+
+  return {
+    data: {
+      id: data.id,
+      sucursalId: data.sucursal_id,
+      fecha: data.fecha,
+      descripcion: data.descripcion,
+      monto: Number(data.monto),
+      categoria: data.categoria,
+      hora: data.hora,
+    },
+    error: null,
+  }
+}
+
 export async function deleteGastoFromDB(id: string): Promise<{ error: string | null }> {
   const { error } = await supabase.from("gastos").delete().eq("id", id)
   if (error) console.error("[deleteGastoFromDB]", error.message)

@@ -42,13 +42,13 @@ import {
 import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 import { cn } from "@/lib/utils"
 import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
-import { getGastosFromDB, createGastoInDB, type Gasto } from "@/lib/data/gastos"
+import { getGastosFromDB, createGastoInDB, updateGastoInDB, deleteGastoFromDB, type Gasto } from "@/lib/data/gastos"
 import { supabase } from "@/lib/supabase/client"
 import { toast } from "sonner"
 
 // ── Auditoría: registra el snapshot completo antes de eliminar/cancelar ─────
 async function registrarEliminacionEnLog(params: {
-  tabla: "pagos" | "citas"
+  tabla: "pagos" | "citas" | "gastos"
   registroId: string
   datosEliminados: unknown
   sucursalId?: string | null
@@ -156,6 +156,14 @@ export default function PagosPage() {
   const [citasSeleccionadas, setCitasSeleccionadas] = useState<Set<string>>(new Set())
   const [gastoDialogOpen, setGastoDialogOpen]   = useState(false)
   const [nuevoGasto, setNuevoGasto]             = useState({ descripcion: "", monto: "", categoria: "operativo" })
+  const [gastoEditando, setGastoEditando]       = useState<Gasto | null>(null)
+  const [editGastoDescripcion, setEditGastoDescripcion] = useState("")
+  const [editGastoMonto, setEditGastoMonto]     = useState("")
+  const [editGastoCategoria, setEditGastoCategoria] = useState("operativo")
+  const [isSavingGasto, setIsSavingGasto]       = useState(false)
+  const [gastoAEliminar, setGastoAEliminar]     = useState<Gasto | null>(null)
+  const [isDeleteGastoConfirmOpen, setIsDeleteGastoConfirmOpen] = useState(false)
+  const [isDeletingGasto, setIsDeletingGasto]   = useState(false)
   const [busqueda, setBusqueda]                 = useState("")
   const [tipoFiltroCobros, setTipoFiltroCobros] = useState<"todos" | "cortesia" | "garantia">("todos")
   const [busquedaCitas, setBusquedaCitas]       = useState("")
@@ -657,6 +665,65 @@ export default function PagosPage() {
     setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo" })
     setGastoDialogOpen(false)
     toast.success("Gasto registrado")
+  }
+
+  const abrirEdicionGasto = (gasto: Gasto) => {
+    setGastoEditando(gasto)
+    setEditGastoDescripcion(gasto.descripcion)
+    setEditGastoMonto(String(gasto.monto))
+    setEditGastoCategoria(gasto.categoria)
+  }
+
+  const handleGuardarGasto = async () => {
+    if (!gastoEditando) return
+    if (!editGastoDescripcion.trim() || !editGastoMonto) return
+    setIsSavingGasto(true)
+
+    const { data, error } = await updateGastoInDB(gastoEditando.id, {
+      descripcion: editGastoDescripcion.trim(),
+      monto: parseFloat(editGastoMonto) || gastoEditando.monto,
+      categoria: editGastoCategoria,
+    })
+
+    setIsSavingGasto(false)
+    if (error || !data) {
+      toast.error(error ?? "Error actualizando el gasto")
+      return
+    }
+
+    setGastos(prev => prev.map(g => g.id === data.id ? data : g))
+    setGastoEditando(null)
+    toast.success("Gasto actualizado")
+  }
+
+  const handleEliminarGasto = async () => {
+    if (!gastoAEliminar) return
+    setIsDeletingGasto(true)
+
+    // Auditoría: registrar el snapshot ANTES de eliminar. Si falla, abortar.
+    const log = await registrarEliminacionEnLog({
+      tabla: "gastos",
+      registroId: gastoAEliminar.id,
+      datosEliminados: gastoAEliminar,
+      sucursalId: gastoAEliminar.sucursalId,
+    })
+    if (!log.success) {
+      setIsDeletingGasto(false)
+      toast.error(`No se pudo registrar la auditoría, eliminación abortada: ${log.error}`)
+      return
+    }
+
+    const { error } = await deleteGastoFromDB(gastoAEliminar.id)
+    setIsDeletingGasto(false)
+    if (error) {
+      toast.error(error)
+      return
+    }
+
+    setGastos(prev => prev.filter(g => g.id !== gastoAEliminar.id))
+    setIsDeleteGastoConfirmOpen(false)
+    setGastoAEliminar(null)
+    toast.success("Gasto eliminado")
   }
 
   const handleSincronizarCobrosGiftCards = async () => {
@@ -1300,6 +1367,7 @@ export default function PagosPage() {
                       <TableHead className="text-xs">Descripción</TableHead>
                       <TableHead className="text-xs">Categoría</TableHead>
                       <TableHead className="text-xs text-right">Monto</TableHead>
+                      {(isAdmin || isSuperAdmin) && <TableHead className="text-xs w-[80px]"></TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1313,6 +1381,26 @@ export default function PagosPage() {
                           </span>
                         </TableCell>
                         <TableCell className="text-right font-semibold text-red-600">{fmtMXN(g.monto)}</TableCell>
+                        {(isAdmin || isSuperAdmin) && (
+                          <TableCell>
+                            <div className="flex justify-end gap-0.5">
+                              <button
+                                onClick={() => abrirEdicionGasto(g)}
+                                className="p-1.5 rounded-md text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                title="Editar gasto"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setGastoAEliminar(g)}
+                                className="p-1.5 rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors"
+                                title="Eliminar gasto"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1372,6 +1460,135 @@ export default function PagosPage() {
               </Button>
               <Button className="flex-1 h-9 text-sm bg-blue-600 hover:bg-blue-700" onClick={agregarGasto}>
                 Guardar gasto
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ DIALOG: Editar gasto ════════════════════════════════════════════ */}
+      <Dialog open={!!gastoEditando} onOpenChange={v => { if (!v) setGastoEditando(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Editar gasto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label className="text-xs">Descripción</Label>
+              <Input
+                placeholder="Ej: Materiales, limpieza…"
+                value={editGastoDescripcion}
+                onChange={e => setEditGastoDescripcion(e.target.value)}
+                className="h-9 text-sm mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Monto (MXN)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="any"
+                placeholder="0.00"
+                value={editGastoMonto}
+                onChange={e => setEditGastoMonto(e.target.value)}
+                className="h-9 text-sm mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Categoría</Label>
+              <Select value={editGastoCategoria} onValueChange={setEditGastoCategoria}>
+                <SelectTrigger className="h-9 text-sm mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="operativo">Operativo</SelectItem>
+                  <SelectItem value="insumos">Insumos</SelectItem>
+                  <SelectItem value="nomina">Nómina</SelectItem>
+                  <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
+                  <SelectItem value="otro">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1 h-9 text-sm" onClick={() => setGastoEditando(null)} disabled={isSavingGasto}>
+                Cancelar
+              </Button>
+              <Button className="flex-1 h-9 text-sm bg-blue-600 hover:bg-blue-700" onClick={handleGuardarGasto} disabled={isSavingGasto}>
+                {isSavingGasto ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                Guardar cambios
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ DIALOG CONFIRMAR ELIMINACIÓN DE GASTO — PASO 1 ══════════════════ */}
+      <Dialog open={!!gastoAEliminar && !isDeleteGastoConfirmOpen} onOpenChange={v => { if (!v) setGastoAEliminar(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> ¿Estás seguro de que quieres eliminar este gasto?
+            </DialogTitle>
+          </DialogHeader>
+          {gastoAEliminar && (
+            <div className="space-y-4 pt-1 text-sm">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+                <p><span className="text-muted-foreground">Descripción:</span> <strong>{gastoAEliminar.descripcion}</strong></p>
+                <p><span className="text-muted-foreground">Categoría:</span> <span className="capitalize">{gastoAEliminar.categoria}</span></p>
+                <p><span className="text-muted-foreground">Monto:</span> <strong className="text-red-700">{fmtMXN(gastoAEliminar.monto)}</strong></p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setGastoAEliminar(null)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => setIsDeleteGastoConfirmOpen(true)}
+                >
+                  Sí, eliminar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ DIALOG CONFIRMAR ELIMINACIÓN DE GASTO — PASO 2 (FINAL) ══════════ */}
+      <Dialog open={isDeleteGastoConfirmOpen} onOpenChange={v => { setIsDeleteGastoConfirmOpen(v); if (!v) setGastoAEliminar(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> Esta acción no se puede deshacer
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1 text-sm">
+            <p className="text-muted-foreground">
+              ¿Confirmas la eliminación de este gasto? Se eliminará de forma permanente y no se puede deshacer.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setIsDeleteGastoConfirmOpen(false)}
+                disabled={isDeletingGasto}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={handleEliminarGasto}
+                disabled={isDeletingGasto}
+              >
+                {isDeletingGasto
+                  ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  : <Trash2 className="h-4 w-4 mr-1.5" />}
+                Confirmar eliminación
               </Button>
             </div>
           </div>
