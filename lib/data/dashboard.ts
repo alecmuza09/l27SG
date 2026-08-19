@@ -79,6 +79,27 @@ async function getIngresosPagosSucursal(
   return (data ?? []).reduce((sum, p) => sum + (Number(p.monto) || 0), 0)
 }
 
+/** Número de pagos (cobros) completados por sucursal, para ticket promedio = ingresos / cobros, igual que Reportes. */
+async function getCobrosCompletadosCountSucursal(
+  sucursalId: string,
+  fechaDesde: string,
+  fechaHasta: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('pagos')
+    .select('*', { count: 'exact', head: true })
+    .eq('sucursal_id', sucursalId)
+    .eq('estado', 'completado')
+    .gte('fecha', fechaDesde)
+    .lte('fecha', fechaHasta)
+
+  if (error) {
+    console.error('Error obteniendo conteo de cobros:', error)
+    return 0
+  }
+  return count || 0
+}
+
 export interface ProductividadSucursal {
   sucursalId: string
   nombre: string
@@ -497,7 +518,7 @@ export async function getProductividadSucursalesFromDB(sucursalId?: string): Pro
     
     const productividad = await Promise.all(
       sucursales.map(async (sucursal) => {
-        const [ingresos, ingresosAnterior, citasMesR] = await Promise.all([
+        const [ingresos, ingresosAnterior, citasMesR, cobrosCompletados] = await Promise.all([
           getIngresosPagosSucursal(sucursal.id, fechaDesde, fechaHasta),
           getIngresosPagosSucursal(sucursal.id, mesAnteriorDesde, mesAnteriorHasta),
           supabase
@@ -507,6 +528,7 @@ export async function getProductividadSucursalesFromDB(sucursalId?: string): Pro
             .eq('estado', 'completada')
             .gte('fecha', fechaDesde)
             .lte('fecha', fechaHasta),
+          getCobrosCompletadosCountSucursal(sucursal.id, fechaDesde, fechaHasta),
         ])
         
         const citasMes = citasMesR.data
@@ -515,7 +537,8 @@ export async function getProductividadSucursalesFromDB(sucursalId?: string): Pro
         // Clientes únicos atendidos
         const clientesUnicos = new Set(citasMes?.map((c: any) => c.cliente_id) || []).size
         
-        const promedioTicket = citas > 0 ? Math.round(ingresos / citas) : 0
+        // Ticket promedio = ingresos / cobros completados (pagos), no / citas, igual que Reportes.
+        const promedioTicket = cobrosCompletados > 0 ? Math.round(ingresos / cobrosCompletados) : 0
         
         // Ocupación estimada (citas / capacidad)
         const { data: empleados } = await supabase
