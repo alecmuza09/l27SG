@@ -453,6 +453,49 @@ export function totalizarVentasSaldoGiftCards(pagos: Pago[]): { monto: number; t
   }
 }
 
+/** Extrae el id de `gift_cards` de una `referencia` tipo `giftcard_emision:<id>`. */
+export function extraerGiftCardIdDeReferencia(referencia?: string | null): string | null {
+  if (!esReferenciaEmisionGiftCard(referencia)) return null
+  const id = (referencia ?? '').slice(REFERENCIA_EMISION_GIFT_CARD_PREFIX.length).trim()
+  return id || null
+}
+
+/**
+ * Quita de `pagos` los cobros de venta de saldo inicial de gift card cuya tarjeta
+ * se emitió con `origen = 'en_linea'` (misma exclusión que ya aplica el PDF de Reportes:
+ * esas ventas no son ingreso de la sucursal física, sino de la tienda en línea).
+ */
+export async function excluirVentasSaldoGcOnlineDePagos(pagos: Pago[]): Promise<Pago[]> {
+  const giftCardIdPorPagoId = new Map<string, string>()
+  for (const p of pagos) {
+    if (!esVentaSaldoGiftCard(p)) continue
+    const gcId = extraerGiftCardIdDeReferencia(p.referencia)
+    if (gcId) giftCardIdPorPagoId.set(p.id, gcId)
+  }
+  if (giftCardIdPorPagoId.size === 0) return pagos
+
+  const giftCardIds = Array.from(new Set(giftCardIdPorPagoId.values()))
+  const { data, error } = await (supabase as any)
+    .from('gift_cards')
+    .select('id, origen')
+    .in('id', giftCardIds)
+
+  // Si falla la consulta, no ocultamos cobros (fail-open) — mejor mostrar de más que de menos.
+  if (error || !data) return pagos
+
+  const idsOnline = new Set(
+    (data as { id: string; origen?: string | null }[])
+      .filter(gc => gc.origen === 'en_linea')
+      .map(gc => gc.id),
+  )
+  if (idsOnline.size === 0) return pagos
+
+  return pagos.filter(p => {
+    const gcId = giftCardIdPorPagoId.get(p.id)
+    return !gcId || !idsOnline.has(gcId)
+  })
+}
+
 /** Quita acentos y pasa a minúsculas (ej. «Cortesía», «EFECTIVO»). */
 export function textoMetodoPagoNormalizado(raw: string | null | undefined): string {
   if (!raw?.trim()) return ''

@@ -22,6 +22,7 @@ import {
   esReferenciaEmisionGiftCard,
   sincronizarPagosEmisionGiftCardsFaltantes,
   esVentaSaldoGiftCard,
+  excluirVentasSaldoGcOnlineDePagos,
   metodoPagoAParaEdicionUI,
   normalizarMetodoYMontosPago,
   sincronizarMontosDesgloseParaMetodoUI,
@@ -230,9 +231,11 @@ export default function PagosPage() {
 
       if (isAdmin || userSucursalIds.length > 0) setSucursales(sucData)
 
-      // Pagos + resumen
-      setPagos(pagosData)
-      setResumen(calcularResumenDesdePagos(pagosData, fecha))
+      // Pagos + resumen — excluye ventas de saldo de gift cards emitidas en línea
+      // (no son ingreso de la sucursal; ya se excluyen así en el PDF de Reportes).
+      const pagosSinGcOnline = await excluirVentasSaldoGcOnlineDePagos(pagosData)
+      setPagos(pagosSinGcOnline)
+      setResumen(calcularResumenDesdePagos(pagosSinGcOnline, fecha))
 
       // Gastos del día (mismo filtro de sucursal que pagos; RLS acota el alcance)
       const gastosData = await getGastosFromDB(fecha, sidFiltro)
