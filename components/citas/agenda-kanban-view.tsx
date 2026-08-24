@@ -24,6 +24,7 @@ import {
   getEmpleadosParaAgendaPorSucursalYDia,
   guardarAsignacionSucursalDia,
   getAsignacionesPorFecha,
+  type AsignacionSucursalDiaInfo,
 } from "@/lib/data/empleado-sucursal-dia"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -493,8 +494,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     horaFin: '14:00',
     duracionFranjaMin: 60,
   })
-  /** Overrides empleado_id → sucursal_id para selectedDate (solo lectura UI). */
-  const [asignacionesPorEmpleado, setAsignacionesPorEmpleado] = useState<Record<string, string>>({})
+  /** Overrides empleado_id → { sucursal_id, horario } para selectedDate (solo lectura UI). */
+  const [asignacionesPorEmpleado, setAsignacionesPorEmpleado] = useState<Record<string, AsignacionSucursalDiaInfo>>({})
   const [empleadosAgendaTick, setEmpleadosAgendaTick] = useState(0)
   const [cambiarSucursalEmpleado, setCambiarSucursalEmpleado] = useState<Empleado | null>(null)
   const [cambiarSucursalDestinoId, setCambiarSucursalDestinoId] = useState("")
@@ -558,8 +559,16 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         return
       }
       try {
+        // Si la fecha vista es hoy, la hora actual decide si una asignación con
+        // horario específico aplica ahora mismo; fuera de rango, prevalece la sucursal base.
+        const now = new Date()
+        const hoyStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+        const horaActual = debouncedDate === hoyStr
+          ? `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+          : undefined
+
         const [emps, ovMap] = await Promise.all([
-          getEmpleadosParaAgendaPorSucursalYDia(debouncedSucursal, debouncedDate),
+          getEmpleadosParaAgendaPorSucursalYDia(debouncedSucursal, debouncedDate, horaActual),
           getAsignacionesPorFecha(debouncedDate),
         ])
         setEmpleadosSucursal(emps)
@@ -570,6 +579,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       }
     }
     void loadEmpleados()
+    // Reintenta cada minuto para reflejar en vivo el cruce de la hora del rango asignado.
+    const interval = setInterval(() => void loadEmpleados(), 60000)
+    return () => clearInterval(interval)
   }, [debouncedSucursal, debouncedDate, empleadosAgendaTick])
 
   useEffect(() => {
@@ -1383,8 +1395,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       const ausenciaDiaCompleto = ausenciasEmp.find(a => !a.horaInicio && !a.horaFin)
                       const noDisponible = !!(vacacionEmpleado || descansoHoy || ausenciaDiaCompleto)
 
+                      const asignacionHoy = asignacionesPorEmpleado[empleado.id]
                       const esCubriendo =
-                        asignacionesPorEmpleado[empleado.id] != null &&
+                        asignacionHoy != null &&
                         empleado.sucursalId !== selectedSucursal
 
                     return (
@@ -1429,7 +1442,14 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                     <p className="font-semibold text-xs truncate leading-tight flex items-center gap-1">
                                       {empleado.nombre} {empleado.apellido}
                                       {esCubriendo && (
-                                        <MapPin className="h-3 w-3 shrink-0 text-blue-600" aria-label="Cubriendo otra sucursal" />
+                                        <MapPin
+                                          className="h-3 w-3 shrink-0 text-blue-600"
+                                          aria-label={
+                                            asignacionHoy?.horaInicio && asignacionHoy?.horaFin
+                                              ? `Cubriendo otra sucursal de ${formatHora12(asignacionHoy.horaInicio)} a ${formatHora12(asignacionHoy.horaFin)}`
+                                              : "Cubriendo otra sucursal"
+                                          }
+                                        />
                                       )}
                                     </p>
                                     {vacacionEmpleado ? (
@@ -1442,7 +1462,13 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                       <p className="text-[10px] text-muted-foreground leading-tight">
                                         {empleado.horarioInicio} - {empleado.horarioFin}
                                         {esCubriendo && (
-                                          <span className="text-blue-600 font-medium"> · Cubriendo</span>
+                                          <span className="text-blue-600 font-medium">
+                                            {" "}
+                                            · Cubriendo
+                                            {asignacionHoy?.horaInicio && asignacionHoy?.horaFin
+                                              ? ` (${formatHora12(asignacionHoy.horaInicio)} – ${formatHora12(asignacionHoy.horaFin)})`
+                                              : ""}
+                                          </span>
                                         )}
                                       </p>
                                     )}

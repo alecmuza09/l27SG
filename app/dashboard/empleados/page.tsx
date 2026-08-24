@@ -68,7 +68,7 @@ import {
   desactivarEmpleadasContratoVencido,
   type Empleado,
 } from "@/lib/data/empleados"
-import { cn } from "@/lib/utils"
+import { cn, formatHora12 } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Command,
@@ -152,6 +152,8 @@ export default function EmpleadosPage() {
   const [fechaAsignacionDia, setFechaAsignacionDia] = useState(hoyStr)
   const [empleadoAsignacionId, setEmpleadoAsignacionId] = useState("")
   const [sucursalAsignacionDestinoId, setSucursalAsignacionDestinoId] = useState("")
+  const [horaInicioAsignacion, setHoraInicioAsignacion] = useState("")
+  const [horaFinAsignacion, setHoraFinAsignacion] = useState("")
   const [hayOverrideAsignacion, setHayOverrideAsignacion] = useState(false)
   const [historialSucursalDia, setHistorialSucursalDia] = useState<HistorialEmpleadoSucursalDiaItem[]>([])
   const [loadingHistorialSucursal, setLoadingHistorialSucursal] = useState(false)
@@ -233,6 +235,8 @@ export default function EmpleadosPage() {
     if (!empleadoAsignacionId || !fechaAsignacionDia) {
       setHayOverrideAsignacion(false)
       setSucursalAsignacionDestinoId("")
+      setHoraInicioAsignacion("")
+      setHoraFinAsignacion("")
       return
     }
     let cancelled = false
@@ -241,7 +245,9 @@ export default function EmpleadosPage() {
       const emp = empleados.find((e) => e.id === empleadoAsignacionId)
       if (cancelled) return
       setHayOverrideAsignacion(!!ov)
-      setSucursalAsignacionDestinoId(ov ?? emp?.sucursalId ?? "")
+      setSucursalAsignacionDestinoId(ov?.sucursalId ?? emp?.sucursalId ?? "")
+      setHoraInicioAsignacion(ov?.horaInicio ?? "")
+      setHoraFinAsignacion(ov?.horaFin ?? "")
     })()
     return () => {
       cancelled = true
@@ -371,6 +377,10 @@ export default function EmpleadosPage() {
       toast.error("Selecciona empleada y sucursal destino")
       return
     }
+    if (horaInicioAsignacion && horaFinAsignacion && horaInicioAsignacion >= horaFinAsignacion) {
+      toast.error("La hora de inicio debe ser anterior a la hora de fin")
+      return
+    }
     setGuardandoAsignacionDia(true)
     try {
       const res = await guardarAsignacionSucursalDia({
@@ -378,6 +388,8 @@ export default function EmpleadosPage() {
         fecha: fechaAsignacionDia,
         sucursalId: sucursalAsignacionDestinoId,
         usuarioId: currentUser?.id ?? null,
+        horaInicio: horaInicioAsignacion || null,
+        horaFin: horaFinAsignacion || null,
       })
       if (!res.success) {
         toast.error(res.error ?? "Error al guardar")
@@ -406,6 +418,8 @@ export default function EmpleadosPage() {
         return
       }
       toast.success("Se quitó la asignación especial; aplica sucursal base")
+      setHoraInicioAsignacion("")
+      setHoraFinAsignacion("")
       await loadHistorialSucursal()
       const emp = empleados.find((e) => e.id === empleadoAsignacionId)
       setHayOverrideAsignacion(false)
@@ -739,7 +753,7 @@ export default function EmpleadosPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-12 xl:items-end">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-14 xl:items-end">
               <div className="space-y-2 xl:col-span-2">
                 <Label htmlFor="fecha-asignacion-sucursal">Fecha</Label>
                 <Input
@@ -749,7 +763,7 @@ export default function EmpleadosPage() {
                   onChange={(e) => setFechaAsignacionDia(e.target.value)}
                 />
               </div>
-              <div className="space-y-2 min-w-0 xl:col-span-5">
+              <div className="space-y-2 min-w-0 xl:col-span-4">
                 <Label>Empleada</Label>
                 <Popover modal={false} open={empleadoAsignPopoverOpen} onOpenChange={setEmpleadoAsignPopoverOpen}>
                   <PopoverTrigger asChild>
@@ -825,7 +839,7 @@ export default function EmpleadosPage() {
                   </PopoverContent>
                 </Popover>
               </div>
-              <div className="space-y-2 xl:col-span-3">
+              <div className="space-y-2 xl:col-span-2">
                 <Label>Sucursal ese día</Label>
                 <Select
                   value={sucursalAsignacionDestinoId || undefined}
@@ -843,6 +857,26 @@ export default function EmpleadosPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2 xl:col-span-2">
+                <Label htmlFor="hora-inicio-asignacion">Hora inicio</Label>
+                <Input
+                  id="hora-inicio-asignacion"
+                  type="time"
+                  value={horaInicioAsignacion}
+                  onChange={(e) => setHoraInicioAsignacion(e.target.value)}
+                  disabled={!empleadoAsignacionId}
+                />
+              </div>
+              <div className="space-y-2 xl:col-span-2">
+                <Label htmlFor="hora-fin-asignacion">Hora fin</Label>
+                <Input
+                  id="hora-fin-asignacion"
+                  type="time"
+                  value={horaFinAsignacion}
+                  onChange={(e) => setHoraFinAsignacion(e.target.value)}
+                  disabled={!empleadoAsignacionId}
+                />
               </div>
               <div className="flex flex-wrap gap-2 xl:col-span-2">
                 <Button
@@ -866,8 +900,14 @@ export default function EmpleadosPage() {
             {empleadoAsignacionId && hayOverrideAsignacion && (
               <p className="text-xs text-muted-foreground">
                 Esta empleada tiene una sucursal distinta a la base para la fecha seleccionada.
+                {horaInicioAsignacion && horaFinAsignacion
+                  ? ` Solo de ${formatHora12(horaInicioAsignacion)} a ${formatHora12(horaFinAsignacion)}; fuera de ese horario aplica su sucursal base.`
+                  : " Aplica todo el día."}
               </p>
             )}
+            <p className="text-xs text-muted-foreground">
+              Hora inicio y hora fin son opcionales. Si se dejan vacías, la asignación aplica todo el día (comportamiento actual).
+            </p>
 
             <div>
               <h3 className="text-sm font-semibold mb-2">Últimos movimientos</h3>
@@ -881,18 +921,19 @@ export default function EmpleadosPage() {
                       <TableHead className="text-xs">Acción</TableHead>
                       <TableHead className="text-xs">De</TableHead>
                       <TableHead className="text-xs">A</TableHead>
+                      <TableHead className="text-xs">Horario</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loadingHistorialSucursal ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           <Loader2 className="inline h-5 w-5 animate-spin" />
                         </TableCell>
                       </TableRow>
                     ) : historialSucursalDia.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground text-sm">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">
                           Sin registros aún. Ejecuta la migración SQL en Supabase si la tabla no existe.
                         </TableCell>
                       </TableRow>
@@ -921,6 +962,11 @@ export default function EmpleadosPage() {
                             {row.sucursalEfectivaNuevaId
                               ? sucursales.find((s) => s.id === row.sucursalEfectivaNuevaId)?.nombre ?? "—"
                               : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {row.horaInicio && row.horaFin
+                              ? `${formatHora12(row.horaInicio)} – ${formatHora12(row.horaFin)}`
+                              : ""}
                           </TableCell>
                         </TableRow>
                       ))

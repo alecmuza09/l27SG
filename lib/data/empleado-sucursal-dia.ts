@@ -10,6 +10,10 @@ export interface GuardarAsignacionParams {
   fecha: string // YYYY-MM-DD
   sucursalId: string
   usuarioId?: string | null
+  /** Hora de inicio del rango (HH:mm), opcional. undefined = no tocar; null/"" = sin horario específico. */
+  horaInicio?: string | null
+  /** Hora de fin del rango (HH:mm), opcional. undefined = no tocar; null/"" = sin horario específico. */
+  horaFin?: string | null
 }
 
 export interface HistorialEmpleadoSucursalDiaItem {
@@ -22,20 +26,43 @@ export interface HistorialEmpleadoSucursalDiaItem {
   accion: "asignar" | "cambiar" | "quitar"
   usuarioId: string | null
   createdAt: string
+  horaInicio: string | null
+  horaFin: string | null
+}
+
+/** Override de sucursal (y horario opcional) para un empleado en una fecha. */
+export interface AsignacionSucursalDiaInfo {
+  sucursalId: string
+  horaInicio: string | null
+  horaFin: string | null
+}
+
+function normalizarHora(hora: string | null | undefined): string | null {
+  if (!hora) return null
+  return hora.substring(0, 5)
 }
 
 /** Override por empleado para una fecha (solo filas existentes). */
-export async function getAsignacionesPorFecha(fecha: string): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
+export async function getAsignacionesPorFecha(fecha: string): Promise<Map<string, AsignacionSucursalDiaInfo>> {
+  const map = new Map<string, AsignacionSucursalDiaInfo>()
   try {
     const { data, error } = await supabase
       .from("empleado_sucursal_dia")
-      .select("empleado_id, sucursal_id")
+      .select("empleado_id, sucursal_id, hora_inicio, hora_fin")
       .eq("fecha", fecha)
 
     if (error || !data) return map
-    for (const row of data as { empleado_id: string; sucursal_id: string }[]) {
-      map.set(row.empleado_id, row.sucursal_id)
+    for (const row of data as {
+      empleado_id: string
+      sucursal_id: string
+      hora_inicio: string | null
+      hora_fin: string | null
+    }[]) {
+      map.set(row.empleado_id, {
+        sucursalId: row.sucursal_id,
+        horaInicio: normalizarHora(row.hora_inicio),
+        horaFin: normalizarHora(row.hora_fin),
+      })
     }
     return map
   } catch {
@@ -43,12 +70,31 @@ export async function getAsignacionesPorFecha(fecha: string): Promise<Map<string
   }
 }
 
+function horaEnRango(hora: string, inicio: string, fin: string): boolean {
+  return hora >= inicio && hora < fin
+}
+
+/**
+ * Sucursal efectiva para un empleado en una fecha (y hora opcional).
+ * - Sin override: sucursal base.
+ * - Con override sin horario: sucursal destino todo el día.
+ * - Con override con horario y `hora` provista: sucursal destino solo dentro del
+ *   rango [horaInicio, horaFin); fuera de rango, sucursal base.
+ * - Con override con horario pero sin `hora` provista: se asume aplicable (comportamiento
+ *   de "todo el día" para vistas que no distinguen horas, p. ej. listados administrativos).
+ */
 function efectivaDesdeMap(
   empleadoId: string,
   sucursalBaseId: string,
-  overrides: Map<string, string>,
+  overrides: Map<string, AsignacionSucursalDiaInfo>,
+  hora?: string,
 ): string {
-  return overrides.get(empleadoId) ?? sucursalBaseId
+  const ov = overrides.get(empleadoId)
+  if (!ov) return sucursalBaseId
+  if (hora && ov.horaInicio && ov.horaFin) {
+    return horaEnRango(hora, ov.horaInicio, ov.horaFin) ? ov.sucursalId : sucursalBaseId
+  }
+  return ov.sucursalId
 }
 
 function sinAcentos(s: string): string {
@@ -83,11 +129,14 @@ function filtrarSoloDiasTrabajoVanesaLopez(empleados: Empleado[], fecha: string)
 }
 
 /**
- * Empleadas activas cuya sucursal efectiva en `fecha` coincide con `sucursalId`.
+ * Empleadas activas cuya sucursal efectiva en `fecha` (y `hora` opcional) coincide con `sucursalId`.
+ * Si `hora` (HH:mm) se provee y la asignación del día tiene un rango horario específico,
+ * la asignación solo aplica dentro de ese rango; fuera de él, se usa la sucursal base.
  */
 export async function getEmpleadosParaAgendaPorSucursalYDia(
   sucursalId: string,
   fecha: string,
+  hora?: string,
 ): Promise<Empleado[]> {
   try {
     const overrides = await getAsignacionesPorFecha(fecha)
@@ -100,7 +149,7 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
     const resultMap = new Map<string, (typeof baseAqui)[0]>()
 
     for (const row of baseAqui ?? []) {
-      if (efectivaDesdeMap(row.id, row.sucursal_id, overrides) === sucursalId) {
+      if (efectivaDesdeMap(row.id, row.sucursal_id, overrides, hora) === sucursalId) {
         resultMap.set(row.id, row)
       }
     }
@@ -119,7 +168,7 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
         .in("id", incomingIds)
 
       for (const row of incomingRows ?? []) {
-        if (efectivaDesdeMap(row.id, row.sucursal_id, overrides) === sucursalId) {
+        if (efectivaDesdeMap(row.id, row.sucursal_id, overrides, hora) === sucursalId) {
           resultMap.set(row.id, row)
         }
       }
@@ -147,6 +196,8 @@ async function insertHistorial(payload: {
   sucursal_efectiva_nueva: string | null
   accion: "asignar" | "cambiar" | "quitar"
   usuario_id: string | null
+  hora_inicio: string | null
+  hora_fin: string | null
 }) {
   const { error } = await supabase.from("empleado_sucursal_dia_historial").insert(payload)
   if (error) console.error("empleado_sucursal_dia_historial:", error)
@@ -158,7 +209,7 @@ async function insertHistorial(payload: {
 export async function guardarAsignacionSucursalDia(
   params: GuardarAsignacionParams,
 ): Promise<{ success: boolean; error?: string }> {
-  const { empleadoId, fecha, sucursalId, usuarioId } = params
+  const { empleadoId, fecha, sucursalId, usuarioId, horaInicio, horaFin } = params
   try {
     const { data: emp, error: empErr } = await supabase
       .from("empleados")
@@ -172,7 +223,7 @@ export async function guardarAsignacionSucursalDia(
 
     const { data: prevRow } = await supabase
       .from("empleado_sucursal_dia")
-      .select("id, sucursal_id")
+      .select("id, sucursal_id, hora_inicio, hora_fin")
       .eq("empleado_id", empleadoId)
       .eq("fecha", fecha)
       .maybeSingle()
@@ -194,22 +245,28 @@ export async function guardarAsignacionSucursalDia(
         sucursal_efectiva_nueva: baseId,
         accion: "quitar",
         usuario_id: usuarioId ?? null,
+        hora_inicio: null,
+        hora_fin: null,
       })
       return { success: true }
     }
 
     const accion: "asignar" | "cambiar" = prevRow ? "cambiar" : "asignar"
 
-    const { error: upErr } = await supabase.from("empleado_sucursal_dia").upsert(
-      {
-        empleado_id: empleadoId,
-        fecha,
-        sucursal_id: sucursalId,
-        created_by: usuarioId ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "empleado_id,fecha" },
-    )
+    const upsertPayload: Record<string, unknown> = {
+      empleado_id: empleadoId,
+      fecha,
+      sucursal_id: sucursalId,
+      created_by: usuarioId ?? null,
+      updated_at: new Date().toISOString(),
+    }
+    // undefined = no tocar el horario existente; null/"" = limpiarlo explícitamente.
+    if (horaInicio !== undefined) upsertPayload.hora_inicio = horaInicio || null
+    if (horaFin !== undefined) upsertPayload.hora_fin = horaFin || null
+
+    const { error: upErr } = await supabase.from("empleado_sucursal_dia").upsert(upsertPayload, {
+      onConflict: "empleado_id,fecha",
+    })
 
     if (upErr) return { success: false, error: upErr.message }
 
@@ -220,6 +277,8 @@ export async function guardarAsignacionSucursalDia(
       sucursal_efectiva_nueva: sucursalId,
       accion,
       usuario_id: usuarioId ?? null,
+      hora_inicio: horaInicio !== undefined ? horaInicio || null : (prevRow?.hora_inicio as string | null | undefined) ?? null,
+      hora_fin: horaFin !== undefined ? horaFin || null : (prevRow?.hora_fin as string | null | undefined) ?? null,
     })
 
     return { success: true }
@@ -272,6 +331,8 @@ export async function quitarAsignacionSucursalDia(
       sucursal_efectiva_nueva: baseId,
       accion: "quitar",
       usuario_id: usuarioId ?? null,
+      hora_inicio: null,
+      hora_fin: null,
     })
 
     return { success: true }
@@ -301,6 +362,8 @@ export async function getHistorialEmpleadoSucursalDia(options?: {
         accion,
         usuario_id,
         created_at,
+        hora_inicio,
+        hora_fin,
         empleado:empleados(nombre, apellido)
       `,
       )
@@ -327,6 +390,8 @@ export async function getHistorialEmpleadoSucursalDia(options?: {
         accion: row.accion,
         usuarioId: row.usuario_id,
         createdAt: row.created_at,
+        horaInicio: normalizarHora(row.hora_inicio),
+        horaFin: normalizarHora(row.hora_fin),
       }
     })
   } catch {
@@ -338,15 +403,20 @@ export async function getHistorialEmpleadoSucursalDia(options?: {
 export async function getOverrideSucursalDia(
   empleadoId: string,
   fecha: string,
-): Promise<string | null> {
+): Promise<AsignacionSucursalDiaInfo | null> {
   try {
     const { data } = await supabase
       .from("empleado_sucursal_dia")
-      .select("sucursal_id")
+      .select("sucursal_id, hora_inicio, hora_fin")
       .eq("empleado_id", empleadoId)
       .eq("fecha", fecha)
       .maybeSingle()
-    return (data?.sucursal_id as string | undefined) ?? null
+    if (!data?.sucursal_id) return null
+    return {
+      sucursalId: data.sucursal_id as string,
+      horaInicio: normalizarHora(data.hora_inicio as string | null),
+      horaFin: normalizarHora(data.hora_fin as string | null),
+    }
   } catch {
     return null
   }
