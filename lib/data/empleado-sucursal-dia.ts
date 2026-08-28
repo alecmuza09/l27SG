@@ -52,6 +52,7 @@ export async function getAsignacionesPorFecha(fecha: string): Promise<Map<string
       .eq("fecha", fecha)
 
     if (error || !data) return map
+    console.log("[empleado_sucursal_dia] getAsignacionesPorFecha", fecha, data)
     for (const row of data as {
       empleado_id: string
       sucursal_id: string
@@ -74,27 +75,44 @@ function horaEnRango(hora: string, inicio: string, fin: string): boolean {
   return hora >= inicio && hora < fin
 }
 
+/** Asignación con rango horario parcial (p. ej. 15:00–20:00 en otra sucursal). */
+export function esAsignacionParcial(ov: AsignacionSucursalDiaInfo | null | undefined): boolean {
+  return !!(ov?.horaInicio && ov?.horaFin)
+}
+
 /**
- * Sucursal efectiva para un empleado en una fecha (y hora opcional).
- * - Sin override: sucursal base.
- * - Con override sin horario: sucursal destino todo el día.
- * - Con override con horario y `hora` provista: sucursal destino solo dentro del
- *   rango [horaInicio, horaFin); fuera de rango, sucursal base.
- * - Con override con horario pero sin `hora` provista: se asume aplicable (comportamiento
- *   de "todo el día" para vistas que no distinguen horas, p. ej. listados administrativos).
+ * ¿La empleada debe aparecer en la columna de la sucursal vista ese día?
+ * - Sin override: solo en sucursal base.
+ * - Override día completo: solo en sucursal asignada.
+ * - Override parcial: en sucursal base Y en sucursal asignada (slots bloqueados por hora en la UI).
  */
-function efectivaDesdeMap(
-  empleadoId: string,
+export function empleadoVisibleEnSucursalAgenda(
   sucursalBaseId: string,
-  overrides: Map<string, AsignacionSucursalDiaInfo>,
-  hora?: string,
-): string {
-  const ov = overrides.get(empleadoId)
-  if (!ov) return sucursalBaseId
-  if (hora && ov.horaInicio && ov.horaFin) {
-    return horaEnRango(hora, ov.horaInicio, ov.horaFin) ? ov.sucursalId : sucursalBaseId
+  sucursalVistaId: string,
+  override: AsignacionSucursalDiaInfo | null | undefined,
+): boolean {
+  if (!override) return sucursalBaseId === sucursalVistaId
+  if (esAsignacionParcial(override)) {
+    return sucursalVistaId === sucursalBaseId || sucursalVistaId === override.sucursalId
   }
-  return ov.sucursalId
+  return sucursalVistaId === override.sucursalId
+}
+
+/**
+ * ¿El slot HH:mm está disponible en la sucursal vista según la asignación del día?
+ * Solo aplica bloqueos cuando hay override parcial; día completo se resuelve por visibilidad de columna.
+ */
+export function isSlotDisponiblePorAsignacionSucursal(
+  slot: string,
+  sucursalVistaId: string,
+  sucursalBaseId: string,
+  override: AsignacionSucursalDiaInfo | null | undefined,
+): boolean {
+  if (!override || !esAsignacionParcial(override)) return true
+  const enRango = horaEnRango(slot, override.horaInicio!, override.horaFin!)
+  if (sucursalVistaId === override.sucursalId) return enRango
+  if (sucursalVistaId === sucursalBaseId) return !enRango
+  return true
 }
 
 function sinAcentos(s: string): string {
@@ -129,9 +147,11 @@ function filtrarSoloDiasTrabajoVanesaLopez(empleados: Empleado[], fecha: string)
 }
 
 /**
- * Empleadas activas cuya sucursal efectiva en `fecha` (y `hora` opcional) coincide con `sucursalId`.
- * Si `hora` (HH:mm) se provee y la asignación del día tiene un rango horario específico,
- * la asignación solo aplica dentro de ese rango; fuera de él, se usa la sucursal base.
+ * Empleadas activas visibles en la agenda de `sucursalId` para `fecha`.
+ * - Asignación día completo: solo en sucursal destino.
+ * - Asignación parcial: en sucursal base y destino (bloqueo por slot en la UI).
+ * Si `hora` (HH:mm) se provee, filtra además por disponibilidad en ese momento
+ * (útil al reservar citas en un horario concreto).
  */
 export async function getEmpleadosParaAgendaPorSucursalYDia(
   sucursalId: string,
@@ -141,6 +161,15 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
   try {
     const overrides = await getAsignacionesPorFecha(fecha)
 
+    const incluir = (empleadoId: string, sucursalBaseId: string): boolean => {
+      const ov = overrides.get(empleadoId) ?? null
+      if (!empleadoVisibleEnSucursalAgenda(sucursalBaseId, sucursalId, ov)) return false
+      if (hora) {
+        return isSlotDisponiblePorAsignacionSucursal(hora, sucursalId, sucursalBaseId, ov)
+      }
+      return true
+    }
+
     const [{ data: baseAqui }, { data: overridesRows }] = await Promise.all([
       supabase.from("empleados").select("*").eq("activo", true).eq("sucursal_id", sucursalId),
       supabase.from("empleado_sucursal_dia").select("empleado_id").eq("fecha", fecha).eq("sucursal_id", sucursalId),
@@ -149,7 +178,7 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
     const resultMap = new Map<string, (typeof baseAqui)[0]>()
 
     for (const row of baseAqui ?? []) {
-      if (efectivaDesdeMap(row.id, row.sucursal_id, overrides, hora) === sucursalId) {
+      if (incluir(row.id, row.sucursal_id)) {
         resultMap.set(row.id, row)
       }
     }
@@ -168,7 +197,7 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
         .in("id", incomingIds)
 
       for (const row of incomingRows ?? []) {
-        if (efectivaDesdeMap(row.id, row.sucursal_id, overrides, hora) === sucursalId) {
+        if (incluir(row.id, row.sucursal_id)) {
           resultMap.set(row.id, row)
         }
       }

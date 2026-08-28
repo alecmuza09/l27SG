@@ -24,6 +24,8 @@ import {
   getEmpleadosParaAgendaPorSucursalYDia,
   guardarAsignacionSucursalDia,
   getAsignacionesPorFecha,
+  isSlotDisponiblePorAsignacionSucursal,
+  esAsignacionParcial,
   type AsignacionSucursalDiaInfo,
 } from "@/lib/data/empleado-sucursal-dia"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -559,16 +561,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
         return
       }
       try {
-        // Si la fecha vista es hoy, la hora actual decide si una asignación con
-        // horario específico aplica ahora mismo; fuera de rango, prevalece la sucursal base.
-        const now = new Date()
-        const hoyStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
-        const horaActual = debouncedDate === hoyStr
-          ? `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-          : undefined
-
         const [emps, ovMap] = await Promise.all([
-          getEmpleadosParaAgendaPorSucursalYDia(debouncedSucursal, debouncedDate, horaActual),
+          getEmpleadosParaAgendaPorSucursalYDia(debouncedSucursal, debouncedDate),
           getAsignacionesPorFecha(debouncedDate),
         ])
         setEmpleadosSucursal(emps)
@@ -579,9 +573,6 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       }
     }
     void loadEmpleados()
-    // Reintenta cada minuto para reflejar en vivo el cruce de la hora del rango asignado.
-    const interval = setInterval(() => void loadEmpleados(), 60000)
-    return () => clearInterval(interval)
   }, [debouncedSucursal, debouncedDate, empleadosAgendaTick])
 
   useEffect(() => {
@@ -1666,12 +1657,25 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                   const isBloqueVentana = !!(isVentanaComida || isVentanaDescanso)
                                   const ausenciaSlot = isSlotBloqueadoPorAusencia(slot, ausenciasEmp)
                                   const isAusenciaParcial = !!ausenciaSlot
+                                  const asignacionParcial =
+                                    asignacionHoy && esAsignacionParcial(asignacionHoy)
+                                  const slotDisponibleAsignacion =
+                                    !asignacionParcial ||
+                                    isSlotDisponiblePorAsignacionSucursal(
+                                      slot,
+                                      selectedSucursal,
+                                      empleado.sucursalId,
+                                      asignacionHoy,
+                                    )
+                                  const isBloqueadoPorAsignacion =
+                                    asignacionParcial && !slotDisponibleAsignacion
                                   const isOcupado = citasEmpleadoAgenda.some((c) => {
                                     const ni = c.horaInicio.substring(0, 5)
                                     const nf = c.horaFin.substring(0, 5)
                                     return slot >= ni && slot < nf
                                   })
-                                  const bloqueado = isBloqueVentana || isAusenciaParcial
+                                  const bloqueado =
+                                    isBloqueVentana || isAusenciaParcial || isBloqueadoPorAsignacion
                                   return (
                                     <div
                                       key={slot}
@@ -1681,6 +1685,10 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                         isVentanaComida && "bg-orange-50 dark:bg-orange-950/20",
                                         isVentanaDescanso && "bg-slate-100/80 dark:bg-slate-900/35",
                                         isAusenciaParcial && !isBloqueVentana && "bg-red-50 dark:bg-red-950/20",
+                                        isBloqueadoPorAsignacion &&
+                                          !isBloqueVentana &&
+                                          !isAusenciaParcial &&
+                                          "bg-muted/50 bg-[repeating-linear-gradient(-45deg,transparent,transparent_3px,rgba(0,0,0,0.07)_3px,rgba(0,0,0,0.07)_6px)] dark:bg-[repeating-linear-gradient(-45deg,transparent,transparent_3px,rgba(255,255,255,0.06)_3px,rgba(255,255,255,0.06)_6px)]",
                                         isInRange && !isOcupado && !bloqueado && "hover:bg-accent/40 cursor-pointer",
                                         (isOcupado || bloqueado) && "cursor-default",
                                       )}
@@ -1708,6 +1716,18 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                           <span className="absolute inset-0 flex items-center pl-1 text-[10px] text-red-600 dark:text-red-400 pointer-events-none">
                                             <UserX className="h-2.5 w-2.5 mr-0.5 shrink-0" />
                                             <span className="capitalize truncate">{TIPO_AUSENCIA_LABELS[ausenciaSlot.tipo]}</span>
+                                          </span>
+                                        )}
+                                        {isBloqueadoPorAsignacion && !isBloqueVentana && !isAusenciaParcial && (
+                                          <span className="absolute inset-0 flex items-center pl-1 text-[10px] text-muted-foreground pointer-events-none">
+                                            <MapPin className="h-2.5 w-2.5 mr-0.5 shrink-0 opacity-70" />
+                                            <span className="truncate">
+                                              {esCubriendo
+                                                ? "Fuera de horario"
+                                                : asignacionHoy?.horaInicio && asignacionHoy?.horaFin
+                                                  ? `En otra sucursal (${formatHora12(asignacionHoy.horaInicio)} – ${formatHora12(asignacionHoy.horaFin)})`
+                                                  : "En otra sucursal"}
+                                            </span>
                                           </span>
                                         )}
                                         {isInRange && !isOcupado && !bloqueado && (
