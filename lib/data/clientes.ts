@@ -185,27 +185,60 @@ export async function getClienteById(id: string): Promise<Cliente | null> {
   }
 }
 
-// Buscar clientes por query en toda la base de datos (nombre, apellido, email, teléfono)
+async function searchClientesDirecto(termino: string, limit: number): Promise<ClienteRow[]> {
+  const sanitized = termino.replace(/[,()]/g, '').slice(0, 80)
+  const digits = sanitized.replace(/\D/g, '')
+  const orParts = [
+    `nombre.ilike.%${sanitized}%`,
+    `apellido.ilike.%${sanitized}%`,
+    `email.ilike.%${sanitized}%`,
+    `telefono.ilike.%${sanitized}%`,
+  ]
+  if (digits.length >= 4 && digits !== sanitized) {
+    orParts.push(`telefono.ilike.%${digits}%`)
+  }
+
+  const { data, error } = await supabase
+    .from('clientes')
+    .select('*')
+    .or(orParts.join(','))
+    .limit(limit)
+
+  if (error) {
+    console.error('Error en búsqueda directa de clientes:', error)
+    return []
+  }
+  return data ?? []
+}
+
+// Buscar clientes por query en toda la base de datos (nombre, apellido, email, teléfono).
+// Los clientes son globales: no se filtra por sucursal.
 export async function searchClientes(
   query: string,
   limit: number = 500,
-  soloActivos: boolean = false
+  _soloActivos: boolean = false
 ): Promise<Cliente[]> {
   try {
     if (!query || query.trim() === '') {
       return []
     }
 
+    const termino = query.trim()
     const { data, error } = await supabase
-      .rpc('buscar_clientes', { termino: query.trim() })
+      .rpc('buscar_clientes', { termino })
       .limit(limit)
+
+    if (!error && (data?.length ?? 0) > 0) {
+      return data.map(transformCliente)
+    }
 
     if (error) {
       console.error('Error buscando clientes:', error)
-      return []
     }
 
-    return (data ?? []).map(transformCliente)
+    // Fallback: búsqueda directa en toda la tabla (sin sucursal) por si el RPC
+    // falla o no indexa bien teléfonos.
+    return (await searchClientesDirecto(termino, limit)).map(transformCliente)
   } catch (error) {
     console.error('Error inesperado buscando clientes:', error)
     return []

@@ -17,7 +17,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { getClientes, type Cliente } from "@/lib/data/clientes"
+import { searchClientes, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getProductosInventarioFromDB, type ProductoInventario } from "@/lib/data/inventario"
 import {
@@ -85,7 +85,6 @@ export default function CajaPage() {
   const router = useRouter()
 
   // ── Datos maestros ─────────────────────────────────────────────────────
-  const [clientes, setClientes]    = useState<Cliente[]>([])
   const [servicios, setServicios]  = useState<Servicio[]>([])
   const [productos, setProductos]  = useState<ProductoInventario[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
@@ -95,6 +94,9 @@ export default function CajaPage() {
   const [clienteId, setClienteId]         = useState("")
   const [clienteSearch, setClienteSearch] = useState("")
   const [showDropdown, setShowDropdown]   = useState(false)
+  const [clientesBusqueda, setClientesBusqueda] = useState<Cliente[]>([])
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null)
+  const [buscandoClientes, setBuscandoClientes] = useState(false)
   const clienteRef = useRef<HTMLDivElement>(null)
 
   // ── Panel cliente ──────────────────────────────────────────────────────
@@ -140,13 +142,11 @@ export default function CajaPage() {
   useEffect(() => {
     setIsLoading(true)
     Promise.all([
-      getClientes(),
       getServiciosActivosFromDB(),
       getProductosInventarioFromDB(),
       getSucursalesActivasFromDB(),
     ])
-      .then(([cls, svcs, prods, sucs]) => {
-        setClientes(cls)
+      .then(([svcs, prods, sucs]) => {
         setServicios(svcs)
         setProductos(prods.filter(p => (p.precioVenta ?? 0) > 0 && p.stockActual > 0))
         setSucursales(sucs)
@@ -179,6 +179,27 @@ export default function CajaPage() {
       .then(([h, gc, saldo]) => { setHistorial(h); setGcActiva(gc); setSaldoPendiente(saldo) })
       .finally(() => setLoadingPanel(false))
   }, [clienteId])
+
+  // ── Búsqueda de clientes en toda la BD (sin filtro de sucursal) ────────
+  useEffect(() => {
+    if (clienteId || clienteSearch.trim().length < 2) {
+      if (clienteSearch.trim().length < 2) setClientesBusqueda([])
+      setBuscandoClientes(false)
+      return
+    }
+    const termino = clienteSearch.trim()
+    const timer = setTimeout(async () => {
+      setBuscandoClientes(true)
+      try {
+        setClientesBusqueda(await searchClientes(termino, 25))
+      } catch {
+        setClientesBusqueda([])
+      } finally {
+        setBuscandoClientes(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [clienteSearch, clienteId])
 
   // ── Cálculos ──────────────────────────────────────────────────────────
   const subtotal      = cart.reduce((s, i) => s + i.precio * i.cantidad, 0)
@@ -223,7 +244,7 @@ export default function CajaPage() {
     setPagoEfectivo(""); setPagoTarjeta(""); setPagoTransferencia(""); setPagoGiftCard("")
     setGcPagoId(""); setGcPagoCodigo(""); setGcPagoSaldo(0)
     setReferencia(""); setNotas("")
-    setClienteId(""); setClienteSearch("")
+    setClienteId(""); setClienteSearch(""); setClienteSeleccionado(null); setClientesBusqueda([])
   }
 
   // ── Descuentos ────────────────────────────────────────────────────────
@@ -331,9 +352,6 @@ export default function CajaPage() {
   }
 
   // ── Filtros ────────────────────────────────────────────────────────────
-  const clientesFiltrados  = clientes.filter(c =>
-    `${c.nombre} ${c.apellido} ${c.telefono}`.toLowerCase().includes(clienteSearch.toLowerCase())
-  )
   const serviciosFiltrados = servicios.filter(s =>
     s.nombre.toLowerCase().includes(searchServicio.toLowerCase())
   )
@@ -343,8 +361,6 @@ export default function CajaPage() {
   const productosSugeridos = productos
     .filter(p => esSugerido(p.nombre, categoriasCarrito) && !cart.find(c => c.id === p.id && c.tipo === "producto"))
     .slice(0, 4)
-
-  const clienteSeleccionado = clientes.find(c => c.id === clienteId)
 
   // ════════════════════════════════════════════════════════════════════════
   if (isLoading) {
@@ -415,25 +431,36 @@ export default function CajaPage() {
                 <User className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={clienteSearch}
-                  onChange={e => { setClienteSearch(e.target.value); setShowDropdown(true); if (!e.target.value) setClienteId("") }}
+                  onChange={e => {
+                    setClienteSearch(e.target.value)
+                    setShowDropdown(true)
+                    if (!e.target.value) {
+                      setClienteId("")
+                      setClienteSeleccionado(null)
+                    }
+                  }}
                   onFocus={() => setShowDropdown(true)}
                   placeholder="Buscar cliente…"
                   className="pl-8 h-9"
                 />
                 {clienteId && (
-                  <button className="absolute right-2.5 top-1/2 -translate-y-1/2" onClick={() => { setClienteId(""); setClienteSearch("") }}>
+                  <button className="absolute right-2.5 top-1/2 -translate-y-1/2" onClick={() => { setClienteId(""); setClienteSearch(""); setClienteSeleccionado(null) }}>
                     <X className="h-4 w-4 text-muted-foreground" />
                   </button>
                 )}
               </div>
               {showDropdown && clienteSearch.length >= 2 && !clienteId && (
                 <div className="absolute z-50 top-full mt-1 left-0 right-0 rounded-lg border bg-popover shadow-lg max-h-52 overflow-y-auto">
-                  {clientesFiltrados.slice(0, 25).length === 0 ? (
+                  {buscandoClientes ? (
+                    <p className="p-3 text-sm text-muted-foreground text-center flex items-center justify-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Buscando…
+                    </p>
+                  ) : clientesBusqueda.length === 0 ? (
                     <p className="p-3 text-sm text-muted-foreground text-center">Sin resultados</p>
-                  ) : clientesFiltrados.slice(0, 25).map(c => (
+                  ) : clientesBusqueda.map(c => (
                     <button key={c.id} type="button"
                       className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-accent text-left"
-                      onClick={() => { setClienteId(c.id); setClienteSearch(`${c.nombre} ${c.apellido}`); setShowDropdown(false) }}
+                      onClick={() => { setClienteId(c.id); setClienteSearch(`${c.nombre} ${c.apellido}`); setClienteSeleccionado(c); setShowDropdown(false) }}
                     >
                       <User className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                       <div>

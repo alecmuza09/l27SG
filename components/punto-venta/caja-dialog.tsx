@@ -19,7 +19,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { getClientes, type Cliente } from "@/lib/data/clientes"
+import { searchClientes, getClienteById, type Cliente } from "@/lib/data/clientes"
 import { getServiciosActivosFromDB, type Servicio } from "@/lib/data/servicios"
 import { getProductosInventarioFromDB, descontarStockPorVenta, type ProductoInventario } from "@/lib/data/inventario"
 import {
@@ -129,7 +129,6 @@ export function CajaDialog({
 }: CajaDialogProps) {
 
   // ── Datos maestros ─────────────────────────────────────────────────────
-  const [clientes, setClientes]    = useState<Cliente[]>([])
   const [servicios, setServicios]  = useState<Servicio[]>([])
   const [productos, setProductos]  = useState<ProductoInventario[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
@@ -139,6 +138,9 @@ export function CajaDialog({
   const [clienteId, setClienteId]       = useState(propClienteId)
   const [clienteSearch, setClienteSearch] = useState(propClienteNombre)
   const [showClienteList, setShowClienteList] = useState(false)
+  const [clientesBusqueda, setClientesBusqueda] = useState<Cliente[]>([])
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null)
+  const [buscandoClientes, setBuscandoClientes] = useState(false)
   const clienteRef = useRef<HTMLDivElement>(null)
   const cobrandoRef = useRef(false)
 
@@ -211,6 +213,9 @@ export function CajaDialog({
     setClienteId(propClienteId)
     setClienteSearch(propClienteNombre)
     setShowClienteList(false)
+    setClientesBusqueda([])
+    setClienteSeleccionado(null)
+    setBuscandoClientes(false)
     setCart([])
     setHistorial([]); setGcActiva(null); setSaldoPendiente(0)
     setDescuentoAplicado(null)
@@ -251,15 +256,24 @@ export function CajaDialog({
       }
     }
 
+    const idClienteInicial = (() => {
+      if (citasIniciales.length > 0) {
+        const unicos = [...new Set(citasIniciales.map(c => c.clienteId))]
+        if (unicos.length === 1) return citasIniciales[0].clienteId
+      }
+      return propClienteId || ""
+    })()
+    if (idClienteInicial) {
+      getClienteById(idClienteInicial).then(c => { if (c) setClienteSeleccionado(c) })
+    }
+
     setIsLoadingData(true)
     Promise.all([
-      getClientes(),
       getServiciosActivosFromDB(),
       getProductosInventarioFromDB(),
       getSucursalesActivasFromDB(),
     ])
-      .then(async ([cls, svcs, prods, sucs]) => {
-        setClientes(cls)
+      .then(async ([svcs, prods, sucs]) => {
         setServicios(svcs)
         setProductos(prods.filter(p => p.disponibleVenta === true))
 
@@ -322,6 +336,27 @@ export function CajaDialog({
       })
       .finally(() => setIsLoadingPanel(false))
   }, [clienteId])
+
+  // ── Búsqueda de clientes en toda la BD (sin filtro de sucursal) ────────
+  useEffect(() => {
+    if (!open || clienteId || clienteSearch.trim().length < 2) {
+      if (clienteSearch.trim().length < 2) setClientesBusqueda([])
+      setBuscandoClientes(false)
+      return
+    }
+    const termino = clienteSearch.trim()
+    const timer = setTimeout(async () => {
+      setBuscandoClientes(true)
+      try {
+        setClientesBusqueda(await searchClientes(termino, 25))
+      } catch {
+        setClientesBusqueda([])
+      } finally {
+        setBuscandoClientes(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [open, clienteSearch, clienteId])
 
   // ── Cálculos ──────────────────────────────────────────────────────────
   const subtotal     = cart.reduce((s, i) => s + i.precio * i.cantidad, 0)
@@ -869,9 +904,6 @@ export function CajaDialog({
   }
 
   // ── Filtros ────────────────────────────────────────────────────────────
-  const clientesFiltrados = clientes.filter(c =>
-    `${c.nombre} ${c.apellido} ${c.telefono}`.toLowerCase().includes(clienteSearch.toLowerCase())
-  )
   const serviciosFiltrados = servicios.filter(s =>
     s.nombre.toLowerCase().includes(searchServicio.toLowerCase())
   )
@@ -883,7 +915,6 @@ export function CajaDialog({
     !cart.find(c => c.id === p.id && c.tipo === "producto")
   ).slice(0, 4)
 
-  const clienteSeleccionado = clientes.find(c => c.id === clienteId)
   const hayMultiMetodo = (efNum > 0 ? 1 : 0) + (tarNum > 0 ? 1 : 0) + (trfNum > 0 ? 1 : 0) + (gcNum > 0 ? 1 : 0) + (vipNum > 0 ? 1 : 0) > 1
 
   // ════════════════════════════════════════════════════════════════════════
@@ -941,25 +972,36 @@ export function CajaDialog({
                       <User className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                       <Input
                         value={clienteSearch}
-                        onChange={e => { setClienteSearch(e.target.value); setShowClienteList(true); if (!e.target.value) { setClienteId(""); } }}
+                        onChange={e => {
+                          setClienteSearch(e.target.value)
+                          setShowClienteList(true)
+                          if (!e.target.value) {
+                            setClienteId("")
+                            setClienteSeleccionado(null)
+                          }
+                        }}
                         onFocus={() => setShowClienteList(true)}
                         placeholder="Buscar cliente…"
                         className="pl-7 h-8 text-sm"
                       />
                       {clienteId && (
-                        <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => { setClienteId(""); setClienteSearch("") }}>
+                        <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => { setClienteId(""); setClienteSearch(""); setClienteSeleccionado(null) }}>
                           <X className="h-3.5 w-3.5 text-muted-foreground" />
                         </button>
                       )}
                     </div>
                     {showClienteList && clienteSearch.length >= 2 && !clienteId && (
                       <div className="absolute z-50 top-full mt-1 w-full rounded-md border bg-popover shadow-md max-h-48 overflow-y-auto">
-                        {clientesFiltrados.slice(0, 20).length === 0 ? (
+                        {buscandoClientes ? (
+                          <p className="p-3 text-xs text-muted-foreground text-center flex items-center justify-center gap-1.5">
+                            <Loader2 className="h-3 w-3 animate-spin" /> Buscando…
+                          </p>
+                        ) : clientesBusqueda.length === 0 ? (
                           <p className="p-3 text-xs text-muted-foreground text-center">Sin resultados</p>
-                        ) : clientesFiltrados.slice(0, 20).map(c => (
+                        ) : clientesBusqueda.map(c => (
                           <button key={c.id} type="button"
                             className="w-full flex items-start gap-2 px-3 py-2 hover:bg-accent text-left"
-                            onClick={() => { setClienteId(c.id); setClienteSearch(`${c.nombre} ${c.apellido}`); setShowClienteList(false) }}
+                            onClick={() => { setClienteId(c.id); setClienteSearch(`${c.nombre} ${c.apellido}`); setClienteSeleccionado(c); setShowClienteList(false) }}
                           >
                             <User className="h-3.5 w-3.5 mt-0.5 text-muted-foreground flex-shrink-0" />
                             <div>
@@ -1350,7 +1392,11 @@ export function CajaDialog({
                           <User className="h-4 w-4 text-violet-600" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold truncate">{clienteSeleccionado?.nombre} {clienteSeleccionado?.apellido}</p>
+                          <p className="text-sm font-semibold truncate">
+                            {clienteSeleccionado
+                              ? `${clienteSeleccionado.nombre} ${clienteSeleccionado.apellido}`
+                              : clienteSearch}
+                          </p>
                           <p className="text-[10px] text-muted-foreground">{clienteSeleccionado?.telefono}</p>
                         </div>
                       </div>
