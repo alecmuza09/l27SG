@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   getPagosFromDB, calcularResumenDesdePagos, updatePago, deletePago,
   distribuirMontoPago,
+  cuentaEnTotales,
   etiquetaMetodosPago,
   debePersistirMetodoMixtoEfectivoTarjeta,
   esReferenciaEmisionGiftCard,
@@ -41,6 +42,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { CajaDialog } from "@/components/punto-venta/caja-dialog"
+import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
 import { getGastosFromDB, createGastoInDB, updateGastoInDB, deleteGastoFromDB, type Gasto } from "@/lib/data/gastos"
@@ -197,6 +199,7 @@ export default function PagosPage() {
   const [isCancelCitaOpen, setIsCancelCitaOpen]         = useState(false)
   const [isCancelCitaConfirmOpen, setIsCancelCitaConfirmOpen] = useState(false)
   const [isSavingPago, setIsSavingPago]                 = useState(false)
+  const [isUpdatingExcluir, setIsUpdatingExcluir]       = useState(false)
   const [syncingGcPagos, setSyncingGcPagos]             = useState(false)
 
   // ── carga de datos ──────────────────────────────────────────────────────────
@@ -308,7 +311,7 @@ export default function PagosPage() {
   let totalGiftCard = 0
   let totalOtro = 0
   for (const p of pagos) {
-    if (p.estado !== "completado") continue
+    if (p.estado !== "completado" || !cuentaEnTotales(p)) continue
     const d = distribuirMontoPago(p)
     totalEfectivo += d.efectivo
     totalTarjeta += d.tarjeta
@@ -330,10 +333,10 @@ export default function PagosPage() {
 
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
   const totalPropinas   = pagos
-    .filter(p => p.estado === "completado")
+    .filter(p => p.estado === "completado" && cuentaEnTotales(p))
     .reduce((s, p) => s + (p.propina ?? 0), 0)
   const totalDescuentos = pagos
-    .filter(p => p.estado === "completado")
+    .filter(p => p.estado === "completado" && cuentaEnTotales(p))
     .reduce((s, p) => s + (p.descuentoMonto ?? 0), 0)
 
   // totalEfectivo/Tarjeta/Transf ya incluyen propina en el monto,
@@ -458,6 +461,25 @@ export default function PagosPage() {
     setEditClienteNombre(pago.clienteNombre)
     setEditClienteBusqueda("")
     setEditClienteResultados([])
+  }
+
+  const handleToggleExcluirDeTotales = async (checked: boolean) => {
+    if (!pagoDetalle || !isAdmin) return
+    setIsUpdatingExcluir(true)
+    const res = await updatePago(pagoDetalle.id, { excluir_de_totales: checked })
+    setIsUpdatingExcluir(false)
+    if (!res.success) {
+      toast.error(`Error: ${res.error}`)
+      return
+    }
+    const patch = { excluirDeTotales: checked }
+    setPagos(prev => {
+      const next = prev.map(p => p.id === pagoDetalle.id ? { ...p, ...patch } : p)
+      setResumen(calcularResumenDesdePagos(next, fecha))
+      return next
+    })
+    setPagoDetalle(prev => (prev ? { ...prev, ...patch } : null))
+    toast.success(checked ? "Cobro excluido de totales" : "Cobro incluido en totales")
   }
 
   // Mantiene monto_efectivo / monto_tarjeta alineados al total cuando el método no es mixto ni "otro" (GC).
@@ -1185,9 +1207,21 @@ export default function PagosPage() {
                   </TableHeader>
                   <TableBody>
                     {pagosFiltrados.map(pago => (
-                      <TableRow key={pago.id} className="hover:bg-muted/30">
+                      <TableRow
+                        key={pago.id}
+                        className={cn("hover:bg-muted/30", pago.excluirDeTotales && "opacity-70")}
+                      >
                         <TableCell className="text-xs text-muted-foreground tabular-nums">{pago.hora?.slice(0, 5)}</TableCell>
-                        <TableCell className="text-sm font-medium">{pago.clienteNombre}</TableCell>
+                        <TableCell className="text-sm font-medium">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{pago.clienteNombre}</span>
+                            {pago.excluirDeTotales && (
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-gray-100 text-gray-600 border-gray-200">
+                                Excluido del total
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{pago.empleadoNombre}</TableCell>
                         <TableCell className="text-xs max-w-[220px]">
                           <div className="flex items-center gap-1.5 min-w-0">
@@ -1741,9 +1775,14 @@ export default function PagosPage() {
       <Dialog open={!!pagoDetalle} onOpenChange={v => { if (!v) { setPagoDetalle(null); setEditando(false); setIsDeletePagoOpen(false); setIsDeletePagoConfirmOpen(false) } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 flex-wrap">
               <Receipt className="h-5 w-5 text-violet-600" />
               {editando ? "Editar cobro" : "Detalle del cobro"}
+              {pagoDetalle?.excluirDeTotales && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-gray-100 text-gray-600 border-gray-200 font-normal">
+                  Excluido del total
+                </Badge>
+              )}
             </DialogTitle>
           </DialogHeader>
 
@@ -2011,6 +2050,26 @@ export default function PagosPage() {
                   <p className="mt-0.5 text-sm text-muted-foreground">{pagoDetalle.notas || "—"}</p>
                 )}
               </div>
+
+              {/* Excluir de totales — solo admin/superadmin */}
+              {isAdmin && !editando && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="excluir-de-totales" className="text-sm font-medium cursor-pointer">
+                      No sumar al total
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      El cobro sigue visible en la lista pero no cuenta en los totales del día ni en reportes.
+                    </p>
+                  </div>
+                  <Switch
+                    id="excluir-de-totales"
+                    checked={!!pagoDetalle.excluirDeTotales}
+                    onCheckedChange={handleToggleExcluirDeTotales}
+                    disabled={isUpdatingExcluir}
+                  />
+                </div>
+              )}
 
               {/* Motivo de corrección — solo en edición */}
               {editando && (

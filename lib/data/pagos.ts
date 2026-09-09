@@ -27,6 +27,17 @@ export interface Pago {
   montoEfectivo?: number
   montoTarjeta?: number
   giftCardCodigo?: string
+  /** Si es true, el cobro se muestra pero no suma en totales de caja/reportes. */
+  excluirDeTotales?: boolean
+}
+
+/** Cobros que deben incluirse en totales de ingresos y caja. */
+export function cuentaEnTotales(p: Pick<Pago, 'excluirDeTotales'>): boolean {
+  return !p.excluirDeTotales
+}
+
+export function pagosCompletadosParaTotales(pagos: Pago[]): Pago[] {
+  return pagos.filter(p => p.estado === 'completado' && cuentaEnTotales(p))
 }
 
 /** Monto por canal para corte de caja y reportes (pago mixto sin duplicar el total). */
@@ -378,7 +389,7 @@ export async function getPagosFromDB(
         monto, metodo_pago, estado, fecha, hora, servicios,
         notas, referencia, subtotal,
         descuento_monto, descuento_tipo, descuento_codigo,
-        propina, monto_efectivo, monto_tarjeta, gift_card_codigo,
+        propina, monto_efectivo, monto_tarjeta, gift_card_codigo, excluir_de_totales,
         cliente:clientes(nombre, apellido),
         empleado:empleados(nombre, apellido)
       `)
@@ -426,6 +437,7 @@ export async function getPagosFromDB(
       montoEfectivo: Number(pago.monto_efectivo) || 0,
       montoTarjeta: Number(pago.monto_tarjeta) || 0,
       giftCardCodigo: pago.gift_card_codigo || undefined,
+      excluirDeTotales: Boolean(pago.excluir_de_totales),
     }))
   } catch (error) {
     console.error('Error inesperado obteniendo pagos:', error)
@@ -695,7 +707,7 @@ export async function sincronizarPagosEmisionGiftCardsFaltantes(opts?: {
 
 // Calcula el resumen de caja directamente desde los pagos ya cargados (sin extra roundtrip a DB)
 export function calcularResumenDesdePagos(pagos: Pago[], fecha: string): ResumenCajaDiario {
-  const completados = pagos.filter(p => p.estado === 'completado')
+  const completados = pagosCompletadosParaTotales(pagos)
   const resumen: ResumenCajaDiario = {
     fecha,
     totalVentas: 0,
@@ -1263,6 +1275,7 @@ export async function updatePago(
     fecha?: string
     servicios?: string[]
     cliente_id?: string | null
+    excluir_de_totales?: boolean
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {

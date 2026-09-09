@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table"
 import {
   getPagosFromDB, distribuirMontoPago, totalizarVentasSaldoGiftCards,
-  esVentaSaldoGiftCard, etiquetaMetodosPago, type Pago,
+  esVentaSaldoGiftCard, etiquetaMetodosPago, cuentaEnTotales, type Pago,
 } from "@/lib/data/pagos"
 import {
   getServiciosPopulares,
@@ -122,7 +122,7 @@ function calcularPropinasPorEmpleada(pagos: Pago[]): PropinaEmpleadaRow[] {
   const map = new Map<string, { nombre: string; totalPropinas: number; cobros: number }>()
 
   pagos
-    .filter(p => p.estado === "completado" && p.propina > 0 && p.empleadoId)
+    .filter(p => p.estado === "completado" && p.propina > 0 && p.empleadoId && cuentaEnTotales(p))
     .forEach(p => {
       const key = p.empleadoId!
       const prev = map.get(key) ?? { nombre: p.empleadoNombre || "Sin empleado", totalPropinas: 0, cobros: 0 }
@@ -251,8 +251,8 @@ function contarDiasHabiles(fechaDesde: string, fechaHasta: string): number {
 function buildVentasPorPeriodo(
   pagos: Pago[], pagosAnt: Pago[], periodo: Periodo, fechaDesde: string, fechaHasta: string,
 ): VentaDia[] {
-  const comp    = pagos.filter(p => p.estado === "completado")
-  const compAnt = pagosAnt.filter(p => p.estado === "completado")
+  const comp    = pagos.filter(p => p.estado === "completado" && cuentaEnTotales(p))
+  const compAnt = pagosAnt.filter(p => p.estado === "completado" && cuentaEnTotales(p))
 
   const ventasPorFecha = (lista: Pago[], f: string) =>
     lista.filter(p => p.fecha === f).reduce((s, p) => s + p.monto, 0)
@@ -803,7 +803,7 @@ function extraerCodigoGiftCardPago(p: Pago): string {
 function calcularRendimientoEmpleadasPdf(pagos: Pago[]): RendimientoEmpleadaPdfRow[] {
   const map = new Map<string, RendimientoEmpleadaPdfRow>()
   pagos
-    .filter(p => p.estado === "completado")
+    .filter(p => p.estado === "completado" && cuentaEnTotales(p))
     .forEach(p => {
       const key = p.empleadoId ?? `nombre:${p.empleadoNombre}`
       const prev = map.get(key) ?? {
@@ -845,7 +845,7 @@ function calcularVentasGiftCardsPdf(
 function calcularDesgloseMetodosPdf(pagos: Pago[]) {
   const totales = { efectivo: 0, tarjeta: 0, transferencia: 0, otro: 0 }
   pagos
-    .filter(p => p.estado === "completado")
+    .filter(p => p.estado === "completado" && cuentaEnTotales(p))
     .forEach(p => {
       const d = distribuirMontoPago(p)
       totales.efectivo += d.efectivo
@@ -1348,8 +1348,9 @@ async function generarReportePdf(opts: {
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
   const pagosComp = opts.pagos.filter(p => p.estado === "completado")
-  const totalPropinas = pagosComp.reduce((s, p) => s + (p.propina ?? 0), 0)
-  const subtotalServicios = pagosComp.reduce((s, p) => s + p.monto - (p.propina ?? 0), 0)
+  const pagosParaTotales = pagosComp.filter(cuentaEnTotales)
+  const totalPropinas = pagosParaTotales.reduce((s, p) => s + (p.propina ?? 0), 0)
+  const subtotalServicios = pagosParaTotales.reduce((s, p) => s + p.monto - (p.propina ?? 0), 0)
   const totalGeneral = subtotalServicios + totalPropinas
   const metodos = calcularDesgloseMetodosPdf(opts.pagos)
   const rendimiento = calcularRendimientoEmpleadasPdf(opts.pagos)
@@ -1973,7 +1974,7 @@ export default function ReportesPage() {
       const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
 
       const calcStats = (lista: Pago[]): KpiStats => {
-        const comp      = lista.filter(p => p.estado === "completado")
+        const comp      = lista.filter(p => p.estado === "completado" && cuentaEnTotales(p))
         const ingresos  = comp.reduce((s, p) => s + p.monto, 0)
         const total     = comp.length
         return { ingresosTotales: ingresos, totalServicios: total, ticketPromedio: total > 0 ? Math.round(ingresos / total) : 0 }
@@ -2012,7 +2013,7 @@ export default function ReportesPage() {
         const prev = metodosMapFase1.get(clave) ?? { monto: 0, count: 0 }
         metodosMapFase1.set(clave, { monto: prev.monto + monto, count: prev.count + 1 })
       }
-      pagos.filter(p => p.estado === "completado").forEach(p => {
+      pagos.filter(p => p.estado === "completado" && cuentaEnTotales(p)).forEach(p => {
         const d = distribuirMontoPago(p)
         bump1("efectivo", d.efectivo)
         bump1("tarjeta", d.tarjeta)
