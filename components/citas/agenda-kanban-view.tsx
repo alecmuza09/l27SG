@@ -82,6 +82,17 @@ import {
   unsubscribeAgendaBloquesRealtime,
   type AgendaBloque,
 } from "@/lib/data/agenda-bloques"
+import {
+  getPagosFromDB,
+  distribuirMontoPago,
+  cuentaEnTotales,
+  excluirVentasSaldoGcOnlineDePagos,
+  type Pago,
+} from "@/lib/data/pagos"
+import { getGastosFromDB, type Gasto } from "@/lib/data/gastos"
+
+const fmtMXN = (n: number) =>
+  new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
 
 interface AgendaKanbanViewProps {
   selectedDate: string
@@ -435,6 +446,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [vacaciones, setVacaciones] = useState<Vacacion[]>([])
   const [empleadosSucursal, setEmpleadosSucursal] = useState<Empleado[]>([])
   const [citas, setCitas] = useState<Cita[]>([])
+  const [pagosDelDia, setPagosDelDia] = useState<Pago[]>([])
+  const [gastosDelDia, setGastosDelDia] = useState<Gasto[]>([])
   const [isLoadingCitas, setIsLoadingCitas] = useState(false)
   const [editingCita, setEditingCita] = useState<Cita | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -597,12 +610,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       if (debouncedSucursal && debouncedDate) {
         setIsLoadingCitas(true)
         try {
-          const [citasData, ausenciasData] = await Promise.all([
+          const [citasData, ausenciasData, pagosData, gastosData] = await Promise.all([
             getCitasByDateAndSucursalFromDB(debouncedDate, debouncedSucursal),
             getAusenciasFromDB({ fechaDesde: debouncedDate, fechaHasta: debouncedDate }),
+            getPagosFromDB(debouncedSucursal, debouncedDate),
+            getGastosFromDB(debouncedDate, debouncedSucursal),
           ])
+          const pagosSinGcOnline = await excluirVentasSaldoGcOnlineDePagos(pagosData)
           setCitas(citasData)
           setAusencias(enrichAusenciasList(ausenciasData))
+          setPagosDelDia(pagosSinGcOnline)
+          setGastosDelDia(gastosData)
         } catch (error) {
           console.error('Error cargando citas:', error)
           toast.error('Error al cargar las citas')
@@ -767,15 +785,55 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     setCitasCanceladasOpen(false)
   }, [selectedDate, selectedSucursal])
 
-  const citasPorEstado = useMemo(() => {
-    return ESTADOS.reduce(
-      (acc, estado) => {
-        acc[estado.value] = citasFiltradas.filter((c) => c.estado === estado.value)
-        return acc
-      },
-      {} as Record<string, Cita[]>,
-    )
-  }, [citasFiltradas])
+  /** Totales del día — misma lógica que Pagos/Caja (Total = servicios netos − gastos). */
+  const statsDia = useMemo(() => {
+    const porCobrar = citasFiltradas
+      .filter((c) => !c.pagado && c.estado !== "cancelada" && c.estado !== "no-asistio")
+      .reduce((s, c) => s + c.precio, 0)
+
+    const citasCompletadas = citasFiltradas.filter((c) => c.estado === "completada").length
+    const canceladas = citasFiltradas.filter((c) => c.estado === "cancelada").length
+
+    let totalEfectivo = 0
+    let totalTarjeta = 0
+    let totalTransf = 0
+    let totalOtro = 0
+    for (const p of pagosDelDia) {
+      if (p.estado !== "completado" || !cuentaEnTotales(p)) continue
+      const d = distribuirMontoPago(p)
+      totalEfectivo += d.efectivo
+      totalTarjeta += d.tarjeta
+      totalTransf += d.transferencia
+      if (d.otro > 0.009) {
+        if (p.descuentoTipo === "cortesia") {
+          // no sumar — ya va a Descuentos
+        } else if (p.giftCardCodigo) {
+          // informativo — no entra al total
+        } else {
+          totalOtro += d.otro
+        }
+      }
+    }
+    const totalPropinas = pagosDelDia
+      .filter((p) => p.estado === "completado" && cuentaEnTotales(p))
+      .reduce((s, p) => s + (p.propina ?? 0), 0)
+    const totalGastos = gastosDelDia.reduce((s, g) => s + g.monto, 0)
+    const ingresosDelDia =
+      totalEfectivo + totalTarjeta + totalTransf + totalOtro - totalPropinas - totalGastos
+
+    const cortesias = pagosDelDia.filter((p) => p.descuentoCodigo === "CORTESIA").length
+    const garantias = pagosDelDia.filter((p) => p.descuentoCodigo === "GARANTIA").length
+
+    return {
+      porCobrar,
+      ingresosDelDia,
+      citasCompletadas,
+      canceladas,
+      cortesias,
+      garantias,
+      granTotal: ingresosDelDia,
+    }
+  }, [citasFiltradas, pagosDelDia, gastosDelDia])
 
   const navigateDate = (direction: "prev" | "next" | "today") => {
     if (direction === "today") {
@@ -856,13 +914,18 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   }, [selectedDate, vacaciones])
 
   const handleCitaCreated = useCallback(async () => {
-    // Recargar citas después de crear una nueva
     if (selectedSucursal && selectedDate) {
       setIsLoadingCitas(true)
       try {
-        const citasData = await getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal)
+        const [citasData, pagosData, gastosData] = await Promise.all([
+          getCitasByDateAndSucursalFromDB(selectedDate, selectedSucursal),
+          getPagosFromDB(selectedSucursal, selectedDate),
+          getGastosFromDB(selectedDate, selectedSucursal),
+        ])
+        const pagosSinGcOnline = await excluirVentasSaldoGcOnlineDePagos(pagosData)
         setCitas(citasData)
-        // Pequeño delay para asegurar que el estado se actualice
+        setPagosDelDia(pagosSinGcOnline)
+        setGastosDelDia(gastosData)
         await new Promise(resolve => setTimeout(resolve, 100))
       } catch (error) {
         console.error('Error recargando citas:', error)
@@ -2117,38 +2180,48 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </Card>
       </div>
 
-      {/* Resumen de estadísticas */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {/* Resumen de estadísticas del día */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold">{citasFiltradas.length}</div>
-            <p className="text-xs text-muted-foreground">Total Citas</p>
+          <CardContent className="p-3">
+            <div className="text-lg font-bold text-orange-600 tabular-nums">{fmtMXN(statsDia.porCobrar)}</div>
+            <p className="text-xs text-muted-foreground">Por cobrar</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-green-600">{citasPorEstado["completada"]?.length || 0}</div>
-            <p className="text-xs text-muted-foreground">Completadas</p>
+          <CardContent className="p-3">
+            <div className="text-lg font-bold text-emerald-600 tabular-nums">{fmtMXN(statsDia.ingresosDelDia)}</div>
+            <p className="text-xs text-muted-foreground">Ingresos del día</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-blue-600">{citasPorEstado["confirmada"]?.length || 0}</div>
-            <p className="text-xs text-muted-foreground">Confirmadas</p>
+          <CardContent className="p-3">
+            <div className="text-lg font-bold text-green-600 tabular-nums">{statsDia.citasCompletadas}</div>
+            <p className="text-xs text-muted-foreground">Citas completadas</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-primary">{empleadosDisponibles.length}</div>
-            <p className="text-xs text-muted-foreground">Personal Disponible</p>
+          <CardContent className="p-3">
+            <div className="text-lg font-bold text-red-600 tabular-nums">{statsDia.canceladas}</div>
+            <p className="text-xs text-muted-foreground">Canceladas</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-primary">
-              ${citasFiltradas.reduce((sum, c) => sum + c.precio, 0).toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground">Ingresos Día</p>
+          <CardContent className="p-3">
+            <div className="text-lg font-bold tabular-nums">{statsDia.cortesias}</div>
+            <p className="text-xs text-muted-foreground">Cortesías</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3">
+            <div className="text-lg font-bold tabular-nums">{statsDia.garantias}</div>
+            <p className="text-xs text-muted-foreground">Garantías</p>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-200/80 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="p-3">
+            <div className="text-lg font-bold text-amber-900 dark:text-amber-200 tabular-nums">{fmtMXN(statsDia.granTotal)}</div>
+            <p className="text-xs text-muted-foreground">Gran Total</p>
           </CardContent>
         </Card>
       </div>
