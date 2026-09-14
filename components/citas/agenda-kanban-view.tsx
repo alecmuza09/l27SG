@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useMemo, useEffect, useCallback, useRef } from "react"
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = React.useState(value)
@@ -166,6 +166,9 @@ interface BloqueAgenda {
 
 // Altura por slot en px (incluye margen)
 const SLOT_H = 34
+const AGENDA_INICIO_MIN = 9 * 60
+const AGENDA_FIN_MIN = 20 * 60 + 30 // último slot 20:00 cubre hasta 20:30
+const COLUMNA_HEADER_GAP_PX = 4 // space-y-1 entre encabezado y timeline
 
 // Convierte hora "HH:MM[:ss]" a minutos desde medianoche
 function horaToMins(hora: string): number {
@@ -878,6 +881,31 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     return () => clearInterval(interval)
   }, [selectedDate])
 
+  const agendaHeaderRef = useRef<HTMLDivElement>(null)
+  const [agendaHeaderH, setAgendaHeaderH] = useState(40)
+
+  const empleadosAgenda = useMemo(
+    () => [...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy],
+    [empleadosDisponibles, empleadosEnDescansoHoy, empleadosDeVacacionesHoy],
+  )
+
+  const nowLineOffsetPx = useMemo(() => {
+    if (!isToday || !currentTime) return null
+    const mins = horaToMins(currentTime)
+    if (mins < AGENDA_INICIO_MIN || mins >= AGENDA_FIN_MIN) return null
+    return horaToPx(currentTime)
+  }, [isToday, currentTime])
+
+  useEffect(() => {
+    const el = agendaHeaderRef.current
+    if (!el) return
+    const update = () => setAgendaHeaderH(el.offsetHeight)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [empleadosAgenda, isLoadingCitas])
+
   const formatDate = (dateStr: string) => {
     // Parsear la fecha correctamente para evitar problemas de zona horaria
     // La fecha viene en formato YYYY-MM-DD, agregamos hora local para evitar conversión UTC
@@ -1433,14 +1461,38 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
               ) : (
                 <div className="h-[620px] overflow-y-auto overflow-x-auto relative">
                   <div
+                    className="relative"
+                    style={{
+                      minWidth: `${empleadosAgenda.length * 155}px`,
+                    }}
+                  >
+                    {nowLineOffsetPx != null && (
+                      <div
+                        className="absolute left-0 right-0 z-[19] flex items-center pointer-events-none"
+                        style={{
+                          top: agendaHeaderH + COLUMNA_HEADER_GAP_PX + nowLineOffsetPx,
+                          transform: "translateY(-50%)",
+                        }}
+                        role="presentation"
+                        aria-label={`Hora actual: ${formatHora12(currentTime)}`}
+                      >
+                        <div className="sticky left-0 flex items-center shrink-0 pl-0.5">
+                          <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 bg-background/95 rounded px-1 py-0.5 leading-none tabular-nums whitespace-nowrap shadow-sm">
+                            {formatHora12(currentTime)}
+                          </span>
+                          <span className="h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-background shrink-0 -ml-0.5" />
+                        </div>
+                        <div className="h-[2px] flex-1 bg-red-500" />
+                      </div>
+                    )}
+                  <div
                     className="grid gap-1.5"
                     style={{
-                      gridTemplateColumns: `repeat(${[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].length || 1}, minmax(155px, 1fr))`,
-                      minWidth: `${[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].length * 155}px`,
+                      gridTemplateColumns: `repeat(${empleadosAgenda.length || 1}, minmax(155px, 1fr))`,
                     }}
                   >
                     {/* TODO: optimizar — extraer columna de empleada a EmpleadaColumn con React.memo (render inline ~680 líneas) */}
-                    {[...empleadosDisponibles, ...empleadosEnDescansoHoy, ...empleadosDeVacacionesHoy].map((empleado) => {
+                    {empleadosAgenda.map((empleado, empIdx) => {
                       const citasEmpleado = citasFiltradas.filter((c) => c.empleadoId === empleado.id)
                       const citasEmpleadoAgenda = citasEmpleado.filter(citaOcupaFranjaEnAgenda)
                       const vacacionEmpleado = isEmpleadoDeVacaciones(empleado.id, selectedDate)
@@ -1458,8 +1510,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       <div key={empleado.id} className={cn("space-y-1", noDisponible && "opacity-60")}>
                         {/* Encabezado compacto de empleada */}
                         <div
+                          ref={empIdx === 0 ? agendaHeaderRef : undefined}
                           className={cn(
-                            "flex items-center gap-1.5 pb-1.5 border-b sticky top-0 bg-background z-10",
+                            "flex items-center gap-1.5 pb-1.5 border-b sticky top-0 bg-background z-20",
                             vacacionEmpleado && "bg-amber-50 rounded-t-md px-1.5 pt-1.5",
                             descansoHoy && "bg-slate-100 dark:bg-slate-800 rounded-t-md px-1.5 pt-1.5",
                             ausenciaDiaCompleto && "bg-red-50 rounded-t-md px-1.5 pt-1.5",
@@ -2173,6 +2226,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                       </div>
                     )
                   })}
+                  </div>
                   </div>
                 </div>
               )}
