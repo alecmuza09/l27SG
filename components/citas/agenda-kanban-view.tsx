@@ -1461,28 +1461,27 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
               ) : (
                 <div className="h-[620px] overflow-y-auto overflow-x-auto relative">
                   <div
-                    className="relative"
+                    className="relative pl-[76px]"
                     style={{
-                      minWidth: `${empleadosAgenda.length * 155}px`,
+                      minWidth: `${empleadosAgenda.length * 155 + 76}px`,
                     }}
                   >
                     {nowLineOffsetPx != null && (
                       <div
-                        className="absolute left-0 right-0 z-[19] flex items-center pointer-events-none"
+                        className="pointer-events-none absolute inset-x-0 z-[5] flex items-center"
                         style={{
                           top: agendaHeaderH + COLUMNA_HEADER_GAP_PX + nowLineOffsetPx,
                           transform: "translateY(-50%)",
                         }}
-                        role="presentation"
-                        aria-label={`Hora actual: ${formatHora12(currentTime)}`}
+                        aria-hidden
                       >
-                        <div className="sticky left-0 flex items-center shrink-0 pl-0.5">
-                          <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 bg-background/95 rounded px-1 py-0.5 leading-none tabular-nums whitespace-nowrap shadow-sm">
+                        <div className="sticky left-0 flex w-[76px] shrink-0 items-center justify-end gap-0.5 pr-1">
+                          <span className="whitespace-nowrap text-[11px] font-medium leading-none tabular-nums text-red-600/90 dark:text-red-400/90">
                             {formatHora12(currentTime)}
                           </span>
-                          <span className="h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-background shrink-0 -ml-0.5" />
+                          <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-red-500" />
                         </div>
-                        <div className="h-[2px] flex-1 bg-red-500" />
+                        <div className="h-px flex-1 bg-red-500/40" />
                       </div>
                     )}
                   <div
