@@ -136,11 +136,17 @@ function sinAcentos(s: string): string {
  * decide aplicar `dias_trabajo` a todas las empleadas, este filtro debe eliminarse
  * a favor de una solución general.
  */
-function filtrarSoloDiasTrabajoVanesaLopez(empleados: Empleado[], fecha: string): Empleado[] {
+function filtrarSoloDiasTrabajoVanesaLopez(
+  empleados: Empleado[],
+  fecha: string,
+  idsConAsignacionDelDia: Set<string>,
+): Empleado[] {
   const diaSemana = new Date(fecha + "T12:00:00").getDay()
   return empleados.filter((e) => {
     const esVanesaLopez = sinAcentos(e.nombre) === "vanesa" && sinAcentos(e.apellido) === "lopez"
     if (!esVanesaLopez) return true
+    // empleado_sucursal_dia exists precisely to work a non-regular weekday.
+    if (idsConAsignacionDelDia.has(e.id)) return true
     if (!e.diasTrabajo || e.diasTrabajo.length === 0) return true
     return e.diasTrabajo.includes(diaSemana)
   })
@@ -211,7 +217,10 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
       if (!e.fechaContratoHasta) return true
       return e.fechaContratoHasta >= fechaAgenda
     })
-    return filtrarSoloDiasTrabajoVanesaLopez(conVigenciaValida, fecha)
+    const idsConAsignacionDelDia = new Set(
+      (overridesRows as { empleado_id: string }[] | null)?.map((r) => r.empleado_id) ?? [],
+    )
+    return filtrarSoloDiasTrabajoVanesaLopez(conVigenciaValida, fecha, idsConAsignacionDelDia)
   } catch (e) {
     console.error("getEmpleadosParaAgendaPorSucursalYDia:", e)
     return []
@@ -233,7 +242,8 @@ async function insertHistorial(payload: {
 }
 
 /**
- * Si sucursal destino = sucursal base del empleado, elimina override del día.
+ * Si sucursal destino = sucursal base y no hay horario, elimina override del día.
+ * Si hay hora_inicio o hora_fin, se upserta igual (p. ej. trabajar un día no regular en la sucursal base).
  */
 export async function guardarAsignacionSucursalDia(
   params: GuardarAsignacionParams,
@@ -258,8 +268,9 @@ export async function guardarAsignacionSucursalDia(
       .maybeSingle()
 
     const efectivaAntes = (prevRow?.sucursal_id as string | undefined) ?? baseId
+    const tieneHorario = Boolean(horaInicio || horaFin)
 
-    if (sucursalId === baseId) {
+    if (sucursalId === baseId && !tieneHorario) {
       if (!prevRow) return { success: true }
       const { error: delErr } = await supabase
         .from("empleado_sucursal_dia")
