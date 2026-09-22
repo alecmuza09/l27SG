@@ -1481,7 +1481,9 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                           </span>
                           <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-red-500" />
                         </div>
-                        <div className="h-px flex-1 bg-red-500/40" />
+                        <div
+                          className="h-[2px] flex-1 bg-[#ef4444] shadow-[0_0_4px_rgba(239,68,68,0.6)]"
+                        />
                       </div>
                     )}
                   <div
