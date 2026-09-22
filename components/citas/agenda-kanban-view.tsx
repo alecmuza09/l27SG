@@ -256,6 +256,8 @@ const TIME_SLOTS = Array.from({ length: 23 }, (_, i) => {
   const minutes = i % 2 === 0 ? "00" : "30"
   return `${hour.toString().padStart(2, "0")}:${minutes}`
 })
+/** Altura del timeline de agenda (todas las columnas comparten este alto al hacer scroll). */
+const AGENDA_TIMELINE_H = TIME_SLOTS.length * SLOT_H
 
 const DURACION_BLOQUE_MINUTOS = [15, 30, 45, 60, 90, 120] as const
 
@@ -1508,15 +1510,25 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                         empleado.sucursalId !== selectedSucursal
 
                     return (
-                      <div key={empleado.id} className={cn("space-y-1", noDisponible && "opacity-60")}>
+                      <div
+                        key={empleado.id}
+                        className={cn(
+                          "flex min-h-full flex-col space-y-1 self-stretch",
+                          noDisponible && "opacity-60",
+                          vacacionEmpleado && "rounded-md bg-amber-50 dark:bg-amber-950/20",
+                          descansoHoy && "rounded-md bg-slate-100 dark:bg-slate-800",
+                          ausenciaDiaCompleto && "rounded-md bg-red-50 dark:bg-red-950/20",
+                        )}
+                      >
                         {/* Encabezado compacto de empleada */}
                         <div
                           ref={empIdx === 0 ? agendaHeaderRef : undefined}
                           className={cn(
-                            "flex items-center gap-1.5 pb-1.5 border-b sticky top-0 bg-background z-20",
-                            vacacionEmpleado && "bg-amber-50 rounded-t-md px-1.5 pt-1.5",
-                            descansoHoy && "bg-slate-100 dark:bg-slate-800 rounded-t-md px-1.5 pt-1.5",
-                            ausenciaDiaCompleto && "bg-red-50 rounded-t-md px-1.5 pt-1.5",
+                            "sticky top-0 z-20 flex items-center gap-1.5 border-b pb-1.5",
+                            vacacionEmpleado && "bg-amber-50 px-1.5 pt-1.5 dark:bg-amber-950/20",
+                            descansoHoy && "bg-slate-100 px-1.5 pt-1.5 dark:bg-slate-800",
+                            ausenciaDiaCompleto && "bg-red-50 px-1.5 pt-1.5 dark:bg-red-950/20",
+                            !noDisponible && "bg-background",
                           )}
                         >
                           {isAdmin ? (
@@ -1650,112 +1662,127 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                         </div>
 
                         {vacacionEmpleado ? (
-                          <div className="flex items-center justify-center h-24 bg-amber-50 rounded-lg border border-amber-200">
-                            <div className="text-center">
-                              <Palmtree className="h-6 w-6 text-amber-400 mx-auto mb-1" />
-                              <p className="text-xs text-amber-600 font-medium">De vacaciones</p>
-                              <p className="text-[10px] text-amber-500">
-                                {new Date(vacacionEmpleado.fechaInicio).toLocaleDateString("es-MX")} –{" "}
-                                {new Date(vacacionEmpleado.fechaFin).toLocaleDateString("es-MX")}
-                              </p>
+                          <div
+                            className="relative min-h-0 flex-1"
+                            style={{ minHeight: `${AGENDA_TIMELINE_H}px` }}
+                          >
+                            <div className="mx-1.5 flex h-24 items-center justify-center rounded-lg border border-amber-200 bg-amber-50/80 dark:bg-amber-950/30">
+                              <div className="text-center">
+                                <Palmtree className="h-6 w-6 text-amber-400 mx-auto mb-1" />
+                                <p className="text-xs text-amber-600 font-medium">De vacaciones</p>
+                                <p className="text-[10px] text-amber-500">
+                                  {new Date(vacacionEmpleado.fechaInicio).toLocaleDateString("es-MX")} –{" "}
+                                  {new Date(vacacionEmpleado.fechaFin).toLocaleDateString("es-MX")}
+                                </p>
+                              </div>
                             </div>
                           </div>
                         ) : ausenciaDiaCompleto ? (
                           <div
-                            role="button"
-                            tabIndex={0}
-                            className="relative flex items-center justify-center h-24 bg-red-50 rounded-lg border border-red-200 cursor-pointer hover:bg-red-100/80 transition-colors"
-                            onClick={() => setAusenciaEditando(ausenciaDiaCompleto)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault()
-                                setAusenciaEditando(ausenciaDiaCompleto)
-                              }
-                            }}
+                            className="relative min-h-0 flex-1"
+                            style={{ minHeight: `${AGENDA_TIMELINE_H}px` }}
                           >
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="absolute top-1.5 right-1.5 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground z-10"
-                                  aria-label="Opciones ausencia"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <MoreVertical className="h-4 w-4" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="z-[200]" onClick={(e) => e.stopPropagation()}>
-                                <DropdownMenuItem onSelect={() => setAusenciaEditando(ausenciaDiaCompleto)}>
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Editar
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => void handleEliminarAusenciaConf(ausenciaDiaCompleto.id)}
-                                >
-                                  <X className="h-4 w-4 mr-2" />
-                                  Eliminar
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                            <div className="text-center px-6">
-                              <UserX className="h-6 w-6 text-red-400 mx-auto mb-1" />
-                              <p className="text-xs text-red-700 font-medium capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]}</p>
-                              {ausenciaDiaCompleto.motivo && (
-                                <p className="text-[10px] text-red-500 max-w-[120px] mx-auto truncate">{ausenciaDiaCompleto.motivo}</p>
-                              )}
-                              <p className="text-[10px] text-red-400 capitalize">{ausenciaDiaCompleto.estatus}</p>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className="relative mx-1.5 flex h-24 cursor-pointer items-center justify-center rounded-lg border border-red-200 bg-red-50/80 transition-colors hover:bg-red-100/80 dark:bg-red-950/30"
+                              onClick={() => setAusenciaEditando(ausenciaDiaCompleto)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault()
+                                  setAusenciaEditando(ausenciaDiaCompleto)
+                                }
+                              }}
+                            >
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="absolute top-1.5 right-1.5 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground z-10"
+                                    aria-label="Opciones ausencia"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="z-[200]" onClick={(e) => e.stopPropagation()}>
+                                  <DropdownMenuItem onSelect={() => setAusenciaEditando(ausenciaDiaCompleto)}>
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Editar
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onSelect={() => void handleEliminarAusenciaConf(ausenciaDiaCompleto.id)}
+                                  >
+                                    <X className="h-4 w-4 mr-2" />
+                                    Eliminar
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                              <div className="text-center px-6">
+                                <UserX className="h-6 w-6 text-red-400 mx-auto mb-1" />
+                                <p className="text-xs text-red-700 font-medium capitalize">{TIPO_AUSENCIA_LABELS[ausenciaDiaCompleto.tipo]}</p>
+                                {ausenciaDiaCompleto.motivo && (
+                                  <p className="text-[10px] text-red-500 max-w-[120px] mx-auto truncate">{ausenciaDiaCompleto.motivo}</p>
+                                )}
+                                <p className="text-[10px] text-red-400 capitalize">{ausenciaDiaCompleto.estatus}</p>
+                              </div>
                             </div>
                           </div>
                         ) : descansoHoy ? (
-                          <div className="relative flex items-center justify-center h-24 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="absolute top-1.5 right-1.5 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground z-10"
-                                  aria-label="Opciones descanso"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <MoreVertical className="h-4 w-4" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="z-[200]">
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    const b = bloquesAgenda.find(
-                                      (x) => x.empleadoId === empleado.id && esDescansoDiaCompleto(x),
-                                    )
-                                    if (b) setBloqueEditando(b)
-                                  }}
-                                >
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Editar
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => {
-                                    const b = bloquesAgenda.find(
-                                      (x) => x.empleadoId === empleado.id && esDescansoDiaCompleto(x),
-                                    )
-                                    if (b) handleEliminarBloque(b.id)
-                                  }}
-                                >
-                                  <X className="h-4 w-4 mr-2" />
-                                  Eliminar
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                            <div className="text-center">
-                              <BedDouble className="h-6 w-6 text-slate-400 mx-auto mb-1" />
-                              <p className="text-xs text-slate-600 dark:text-slate-400">Día de descanso</p>
+                          <div
+                            className="relative min-h-0 flex-1"
+                            style={{ minHeight: `${AGENDA_TIMELINE_H}px` }}
+                          >
+                            <div className="relative mx-1.5 flex h-24 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-800/50">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="absolute top-1.5 right-1.5 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground z-10"
+                                    aria-label="Opciones descanso"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="z-[200]">
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      const b = bloquesAgenda.find(
+                                        (x) => x.empleadoId === empleado.id && esDescansoDiaCompleto(x),
+                                      )
+                                      if (b) setBloqueEditando(b)
+                                    }}
+                                  >
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Editar
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onSelect={() => {
+                                      const b = bloquesAgenda.find(
+                                        (x) => x.empleadoId === empleado.id && esDescansoDiaCompleto(x),
+                                      )
+                                      if (b) handleEliminarBloque(b.id)
+                                    }}
+                                  >
+                                    <X className="h-4 w-4 mr-2" />
+                                    Eliminar
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                              <div className="text-center">
+                                <BedDouble className="h-6 w-6 text-slate-400 mx-auto mb-1" />
+                                <p className="text-xs text-slate-600 dark:text-slate-400">Día de descanso</p>
+                              </div>
                             </div>
                           </div>
                         ) : (
                           /* Timeline absoluto — soporta citas solapadas */
                           (() => {
                             const overlapMap = getOverlapInfo(citasEmpleadoAgenda)
-                            const totalH = TIME_SLOTS.length * SLOT_H
+                            const totalH = AGENDA_TIMELINE_H
                             return (
                               <div className="relative" style={{ height: `${totalH}px` }}>
                                 {/* Etiquetas de hora + fondos de slot */}
@@ -1798,7 +1825,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                                       key={slot}
                                       className={cn(
                                         "absolute flex gap-1 group",
-                                        (!isInRange || bloqueado) && "bg-muted/30",
+                                        !isInRange && "bg-muted/30",
                                         isVentanaComida && "bg-orange-50 dark:bg-orange-950/20",
                                         isVentanaDescanso && "bg-slate-100/80 dark:bg-slate-900/35",
                                         isAusenciaParcial && !isBloqueVentana && "bg-red-50 dark:bg-red-950/20",
