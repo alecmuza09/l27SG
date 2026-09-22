@@ -214,6 +214,7 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
     )
     const fechaAgenda = fecha
     const conVigenciaValida = list.map(transformEmpleado).filter(e => {
+      if (e.fechaIngreso && e.fechaIngreso > fechaAgenda) return false
       if (!e.fechaContratoHasta) return true
       return e.fechaContratoHasta >= fechaAgenda
     })
