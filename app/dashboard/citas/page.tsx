@@ -5,7 +5,12 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { AgendaKanbanView } from "@/components/citas/agenda-kanban-view"
 import { NuevaCitaDialog } from "@/components/citas/nueva-cita-dialog"
-import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
+import {
+  getSucursalesActivasFromDB,
+  getSucursalesByIdsFromDB,
+  filterSucursalesActivas,
+  type Sucursal,
+} from "@/lib/data/sucursales"
 import { desactivarEmpleadasContratoVencido } from "@/lib/data/empleados"
 import {
   getCurrentUser,
@@ -58,17 +63,25 @@ export default function CitasPage() {
   useEffect(() => {
     async function loadSucursales() {
       if (isAdmin) {
-        const sucursalesData = await getSucursalesActivasFromDB()
+        const sucursalesData = filterSucursalesActivas(await getSucursalesActivasFromDB())
         setSucursales(sucursalesData)
         const primaryId = currentUser?.sucursalId
-        const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0]?.id
+        const currentStillActive = sucursalId && sucursalesData.some((s) => s.id === sucursalId)
+        const defaultId =
+          (currentStillActive ? sucursalId : undefined) ??
+          sucursalesData.find((s) => s.id === primaryId)?.id ??
+          sucursalesData[0]?.id
         if (defaultId) setSucursalId(defaultId)
       } else if ((multiBranch || userSucursalIds.length > 0) && userSucursalIds.length > 0) {
-        const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
+        const sucursalesData = filterSucursalesActivas(await getSucursalesByIdsFromDB(userSucursalIds))
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
           const primaryId = currentUser?.sucursalId
-          const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
+          const currentStillActive = sucursalId && sucursalesData.some((s) => s.id === sucursalId)
+          const defaultId =
+            (currentStillActive ? sucursalId : undefined) ??
+            sucursalesData.find((s) => s.id === primaryId)?.id ??
+            sucursalesData[0].id
           setSucursalId(defaultId)
         }
       }

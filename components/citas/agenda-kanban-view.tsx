@@ -28,7 +28,11 @@ import {
   esAsignacionParcial,
   type AsignacionSucursalDiaInfo,
 } from "@/lib/data/empleado-sucursal-dia"
-import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import {
+  getSucursalesActivasFromDB,
+  filterSucursalesActivas,
+  type Sucursal,
+} from "@/lib/data/sucursales"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -549,20 +553,31 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       const primaryId = currentUser?.sucursalId
 
       if (isAdmin) {
-        const sucursalesData = await getSucursalesActivasFromDB()
+        const sucursalesData = filterSucursalesActivas(await getSucursalesActivasFromDB())
         setSucursales(sucursalesData)
-        if (sucursalesData.length > 0 && !isControlledSucursal && !selectedSucursalState) {
-          const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
-          setSelectedSucursalState(defaultId)
+        if (sucursalesData.length > 0) {
+          const currentStillActive = selectedSucursal && sucursalesData.some((s) => s.id === selectedSucursal)
+          const defaultId =
+            (currentStillActive ? selectedSucursal : undefined) ??
+            sucursalesData.find((s) => s.id === primaryId)?.id ??
+            sucursalesData[0].id
+          if (isControlledSucursal && onSucursalChange && defaultId !== selectedSucursal) {
+            onSucursalChange(defaultId)
+          } else if (!isControlledSucursal && defaultId !== selectedSucursalState) {
+            setSelectedSucursalState(defaultId)
+          }
         }
       } else if ((multiBranch || userSucursalIds.length > 0) && userSucursalIds.length > 0) {
-        const sucursalesData = await getSucursalesByIdsFromDB(userSucursalIds)
+        const sucursalesData = filterSucursalesActivas(await getSucursalesByIdsFromDB(userSucursalIds))
         if (sucursalesData.length > 0) {
           setSucursales(sucursalesData)
-          // Default: siempre la sucursal principal del usuario
-          const defaultId = sucursalesData.find(s => s.id === primaryId)?.id ?? sucursalesData[0].id
-          if (onSucursalChange) onSucursalChange(defaultId)
-          else setSelectedSucursalState(defaultId)
+          const currentStillActive = selectedSucursal && sucursalesData.some((s) => s.id === selectedSucursal)
+          const defaultId =
+            (currentStillActive ? selectedSucursal : undefined) ??
+            sucursalesData.find((s) => s.id === primaryId)?.id ??
+            sucursalesData[0].id
+          if (onSucursalChange && defaultId !== selectedSucursal) onSucursalChange(defaultId)
+          else if (!onSucursalChange && defaultId !== selectedSucursalState) setSelectedSucursalState(defaultId)
         }
       }
     }

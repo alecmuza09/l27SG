@@ -9,10 +9,9 @@ import {
   getSucursalesActivasFromDB,
   getSucursalByIdFromDB,
   createSucursal,
-  updateSucursal,
-  deleteSucursal,
   type Sucursal,
 } from "@/lib/data/sucursales"
+import { deleteSucursalAction, updateSucursalAction } from "@/app/actions/sucursales"
 import { getCurrentUser, type User } from "@/lib/auth"
 import {
   Dialog,
@@ -130,7 +129,7 @@ export default function SucursalesPage() {
     }
     setIsSavingEdit(true)
     try {
-      const result = await updateSucursal(editingSucursal.id, {
+      const result = await updateSucursalAction(editingSucursal.id, {
         nombre,
         direccion,
         telefono,
@@ -154,7 +153,7 @@ export default function SucursalesPage() {
     if (!sucursalEliminar) return
     setIsDeleting(true)
     try {
-      const result = await deleteSucursal(sucursalEliminar.id)
+      const result = await deleteSucursalAction(sucursalEliminar.id)
       if (result.success) {
         if (result.mode === "deactivated") {
           toast.success(

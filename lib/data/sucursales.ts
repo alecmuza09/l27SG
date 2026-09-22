@@ -162,10 +162,15 @@ function transformSucursal(sucursal: SucursalRow): Sucursal {
     telefono: sucursal.telefono,
     email: sucursal.email,
     horario: sucursal.horario || '',
-    activa: sucursal.activa,
+    activa: sucursal.activa ?? true,
     ciudad: sucursal.ciudad || '',
     pais: sucursal.pais || 'México',
   }
+}
+
+/** Solo sucursales con `activa = true` (columna `activa`, no `activo`). */
+export function filterSucursalesActivas(sucursales: Sucursal[]): Sucursal[] {
+  return sucursales.filter((s) => s.activa === true)
 }
 
 // Crear sucursal
@@ -280,17 +285,27 @@ export async function deleteSucursal(id: string): Promise<{
     const tieneDeps = await sucursalTieneDependencias(id)
 
     if (tieneDeps) {
-      const { error } = await supabase.from("sucursales").update({ activa: false }).eq("id", id)
-      if (!error) {
+      const { data, error } = await supabase
+        .from("sucursales")
+        .update({ activa: false })
+        .eq("id", id)
+        .select("id")
+        .maybeSingle()
+      if (!error && data) {
         return { success: true, mode: "deactivated" }
       }
       console.error("Error desactivando sucursal:", error)
       return { success: false, error: error.message }
     }
 
-    const { error } = await supabase.from("sucursales").delete().eq("id", id)
+    const { data: deleted, error } = await supabase
+      .from("sucursales")
+      .delete()
+      .eq("id", id)
+      .select("id")
+      .maybeSingle()
 
-    if (!error) {
+    if (!error && deleted) {
       return { success: true, mode: "deleted" }
     }
 
@@ -304,8 +319,13 @@ export async function deleteSucursal(id: string): Promise<{
       msg.includes("referencia")
 
     if (fkBlocked) {
-      const { error: uErr } = await supabase.from("sucursales").update({ activa: false }).eq("id", id)
-      if (!uErr) {
+      const { data: deactivated, error: uErr } = await supabase
+        .from("sucursales")
+        .update({ activa: false })
+        .eq("id", id)
+        .select("id")
+        .maybeSingle()
+      if (!uErr && deactivated) {
         return { success: true, mode: "deactivated" }
       }
       console.error("Error desactivando sucursal tras FK:", uErr)
@@ -340,7 +360,7 @@ export async function getSucursalesActivasFromDB(): Promise<Sucursal[]> {
       return []
     }
 
-    return data.map(transformSucursal)
+    return filterSucursalesActivas(data.map(transformSucursal))
   } catch (error) {
     console.error('Error inesperado obteniendo sucursales:', error)
     return []
@@ -363,7 +383,7 @@ export async function getSucursalesByIdsFromDB(ids: string[]): Promise<Sucursal[
       return []
     }
 
-    return data.map(transformSucursal)
+    return filterSucursalesActivas(data.map(transformSucursal))
   } catch (error) {
     console.error('Error inesperado obteniendo sucursales por IDs:', error)
     return []
