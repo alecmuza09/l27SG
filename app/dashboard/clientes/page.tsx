@@ -63,7 +63,7 @@ function ordenarPorUltimaVisita(clientes: Cliente[]): Cliente[] {
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
-  const [stats, setStats] = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
+  const [stats, setStats] = useState({ total: 0, embajadoras: 0, conVisitas: 0, nuevos: 0 })
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -78,7 +78,9 @@ export default function ClientesPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalClientes, setTotalClientes] = useState(0)
   const [pageSize] = useState(50) // 50 clientes por página
-  const [visitaFilter, setVisitaFilter] = useState<'todos' | 'sin-visita-reciente' | 'sin-visitas' | 'embajadoras' | 'vetadas' | 'problematicas' | 'descuento'>('todos')
+  const [visitaFilter, setVisitaFilter] = useState<
+    'todos' | 'con-visitas' | 'sin-visita-reciente' | 'sin-visitas' | 'embajadoras' | 'vetadas' | 'problematicas' | 'descuento'
+  >('todos')
   const [embajadoraUpdatingId, setEmbajadoraUpdatingId] = useState<string | null>(null)
   const isAdmin = isGlobalAdministrator(currentUser)
 
@@ -110,11 +112,16 @@ export default function ClientesPage() {
       const statsData = await getClientesStats()
       const { desde, hasta } = fechasEsteMes()
       const { nuevos } = await getClientesNuevosEnPeriodo(desde, hasta)
-      setStats({ ...statsData, nuevos })
+      setStats({
+        total: statsData.total,
+        embajadoras: statsData.embajadoras,
+        conVisitas: statsData.conVisitas,
+        nuevos,
+      })
     } catch (err) {
       console.error('Error cargando estadísticas:', err)
       // Establecer valores por defecto en caso de error
-      setStats({ total: 0, activos: 0, vip: 0, nuevos: 0 })
+      setStats({ total: 0, embajadoras: 0, conVisitas: 0, nuevos: 0 })
     }
   }
 
@@ -133,6 +140,9 @@ export default function ClientesPage() {
         soloVetadas: filtroVisita === 'vetadas',
         soloProblematicas: filtroVisita === 'problematicas',
         soloDescuento: filtroVisita === 'descuento',
+        sinVisitas: filtroVisita === 'sin-visitas',
+        conVisitas: filtroVisita === 'con-visitas',
+        sinVisitaReciente: filtroVisita === 'sin-visita-reciente',
       }
 
       let result
@@ -382,11 +392,7 @@ export default function ClientesPage() {
     )
   }
 
-  const hoy60 = Date.now() - 60 * 24 * 60 * 60 * 1000
   const clientesFiltrados = clientes.filter((c) => {
-    if (visitaFilter === 'sin-visitas') return !c.ultimaVisita
-    if (visitaFilter === 'sin-visita-reciente')
-      return !c.ultimaVisita || new Date(c.ultimaVisita + 'T12:00:00').getTime() < hoy60
     if (visitaFilter === 'embajadoras') return c.embajadora
     if (visitaFilter === 'vetadas') return c.esVetado
     if (visitaFilter === 'problematicas') return c.esProblematico
@@ -549,29 +555,46 @@ export default function ClientesPage() {
       </div>
 
       {currentUser?.role !== "manager" && (
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Clientes</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total en base</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.total}</div>
+              <div className="text-2xl font-bold">{stats.total.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Activos, VIP e inactivos</p>
             </CardContent>
           </Card>
-          <Card>
+          <Card
+            className="cursor-pointer hover:border-primary/40 transition-colors"
+            onClick={() => {
+              setVisitaFilter("embajadoras")
+              setCurrentPage(1)
+            }}
+          >
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Activos</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Embajadoras</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.activos}</div>
+              <div className="text-2xl font-bold">{stats.embajadoras.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Marcadas como embajadora · clic para ver lista</p>
             </CardContent>
           </Card>
-          <Card>
+          <Card
+            className="cursor-pointer hover:border-primary/40 transition-colors"
+            onClick={() => {
+              setVisitaFilter("con-visitas")
+              setCurrentPage(1)
+            }}
+          >
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">VIP</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Con visitas</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.vip}</div>
+              <div className="text-2xl font-bold">{stats.conVisitas.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                ≥1 cita completada · clic para ver lista
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -579,7 +602,8 @@ export default function ClientesPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Nuevos (este mes)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.nuevos}</div>
+              <div className="text-2xl font-bold">{stats.nuevos.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">1.ª visita ever en el mes</p>
             </CardContent>
           </Card>
         </div>
@@ -628,6 +652,7 @@ export default function ClientesPage() {
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="embajadoras">Embajadoras</SelectItem>
+                <SelectItem value="con-visitas">Con visitas</SelectItem>
                 <SelectItem value="sin-visita-reciente">Sin visita reciente (+60 días)</SelectItem>
                 <SelectItem value="sin-visitas">Sin visitas</SelectItem>
                 {isAdmin && (

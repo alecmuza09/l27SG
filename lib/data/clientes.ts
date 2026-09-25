@@ -72,26 +72,75 @@ function normalizarBusqueda(texto: string): string {
     .trim()
 }
 
+export type FiltrosListadoClientes = {
+  soloEmbajadoras?: boolean
+  soloVetadas?: boolean
+  soloProblematicas?: boolean
+  soloDescuento?: boolean
+  sinVisitas?: boolean
+  conVisitas?: boolean
+  sinVisitaReciente?: boolean
+}
+
+function fechaIsoHaceDias(dias: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - dias)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function aplicarFiltrosListadoClientes<T extends { eq: (...args: any[]) => T; gt: (...args: any[]) => T; or: (...args: any[]) => T }>(
+  query: T,
+  filtros: FiltrosListadoClientes,
+): T {
+  let q = query
+  if (filtros.soloEmbajadoras) q = q.eq('embajadora', true)
+  if (filtros.soloVetadas) q = q.eq('es_vetado', true)
+  if (filtros.soloProblematicas) q = q.eq('es_problematico', true)
+  if (filtros.soloDescuento) q = q.eq('es_descuento', true)
+  if (filtros.sinVisitas) q = q.eq('total_visitas', 0)
+  if (filtros.conVisitas) q = q.gt('total_visitas', 0)
+  if (filtros.sinVisitaReciente) {
+    const limite = fechaIsoHaceDias(60)
+    q = q.or(`ultima_visita.is.null,ultima_visita.lt.${limite}`)
+  }
+  return q
+}
+
+function filtrarFilasListadoClientes(rows: any[], filtros: FiltrosListadoClientes): any[] {
+  let out = rows
+  if (filtros.soloEmbajadoras) out = out.filter(row => row.embajadora === true)
+  if (filtros.soloVetadas) out = out.filter(row => row.es_vetado === true)
+  if (filtros.soloProblematicas) out = out.filter(row => row.es_problematico === true)
+  if (filtros.soloDescuento) out = out.filter(row => row.es_descuento === true)
+  if (filtros.sinVisitas) out = out.filter(row => (row.total_visitas ?? 0) === 0)
+  if (filtros.conVisitas) out = out.filter(row => (row.total_visitas ?? 0) > 0)
+  if (filtros.sinVisitaReciente) {
+    const limiteMs = new Date(fechaIsoHaceDias(60) + 'T12:00:00').getTime()
+    out = out.filter(row => {
+      if (!row.ultima_visita) return true
+      return new Date(String(row.ultima_visita) + 'T12:00:00').getTime() < limiteMs
+    })
+  }
+  return out
+}
+
 // Obtener clientes con paginación
 export async function getClientesPaginated(
   page: number = 1,
   pageSize: number = 50,
-  filtros: { soloEmbajadoras?: boolean; soloVetadas?: boolean; soloProblematicas?: boolean; soloDescuento?: boolean } = {}
+  filtros: FiltrosListadoClientes = {},
 ): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
   try {
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
-    const { soloEmbajadoras, soloVetadas, soloProblematicas, soloDescuento } = filtros
 
     // Obtener el total de clientes (aplicando los filtros de clasificación en la BD)
     let countQuery = supabase
       .from('clientes')
       .select('*', { count: 'exact', head: true })
 
-    if (soloEmbajadoras) countQuery = countQuery.eq('embajadora', true)
-    if (soloVetadas) countQuery = countQuery.eq('es_vetado', true)
-    if (soloProblematicas) countQuery = countQuery.eq('es_problematico', true)
-    if (soloDescuento) countQuery = countQuery.eq('es_descuento', true)
+    countQuery = aplicarFiltrosListadoClientes(countQuery, filtros)
 
     const { count, error: countError } = await countQuery
 
@@ -111,10 +160,7 @@ export async function getClientesPaginated(
         citas!left(fecha, estado)
       `)
 
-    if (soloEmbajadoras) dataQuery = dataQuery.eq('embajadora', true)
-    if (soloVetadas) dataQuery = dataQuery.eq('es_vetado', true)
-    if (soloProblematicas) dataQuery = dataQuery.eq('es_problematico', true)
-    if (soloDescuento) dataQuery = dataQuery.eq('es_descuento', true)
+    dataQuery = aplicarFiltrosListadoClientes(dataQuery, filtros)
 
     const { data, error } = await dataQuery
       .order('created_at', { ascending: false })
@@ -250,7 +296,7 @@ export async function searchClientesPaginated(
   query: string,
   page: number = 1,
   pageSize: number = 50,
-  filtros: { soloEmbajadoras?: boolean; soloVetadas?: boolean; soloProblematicas?: boolean; soloDescuento?: boolean } = {}
+  filtros: FiltrosListadoClientes = {},
 ): Promise<{ clientes: Cliente[]; total: number; totalPages: number }> {
   try {
     if (!query || query.trim() === '') {
@@ -265,13 +311,9 @@ export async function searchClientesPaginated(
       return { clientes: [], total: 0, totalPages: 0 }
     }
 
-    // La búsqueda usa un RPC que no admite filtros adicionales,
-    // así que los filtros de clasificación se aplican sobre el resultado ya obtenido de la BD.
-    let filteredData = allData ?? []
-    if (filtros.soloEmbajadoras) filteredData = filteredData.filter((row: any) => row.embajadora === true)
-    if (filtros.soloVetadas) filteredData = filteredData.filter((row: any) => row.es_vetado === true)
-    if (filtros.soloProblematicas) filteredData = filteredData.filter((row: any) => row.es_problematico === true)
-    if (filtros.soloDescuento) filteredData = filteredData.filter((row: any) => row.es_descuento === true)
+    // La búsqueda usa un RPC que no admite filtros adicionales;
+    // los filtros se aplican sobre el resultado ya obtenido de la BD.
+    let filteredData = filtrarFilasListadoClientes(allData ?? [], filtros)
 
     const total = filteredData.length
     const totalPages = Math.ceil(total / pageSize)
@@ -295,9 +337,15 @@ export async function searchClientesPaginated(
 // Obtener estadísticas de clientes
 export async function getClientesStats(sucursalId?: string): Promise<{
   total: number
+  /** estado = activo (sin VIP ni inactivos) — usado en reportes */
   activos: number
   vip: number
   nuevos: number
+  /** Clientes en operación: activo + VIP */
+  vigentes: number
+  /** Al menos una cita completada (total_visitas > 0) */
+  conVisitas: number
+  embajadoras: number
 }> {
   try {
     if (sucursalId) {
@@ -318,7 +366,9 @@ export async function getClientesStats(sucursalId?: string): Promise<{
         if (id) idSet.add(id)
       }
       const ids = [...idSet]
-      if (ids.length === 0) return { total: 0, activos: 0, vip: 0, nuevos: 0 }
+      if (ids.length === 0) {
+        return { total: 0, activos: 0, vip: 0, nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0 }
+      }
 
       const chunks: string[][] = []
       for (let i = 0; i < ids.length; i += 400) chunks.push(ids.slice(i, i + 400))
@@ -326,6 +376,9 @@ export async function getClientesStats(sucursalId?: string): Promise<{
       let activos = 0
       let vip = 0
       let nuevos = 0
+      let vigentes = 0
+      let conVisitas = 0
+      let embajadoras = 0
       const hoy = new Date()
       const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
       const fechaLimite = hace30Dias.toISOString().split("T")[0]
@@ -333,19 +386,24 @@ export async function getClientesStats(sucursalId?: string): Promise<{
       for (const chunk of chunks) {
         const { data: rows } = await supabase
           .from("clientes")
-          .select("estado, fecha_registro")
+          .select("estado, fecha_registro, total_visitas, embajadora")
           .in("id", chunk)
 
         for (const row of rows ?? []) {
           const estado = (row as { estado: string | null }).estado
           const fr = (row as { fecha_registro: string | null }).fecha_registro
+          const visitas = (row as { total_visitas: number | null }).total_visitas ?? 0
+          const esEmbajadora = (row as { embajadora: boolean | null }).embajadora === true
           if (estado === "activo") activos++
           if (estado === "vip") vip++
+          if (estado === "activo" || estado === "vip") vigentes++
+          if (visitas > 0) conVisitas++
+          if (esEmbajadora) embajadoras++
           if (fr && fr >= fechaLimite) nuevos++
         }
       }
 
-      return { total: ids.length, activos, vip, nuevos }
+      return { total: ids.length, activos, vip, nuevos, vigentes, conVisitas, embajadoras }
     }
 
     // Obtener el total de clientes usando count
@@ -355,7 +413,7 @@ export async function getClientesStats(sucursalId?: string): Promise<{
 
     if (totalError) {
       console.error('Error obteniendo total de clientes:', totalError)
-      return { total: 0, activos: 0, vip: 0, nuevos: 0 }
+      return { total: 0, activos: 0, vip: 0, nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0 }
     }
 
     const total = totalCount || 0
@@ -369,6 +427,21 @@ export async function getClientesStats(sucursalId?: string): Promise<{
       .select('*', { count: 'exact', head: true })
       .eq('estado', 'vip')
 
+    const { count: vigentesCount, error: vigentesError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .in('estado', ['activo', 'vip'])
+
+    const { count: conVisitasCount, error: conVisitasError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .gt('total_visitas', 0)
+
+    const { count: embajadorasCount, error: embajadorasError } = await supabase
+      .from('clientes')
+      .select('*', { count: 'exact', head: true })
+      .eq('embajadora', true)
+
     // Clientes nuevos en los últimos 30 días
     const hoy = new Date()
     const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -381,11 +454,14 @@ export async function getClientesStats(sucursalId?: string): Promise<{
 
     const vip = vipError ? 0 : (vipCount || 0)
     const nuevos = nuevosError ? 0 : (nuevosCount || 0)
+    const vigentes = vigentesError ? activos + vip : (vigentesCount || 0)
+    const conVisitas = conVisitasError ? 0 : (conVisitasCount || 0)
+    const embajadoras = embajadorasError ? 0 : (embajadorasCount || 0)
 
-    return { total, activos, vip, nuevos }
+    return { total, activos, vip, nuevos, vigentes, conVisitas, embajadoras }
   } catch (error) {
     console.error('Error inesperado obteniendo estadísticas:', error)
-    return { total: 0, activos: 0, vip: 0, nuevos: 0 }
+    return { total: 0, activos: 0, vip: 0, nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0 }
   }
 }
 
