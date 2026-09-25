@@ -7,11 +7,14 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
-  Download, FileText, TrendingUp, TrendingDown,
+  Download, FileText, FileSpreadsheet, TrendingUp, TrendingDown,
   Users, Calendar, Loader2, RefreshCw, Building2,
   CheckCircle2, XCircle, Clock, AlertCircle, DollarSign,
   BarChart3, Star, Gift, Receipt, UserPlus, ChevronDown, ChevronUp,
 } from "lucide-react"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -1507,7 +1510,7 @@ async function generarReportePdf(opts: {
   doc.save(`reporte-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.pdf`)
 }
 
-async function generarNominaPdf(opts: {
+type NominaExportOpts = {
   sucursal: string
   periodoLabel: string
   periodoSlug: string
@@ -1522,7 +1525,148 @@ async function generarNominaPdf(opts: {
     comision: number
     propinas: number
   }>
-}) {
+}
+
+const NOMINA_XLSX_HEADERS = [
+  "#", "Empleada", "Servicios", "Ventas Totales", "Comisión (30%)", "Propinas", "Total a Pagar",
+] as const
+
+function excelSheetName(name: string): string {
+  return name.replace(/[\\/*?:[\]]/g, "").trim().slice(0, 31) || "Hoja"
+}
+
+function uniqueExcelSheetName(base: string, used: Set<string>): string {
+  let candidate = excelSheetName(base)
+  if (!used.has(candidate)) {
+    used.add(candidate)
+    return candidate
+  }
+  for (let i = 2; i < 100; i++) {
+    candidate = excelSheetName(`${base.slice(0, 24)} (${i})`)
+    if (!used.has(candidate)) {
+      used.add(candidate)
+      return candidate
+    }
+  }
+  candidate = excelSheetName(`Hoja ${used.size + 1}`)
+  used.add(candidate)
+  return candidate
+}
+
+function appendNominaDetalleHoja(
+  XLSX: typeof import("xlsx"),
+  wb: import("xlsx").WorkBook,
+  sheetName: string,
+  tituloSucursal: string,
+  periodoLabel: string,
+  empleados: NominaExportOpts["empleados"],
+) {
+  const totalVentas = empleados.reduce((s, e) => s + e.ingresos, 0)
+  const totalComision = empleados.reduce((s, e) => s + e.comision, 0)
+  const totalPropinas = empleados.reduce((s, e) => s + e.propinas, 0)
+
+  const rows: (string | number)[][] = [
+    [`Nómina por Empleada — ${tituloSucursal}`],
+    [`Período: ${periodoLabel}`],
+    [],
+    [...NOMINA_XLSX_HEADERS],
+    ...empleados.map((e, i) => [
+      i + 1,
+      `${e.nombre} ${e.apellido}`.trim(),
+      e.servicios,
+      e.ingresos,
+      e.comision,
+      e.propinas > 0 ? e.propinas : "",
+      e.comision,
+    ]),
+    ["", "TOTALES", "", totalVentas, totalComision, totalPropinas, totalComision],
+    [],
+    ["* Comisión calculada al 30% sobre ventas totales."],
+  ]
+
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  ws["!cols"] = [
+    { wch: 5 }, { wch: 32 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
+  ]
+  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+}
+
+async function generarNominaXlsx(opts: NominaExportOpts) {
+  const XLSX = await import("xlsx")
+  const wb = XLSX.utils.book_new()
+  const usedSheetNames = new Set<string>()
+
+  if (opts.agruparPorSucursal) {
+    const porSucursal = new Map<string, NominaExportOpts["empleados"]>()
+    for (const e of opts.empleados) {
+      const key = e.sucursal || "Sin sucursal"
+      if (!porSucursal.has(key)) porSucursal.set(key, [])
+      porSucursal.get(key)!.push(e)
+    }
+    const sucursalesOrdenadas = Array.from(porSucursal.keys()).sort()
+
+    for (const sucursalNombre of sucursalesOrdenadas) {
+      const empleadasSuc = porSucursal.get(sucursalNombre)!
+      appendNominaDetalleHoja(
+        XLSX,
+        wb,
+        uniqueExcelSheetName(sucursalNombre, usedSheetNames),
+        sucursalNombre,
+        opts.periodoLabel,
+        empleadasSuc,
+      )
+    }
+
+    const totalGenVentas = opts.empleados.reduce((s, e) => s + e.ingresos, 0)
+    const totalGenComision = opts.empleados.reduce((s, e) => s + e.comision, 0)
+    const totalGenPropinas = opts.empleados.reduce((s, e) => s + e.propinas, 0)
+
+    const resumenRows: (string | number)[][] = [
+      ["Resumen General de Nómina"],
+      [`Sucursal(es): ${opts.sucursal}`],
+      [`Período: ${opts.periodoLabel}`],
+      [],
+      ["Sucursal", "Empleadas", "Ventas Totales", "Comisión (30%)", "Propinas", "Total a Pagar"],
+      ...sucursalesOrdenadas.map(suc => {
+        const emps = porSucursal.get(suc)!
+        return [
+          suc,
+          emps.length,
+          emps.reduce((s, e) => s + e.ingresos, 0),
+          emps.reduce((s, e) => s + e.comision, 0),
+          emps.reduce((s, e) => s + e.propinas, 0),
+          emps.reduce((s, e) => s + e.comision, 0),
+        ]
+      }),
+      [
+        "TOTALES",
+        opts.empleados.length,
+        totalGenVentas,
+        totalGenComision,
+        totalGenPropinas,
+        totalGenComision,
+      ],
+    ]
+    const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows)
+    wsResumen["!cols"] = [
+      { wch: 28 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
+    ]
+    XLSX.utils.book_append_sheet(wb, wsResumen, uniqueExcelSheetName("Resumen", usedSheetNames))
+  } else {
+    appendNominaDetalleHoja(
+      XLSX,
+      wb,
+      uniqueExcelSheetName(opts.sucursal, usedSheetNames),
+      opts.sucursal,
+      opts.periodoLabel,
+      opts.empleados,
+    )
+  }
+
+  XLSX.writeFile(wb, `nomina-${opts.sucSlug}-${opts.periodoSlug}-${localFmt(new Date())}.xlsx`)
+}
+
+async function generarNominaPdf(opts: NominaExportOpts) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import("jspdf"),
     import("jspdf-autotable"),
@@ -1942,7 +2086,7 @@ export default function ReportesPage() {
   const [embajadorasSucursalFilter,   setEmbajadorasSucursalFilter]   = useState<string>("all")
   const [isExportingPdf,       setIsExportingPdf]       = useState(false)
   const [isExportingGcPdf,     setIsExportingGcPdf]     = useState(false)
-  const [isExportingNominaPdf, setIsExportingNominaPdf] = useState(false)
+  const [isExportingNomina, setIsExportingNomina] = useState(false)
 
   // ── Carga inicial de sucursales ──────────────────────────────────────────
   useEffect(() => {
@@ -2320,8 +2464,8 @@ export default function ReportesPage() {
     }
   }
 
-  const handleExportNominaPdf = async () => {
-    setIsExportingNominaPdf(true)
+  const handleExportNomina = async (format: "pdf" | "xlsx") => {
+    setIsExportingNomina(true)
     try {
       const { label } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
       const sucNombre = sucursalFilter === "all"
@@ -2350,18 +2494,24 @@ export default function ReportesPage() {
         }
       })
 
-      await generarNominaPdf({
+      const exportOpts: NominaExportOpts = {
         sucursal: sucNombre,
         periodoLabel: label,
         periodoSlug: periodoSlugFrom(periodo),
         sucSlug: slugPdf(sucNombre),
         agruparPorSucursal: agrupar,
         empleados: empleadosConPropinas,
-      })
+      }
+
+      if (format === "pdf") {
+        await generarNominaPdf(exportOpts)
+      } else {
+        await generarNominaXlsx(exportOpts)
+      }
     } catch (err) {
-      console.error("Error generando PDF de nómina:", err)
+      console.error(`Error generando ${format.toUpperCase()} de nómina:`, err)
     } finally {
-      setIsExportingNominaPdf(false)
+      setIsExportingNomina(false)
     }
   }
 
@@ -2550,15 +2700,33 @@ export default function ReportesPage() {
                     {isExportingGcPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Gift className="mr-2 h-4 w-4" />}
                     PDF Gift Cards
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleExportNominaPdf}
-                    disabled={isExportingNominaPdf || empleadosTop.length === 0}
-                    className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-[#1e40af] font-medium shadow-sm"
-                  >
-                    {isExportingNominaPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Receipt className="mr-2 h-4 w-4" />}
-                    PDF Nómina
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        disabled={isExportingNomina || empleadosTop.length === 0}
+                        className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-[#1e40af] font-medium shadow-sm"
+                      >
+                        {isExportingNomina ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Receipt className="mr-2 h-4 w-4" />
+                        )}
+                        Nómina
+                        <ChevronDown className="ml-2 h-4 w-4 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleExportNomina("pdf")}>
+                        <FileText className="mr-2 h-4 w-4" />
+                        Descargar PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleExportNomina("xlsx")}>
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                        Descargar Excel (XLSX)
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </>
               )}
             </div>
