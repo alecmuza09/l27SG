@@ -440,6 +440,142 @@ export async function getTopClientesPorGasto(
   }
 }
 
+export type ClienteNuevoPeriodoRow = {
+  clienteId: string
+  nombre: string
+  fechaPrimeraVisita: string
+  servicios: string[]
+  sucursalNombre: string
+}
+
+type CitaPrimeraVisitaRow = {
+  cliente_id: string
+  fecha: string
+  hora_inicio: string | null
+  sucursal_id: string
+  cliente: { nombre: string; apellido: string } | null
+  sucursal: { nombre: string } | null
+  servicio: { nombre: string } | null
+}
+
+function esVisitaAnterior(a: { fecha: string; hora: string | null }, b: { fecha: string; hora: string | null }): boolean {
+  if (a.fecha !== b.fecha) return a.fecha < b.fecha
+  return (a.hora ?? '') < (b.hora ?? '')
+}
+
+/** Todas las citas completadas (global) para detectar la verdadera primera visita. */
+async function fetchTodasCitasCompletadas(): Promise<CitaPrimeraVisitaRow[]> {
+  const PAGE = 1000
+  const all: CitaPrimeraVisitaRow[] = []
+  let from = 0
+
+  while (true) {
+    const query = supabase
+      .from('citas')
+      .select(`
+        cliente_id, fecha, hora_inicio, sucursal_id,
+        cliente:clientes(nombre, apellido),
+        sucursal:sucursales(nombre),
+        servicio:servicios(nombre)
+      `)
+      .eq('estado', 'completada')
+      .not('cliente_id', 'is', null)
+      .order('fecha', { ascending: true })
+      .order('hora_inicio', { ascending: true })
+      .range(from, from + PAGE - 1)
+
+    const { data, error } = await query
+    if (error) {
+      console.error('Error obteniendo citas para clientes nuevos:', error)
+      break
+    }
+    const batch = (data ?? []) as CitaPrimeraVisitaRow[]
+    all.push(...batch)
+    if (batch.length < PAGE) break
+    from += PAGE
+  }
+
+  return all
+}
+
+/**
+ * Clientes cuya primera visita ever (primera cita completada en cualquier sucursal)
+ * cae en el rango. Excluye a quien ya tenía historial antes del período.
+ * Con filtro de sucursal: solo si esa primera visita fue en la sucursal indicada.
+ */
+export async function getClientesNuevosEnPeriodo(
+  fechaDesde: string,
+  fechaHasta: string,
+  scope: { sucursalId?: string; sucursalIds?: string[] } = {},
+): Promise<{ nuevos: number; detalle: ClienteNuevoPeriodoRow[] }> {
+  try {
+    const citas = await fetchTodasCitasCompletadas()
+    if (citas.length === 0) return { nuevos: 0, detalle: [] }
+
+    const primeraPorCliente = new Map<string, { fecha: string; hora: string | null }>()
+    for (const row of citas) {
+      const id = row.cliente_id
+      const visita = { fecha: row.fecha, hora: row.hora_inicio }
+      const prev = primeraPorCliente.get(id)
+      if (!prev || esVisitaAnterior(visita, prev)) {
+        primeraPorCliente.set(id, visita)
+      }
+    }
+
+    const metaCliente = new Map<string, { nombre: string }>()
+    for (const row of citas) {
+      if (!metaCliente.has(row.cliente_id)) {
+        const nombre = row.cliente
+          ? `${row.cliente.nombre} ${row.cliente.apellido}`.trim()
+          : 'Desconocido'
+        metaCliente.set(row.cliente_id, { nombre })
+      }
+    }
+
+    const detalle: ClienteNuevoPeriodoRow[] = []
+
+    for (const [clienteId, primera] of primeraPorCliente) {
+      if (primera.fecha < fechaDesde || primera.fecha > fechaHasta) continue
+
+      const citasPrimeraDia = citas
+        .filter(c => c.cliente_id === clienteId && c.fecha === primera.fecha)
+        .sort((a, b) => (a.hora_inicio ?? '').localeCompare(b.hora_inicio ?? ''))
+
+      const earliest = citasPrimeraDia[0]
+      if (!earliest) continue
+
+      if (scope.sucursalId && earliest.sucursal_id !== scope.sucursalId) continue
+      if (scope.sucursalIds?.length && !scope.sucursalIds.includes(earliest.sucursal_id)) continue
+
+      const serviciosSet = new Set<string>()
+      for (const c of citasPrimeraDia) {
+        const nombreSvc = c.servicio?.nombre?.trim()
+        if (nombreSvc) serviciosSet.add(nombreSvc)
+      }
+
+      detalle.push({
+        clienteId,
+        nombre: metaCliente.get(clienteId)?.nombre ?? 'Desconocido',
+        fechaPrimeraVisita: primera.fecha,
+        servicios: [...serviciosSet].sort((a, b) => a.localeCompare(b, 'es')),
+        sucursalNombre: earliest.sucursal?.nombre ?? '—',
+      })
+    }
+
+    detalle.sort((a, b) => {
+      if (a.fechaPrimeraVisita !== b.fechaPrimeraVisita) {
+        return b.fechaPrimeraVisita.localeCompare(a.fechaPrimeraVisita)
+      }
+      return a.nombre.localeCompare(b.nombre, 'es')
+    })
+
+    return { nuevos: detalle.length, detalle }
+  } catch (err) {
+    console.error('Error obteniendo clientes nuevos en período:', err)
+    return { nuevos: 0, detalle: [] }
+  }
+}
+
 // Crear un nuevo cliente
 export async function createCliente(clienteData: {
   nombre: string

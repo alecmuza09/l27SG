@@ -36,7 +36,13 @@ import {
   type MetricaSucursal,
   type ServicioPorEmpleado,
 } from "@/lib/data/dashboard"
-import { getClientesStats, getTopClientesPorGasto } from "@/lib/data/clientes"
+import {
+  getClientesStats, getTopClientesPorGasto, getClientesNuevosEnPeriodo,
+  type ClienteNuevoPeriodoRow,
+} from "@/lib/data/clientes"
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
@@ -1909,6 +1915,7 @@ function KpiCard({
   subtitle,
   tendencia,
   className,
+  onClick,
 }: {
   icon: ComponentType<{ className?: string }>
   iconBg: string
@@ -1918,12 +1925,20 @@ function KpiCard({
   subtitle?: ReactNode
   tendencia?: { actual: number; anterior: number }
   className?: string
+  onClick?: () => void
 }) {
   return (
-    <Card className={cn(
-      "min-h-[140px] h-[140px] items-start gap-2 border border-solid border-slate-200 py-3 shadow-sm",
-      className,
-    )}>
+    <Card
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick() } } : undefined}
+      className={cn(
+        "min-h-[140px] h-[140px] items-start gap-2 border border-solid border-slate-200 py-3 shadow-sm",
+        onClick && "cursor-pointer hover:border-slate-300 hover:shadow-md transition-shadow",
+        className,
+      )}
+    >
       <CardHeader className="px-3 pb-0 pt-0 w-full">
         <div className="flex items-start gap-2">
           <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", iconBg)}>
@@ -1961,17 +1976,18 @@ function BadgeOcupacion({ pct }: { pct: number }) {
 }
 
 function DonutDistribucionClientes({
-  vip, activos, nuevos, total,
+  vip, activos, nuevos, total, nuevosLabel = "Nuevos",
 }: {
   vip: number
   activos: number
   nuevos: number
   total: number
+  nuevosLabel?: string
 }) {
   const segments = [
     { label: "VIP", value: vip, color: "#1a73e8" },
     { label: "Activos", value: activos, color: "#0ea5e9" },
-    { label: "Nuevos (30 días)", value: nuevos, color: "#94a3b8" },
+    { label: nuevosLabel, value: nuevos, color: "#94a3b8" },
   ]
   const sum = segments.reduce((s, x) => s + x.value, 0)
 
@@ -2070,6 +2086,8 @@ export default function ReportesPage() {
   const [isLoadingEmpleadoServicios, setIsLoadingEmpleadoServicios] = useState(false)
   const [propinasEmpleadas,    setPropinasEmpleadas]    = useState<PropinaEmpleadaRow[]>([])
   const [clientesStats,        setClientesStats]        = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
+  const [clientesNuevosDetalle, setClientesNuevosDetalle] = useState<ClienteNuevoPeriodoRow[]>([])
+  const [nuevosClientesDialogOpen, setNuevosClientesDialogOpen] = useState(false)
   const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
   const [metodosPago,          setMetodosPago]          = useState<Array<{ metodo: string; monto: number; count: number }>>([])
   const [metricasSucursales,   setMetricasSucursales]   = useState<MetricaSucursal[]>([])
@@ -2270,6 +2288,17 @@ export default function ReportesPage() {
             : Promise.resolve([] as MetricaSucursal[]),
         ])
       }
+
+      const nuevosScope =
+        esMultiBranchAll
+          ? { sucursalIds: branchIds }
+          : sucIdParaRest
+            ? { sucursalId: sucIdParaRest }
+            : {}
+
+      const nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, nuevosScope)
+      cliStats = { ...cliStats, nuevos: nuevosPeriodo.nuevos }
+      setClientesNuevosDetalle(nuevosPeriodo.detalle)
 
       setCitasResumen(citasRes)
       setClientesStats(cliStats)
@@ -2609,9 +2638,55 @@ export default function ReportesPage() {
     ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
     : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? "")
 
+  const mostrarSucursalEnNuevosClientes = sucursalFilter === "all"
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
+      <Dialog open={nuevosClientesDialogOpen} onOpenChange={setNuevosClientesDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Nuevos clientes</DialogTitle>
+            <DialogDescription>
+              Primera visita ever (sin historial previo) · {periodoLabel}
+              {sucNombreActiva ? ` · ${sucNombreActiva}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {clientesNuevosDetalle.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No hay clientes nuevos en este período.
+            </p>
+          ) : (
+            <div className="overflow-auto -mx-1 px-1">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Primera visita</TableHead>
+                    {mostrarSucursalEnNuevosClientes && <TableHead>Sucursal</TableHead>}
+                    <TableHead>Servicios (1.ª vez)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clientesNuevosDetalle.map(c => (
+                    <TableRow key={c.clienteId}>
+                      <TableCell className="font-medium">{c.nombre}</TableCell>
+                      <TableCell className="tabular-nums whitespace-nowrap">{c.fechaPrimeraVisita}</TableCell>
+                      {mostrarSucursalEnNuevosClientes && (
+                        <TableCell className="text-sm">{c.sucursalNombre}</TableCell>
+                      )}
+                      <TableCell className="text-sm text-muted-foreground">
+                        {c.servicios.length > 0 ? c.servicios.join(", ") : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div id="reporte-contenido" className="space-y-6">
 
         {/* ── Cabecera ── */}
@@ -2861,7 +2936,12 @@ export default function ReportesPage() {
               iconColor="text-slate-500"
               title="Nuevos Clientes"
               value={clientesStats.nuevos}
-              subtitle={<p className="text-[10px] text-muted-foreground leading-tight">Últimos 30 días</p>}
+              subtitle={
+                <p className="text-[10px] text-muted-foreground leading-tight line-clamp-2">
+                  1.ª visita ever · {periodoLabel}
+                </p>
+              }
+              onClick={() => setNuevosClientesDialogOpen(true)}
             />
           </div>
           )}
@@ -3291,6 +3371,7 @@ export default function ReportesPage() {
                         activos={clientesStats.activos}
                         nuevos={clientesStats.nuevos}
                         total={clientesStats.total}
+                        nuevosLabel={`Nuevos (${periodoLabel})`}
                       />
                       <div className="text-center p-4 rounded-lg bg-slate-50 border border-slate-200 mt-4">
                         <div className="text-3xl font-bold text-slate-700">{clientesStats.total}</div>
