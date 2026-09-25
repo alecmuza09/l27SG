@@ -21,7 +21,10 @@ import {
   Loader2,
   Star,
 } from "lucide-react"
-import { getClientesPaginated, searchClientesPaginated, getClientesStats, createCliente, updateCliente, updateClienteEmbajadora, type Cliente } from "@/lib/data/clientes"
+import {
+  getClientesPaginated, searchClientesPaginated, getClientesStats, getClientesNuevosEnPeriodo,
+  createCliente, updateCliente, updateClienteEmbajadora, type Cliente,
+} from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -91,11 +94,23 @@ export default function ClientesPage() {
     sucursalPreferida: "sin-sucursal",
   })
 
+  /** Mismo rango que reportes con filtro "Este mes" (inicio de mes → hoy). */
+  const fechasEsteMes = () => {
+    const hoy = new Date()
+    const pad = (n: number) => String(n).padStart(2, "0")
+    const hasta = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`
+    const inicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+    const desde = `${inicio.getFullYear()}-${pad(inicio.getMonth() + 1)}-${pad(inicio.getDate())}`
+    return { desde, hasta }
+  }
+
   // Función para cargar estadísticas
   const loadStats = async () => {
     try {
       const statsData = await getClientesStats()
-      setStats(statsData)
+      const { desde, hasta } = fechasEsteMes()
+      const { nuevos } = await getClientesNuevosEnPeriodo(desde, hasta)
+      setStats({ ...statsData, nuevos })
     } catch (err) {
       console.error('Error cargando estadísticas:', err)
       // Establecer valores por defecto en caso de error
@@ -561,7 +576,7 @@ export default function ClientesPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Nuevos (30d)</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Nuevos (este mes)</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.nuevos}</div>
