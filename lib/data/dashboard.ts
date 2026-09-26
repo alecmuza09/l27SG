@@ -14,6 +14,27 @@ function localFmt(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+type SucursalScopedQuery = {
+  eq: (column: string, value: string) => SucursalScopedQuery
+  in: (column: string, values: string[]) => SucursalScopedQuery
+}
+
+/** Filtra por una sucursal o por un conjunto (multi-sucursal «todas mis sedes»). */
+function withSucursalScope<T extends SucursalScopedQuery>(
+  query: T,
+  sucursalId?: string,
+  sucursalIds?: string[],
+): T {
+  if (sucursalId && sucursalId !== 'all') {
+    return query.eq('sucursal_id', sucursalId) as T
+  }
+  const ids = sucursalIds?.filter(Boolean) ?? []
+  if (ids.length > 0) {
+    return query.in('sucursal_id', ids) as T
+  }
+  return query
+}
+
 /** Días laborales de un empleado en un período según su diasTrabajo (0=Dom … 6=Sáb). */
 function contarDiasLaboralesEmpleado(
   desde: string,
@@ -171,9 +192,7 @@ export async function getDashboardStats(
       .select('*', { count: 'exact', head: true })
       .eq('fecha', hoy)
     
-    if (sucursalId && sucursalId !== 'all') {
-      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
-    }
+    citasQuery = withSucursalScope(citasQuery, sucursalId, sucursalIds)
     
     const { count: citasCount } = await citasQuery
     
@@ -184,9 +203,7 @@ export async function getDashboardStats(
       .eq('fecha', hoy)
       .eq('estado', 'completado')
     
-    if (sucursalId && sucursalId !== 'all') {
-      ingresosQuery = ingresosQuery.eq('sucursal_id', sucursalId)
-    }
+    ingresosQuery = withSucursalScope(ingresosQuery, sucursalId, sucursalIds)
     
     const { data: ingresosData } = await ingresosQuery
     const ingresosHoy = (ingresosData ?? []).reduce((sum, p) => sum + (Number(p.monto) || 0), 0)
@@ -207,10 +224,12 @@ export async function getDashboardStats(
     }
 
     // Calcular ocupación (citas completadas hoy / capacidad estimada)
-    const { data: empleados } = await supabase
+    let empleadosQuery = supabase
       .from('empleados')
       .select('id')
       .eq('activo', true)
+    empleadosQuery = withSucursalScope(empleadosQuery, sucursalId, sucursalIds)
+    const { data: empleados } = await empleadosQuery
     
     const numEmpleados = empleados?.length || 1
     const capacidadDiaria = numEmpleados * 8 // 8 horas por empleado
@@ -231,7 +250,7 @@ export async function getDashboardStats(
 }
 
 // Obtener estado de citas
-export async function getEstadoCitas(sucursalId?: string): Promise<EstadoCitas> {
+export async function getEstadoCitas(sucursalId?: string, sucursalIds?: string[]): Promise<EstadoCitas> {
   try {
     const hoy = new Date().toISOString().split('T')[0]
     
@@ -240,9 +259,7 @@ export async function getEstadoCitas(sucursalId?: string): Promise<EstadoCitas> 
       .select('estado')
       .eq('fecha', hoy)
     
-    if (sucursalId && sucursalId !== 'all') {
-      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
-    }
+    citasQuery = withSucursalScope(citasQuery, sucursalId, sucursalIds)
     
     const { data: citas } = await citasQuery
     
@@ -261,7 +278,11 @@ export async function getEstadoCitas(sucursalId?: string): Promise<EstadoCitas> 
 }
 
 // Obtener próximas citas
-export async function getProximasCitas(limit: number = 4, sucursalId?: string): Promise<ProximaCita[]> {
+export async function getProximasCitas(
+  limit: number = 4,
+  sucursalId?: string,
+  sucursalIds?: string[],
+): Promise<ProximaCita[]> {
   try {
     const hoy = new Date().toISOString().split('T')[0]
     
@@ -279,9 +300,7 @@ export async function getProximasCitas(limit: number = 4, sucursalId?: string): 
       .order('hora_inicio', { ascending: true })
       .limit(limit)
     
-    if (sucursalId && sucursalId !== 'all') {
-      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
-    }
+    citasQuery = withSucursalScope(citasQuery, sucursalId, sucursalIds)
     
     const { data: citas } = await citasQuery
     
@@ -311,6 +330,7 @@ export async function getServiciosPopulares(
   fecha?: string,
   fechaDesde?: string,
   fechaHasta?: string,
+  sucursalIds?: string[],
 ): Promise<ServicioPopular[]> {
   try {
     if (fechaDesde && fechaHasta && !fecha) {
@@ -329,9 +349,7 @@ export async function getServiciosPopulares(
       .eq('estado', 'completada')
       .not('servicio_id', 'is', null)
     
-    if (sucursalId && sucursalId !== 'all') {
-      citasQuery = citasQuery.eq('sucursal_id', sucursalId)
-    }
+    citasQuery = withSucursalScope(citasQuery, sucursalId, sucursalIds)
 
     if (fecha)      { citasQuery = citasQuery.eq('fecha', fecha) }
     if (fechaDesde) { citasQuery = citasQuery.gte('fecha', fechaDesde) }
@@ -450,9 +468,17 @@ export async function getServiciosPorEmpleadoFromDB(
 }
 
 // Obtener resumen por sucursal
-export async function getResumenSucursales(sucursalId?: string): Promise<Array<{ nombre: string; ingresos: number; citas: number; tendencia: string }>> {
+export async function getResumenSucursales(
+  sucursalId?: string,
+  sucursalIds?: string[],
+): Promise<Array<{ nombre: string; ingresos: number; citas: number; tendencia: string }>> {
   try {
-    const sucursales = await getSucursalesActivasFromDB()
+    const todasSucursales = await getSucursalesActivasFromDB()
+    const idsScope = sucursalIds?.filter(Boolean) ?? []
+    const sucursales =
+      idsScope.length > 0 && !sucursalId
+        ? todasSucursales.filter((s) => idsScope.includes(s.id))
+        : todasSucursales
     
     if (sucursalId && sucursalId !== 'all') {
       const sucursal = sucursales.find(s => s.id === sucursalId)
@@ -528,12 +554,18 @@ export async function getResumenSucursales(sucursalId?: string): Promise<Array<{
 }
 
 // Obtener productividad por sucursal desde BD
-export async function getProductividadSucursalesFromDB(sucursalId?: string): Promise<ProductividadSucursal[]> {
+export async function getProductividadSucursalesFromDB(
+  sucursalId?: string,
+  sucursalIds?: string[],
+): Promise<ProductividadSucursal[]> {
   try {
     const todasSucursales = await getSucursalesActivasFromDB()
+    const idsScope = sucursalIds?.filter(Boolean) ?? []
     const sucursales = sucursalId
       ? todasSucursales.filter(s => s.id === sucursalId)
-      : todasSucursales
+      : idsScope.length > 0
+        ? todasSucursales.filter((s) => idsScope.includes(s.id))
+        : todasSucursales
     const { fechaDesde, fechaHasta, mesAnteriorDesde, mesAnteriorHasta } = rangosMesReportes()
     
     const productividad = await Promise.all(
@@ -604,9 +636,14 @@ export async function getTopEmpleadosFromDB(
   sucursalId?: string,
   fechaDesde?: string,
   fechaHasta?: string,
+  sucursalIds?: string[],
 ): Promise<ProductividadEmpleado[]> {
   try {
-    const empleados = await getEmpleadosFromDB(sucursalId)
+    const idsScope = sucursalIds?.filter(Boolean) ?? []
+    const empleados =
+      !sucursalId && idsScope.length > 0
+        ? (await Promise.all(idsScope.map((id) => getEmpleadosFromDB(id)))).flat()
+        : await getEmpleadosFromDB(sucursalId)
     const hoy = new Date()
     const mesActual = hoy.toISOString().slice(0, 7)
     const desde = fechaDesde ?? `${mesActual}-01`

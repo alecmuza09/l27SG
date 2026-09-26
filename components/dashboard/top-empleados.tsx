@@ -23,9 +23,10 @@ const RANK_ICONS = {
 interface TopEmpleadosProps {
   isManager?: boolean
   sucursalId?: string
+  sucursalIds?: string[]
 }
 
-export function TopEmpleados({ isManager = false, sucursalId }: TopEmpleadosProps) {
+export function TopEmpleados({ isManager = false, sucursalId, sucursalIds }: TopEmpleadosProps) {
   const [topEmpleados, setTopEmpleados] = useState<ProductividadEmpleado[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -33,7 +34,7 @@ export function TopEmpleados({ isManager = false, sucursalId }: TopEmpleadosProp
     async function loadData() {
       try {
         setIsLoading(true)
-        const empleados = await getTopEmpleadosFromDB(10, sucursalId)
+        const empleados = await getTopEmpleadosFromDB(10, sucursalId, undefined, undefined, sucursalIds)
         setTopEmpleados(empleados)
       } catch (err) {
         console.error('Error cargando top empleados:', err)
@@ -43,7 +44,7 @@ export function TopEmpleados({ isManager = false, sucursalId }: TopEmpleadosProp
     }
 
     loadData()
-  }, [sucursalId, isManager])
+  }, [sucursalId, sucursalIds?.join(","), isManager])
 
   if (isLoading) {
     return (

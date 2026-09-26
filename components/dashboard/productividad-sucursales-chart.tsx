@@ -40,9 +40,15 @@ const chartConfig = {
 interface ProductividadSucursalesChartProps {
   isManager?: boolean
   sucursalId?: string
+  /** Alcance multi-sucursal cuando el selector está en «todas mis sucursales». */
+  sucursalIds?: string[]
 }
 
-export function ProductividadSucursalesChart({ isManager = false, sucursalId }: ProductividadSucursalesChartProps) {
+export function ProductividadSucursalesChart({
+  isManager = false,
+  sucursalId,
+  sucursalIds,
+}: ProductividadSucursalesChartProps) {
   const [data, setData] = useState<ProductividadSucursal[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -50,7 +56,7 @@ export function ProductividadSucursalesChart({ isManager = false, sucursalId }: 
     async function loadData() {
       try {
         setIsLoading(true)
-        const productividad = await getProductividadSucursalesFromDB(sucursalId)
+        const productividad = await getProductividadSucursalesFromDB(sucursalId, sucursalIds)
         setData(productividad.sort((a, b) => b.citas - a.citas))
       } catch (err) {
         console.error('Error cargando productividad de sucursales:', err)
@@ -60,7 +66,7 @@ export function ProductividadSucursalesChart({ isManager = false, sucursalId }: 
     }
 
     loadData()
-  }, [sucursalId, isManager])
+  }, [sucursalId, sucursalIds?.join(","), isManager])
 
   if (isLoading) {
     return (

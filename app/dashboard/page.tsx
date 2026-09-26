@@ -24,11 +24,14 @@ export default function DashboardPage() {
   const isGlobalAdmin = isGlobalAdministrator(currentUser)
   const multiBranch = userHasMultiBranchScope(currentUser)
   const branchScopeId = effectivePrimarySucursalId(currentUser)
+  const branchIds = collectEffectiveSucursalIds(currentUser)
   const sucursalIdParaStats =
     isGlobalAdministrator(currentUser) || userHasMultiBranchScope(currentUser)
       ? (selectedSucursal === "all" ? undefined : selectedSucursal)
       : branchScopeId
   const esMultiBranchAll = multiBranch && selectedSucursal === "all"
+  const scopeSucursalIds = esMultiBranchAll ? branchIds : undefined
+  const scopeSucursalId = esMultiBranchAll ? undefined : sucursalIdParaStats
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -53,27 +56,17 @@ export default function DashboardPage() {
     async function loadDashboardData() {
       try {
         setIsLoading(true)
-        const sucursalId =
-          isGlobalAdministrator(currentUser) || userHasMultiBranchScope(currentUser)
-            ? (selectedSucursal === "all" ? undefined : selectedSucursal)
-            : branchScopeId
-        const branchIds = collectEffectiveSucursalIds(currentUser)
-        const esMultiBranchAll = multiBranch && selectedSucursal === "all"
-
         const isManager = currentUser?.role === 'manager'
         const hoy = new Date()
         const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
         
         const [statsData, estadoCitasData, proximasCitasData, serviciosPopularesData, resumenSucursalesData] = await Promise.all([
-          getDashboardStats(
-            esMultiBranchAll ? undefined : sucursalId,
-            esMultiBranchAll ? branchIds : undefined,
-          ),
-          getEstadoCitas(sucursalId),
-          getProximasCitas(4, sucursalId),
-          getServiciosPopulares(4, sucursalId, isManager ? fechaHoy : undefined),
+          getDashboardStats(scopeSucursalId, scopeSucursalIds),
+          getEstadoCitas(scopeSucursalId, scopeSucursalIds),
+          getProximasCitas(4, scopeSucursalId, scopeSucursalIds),
+          getServiciosPopulares(4, scopeSucursalId, isManager ? fechaHoy : undefined, undefined, undefined, scopeSucursalIds),
           isGlobalAdministrator(currentUser) || multiBranch
-            ? getResumenSucursales(sucursalId)
+            ? getResumenSucursales(scopeSucursalId, scopeSucursalIds)
             : Promise.resolve([])
         ])
         
@@ -92,7 +85,7 @@ export default function DashboardPage() {
     if (currentUser) {
       loadDashboardData()
     }
-  }, [selectedSucursal, currentUser, branchScopeId])
+  }, [selectedSucursal, currentUser, branchScopeId, scopeSucursalId, scopeSucursalIds?.join(",")])
 
   if (isLoading) {
     return (
@@ -160,21 +153,15 @@ export default function DashboardPage() {
       {/* Gráfico de Productividad por Sucursales */}
       <ProductividadSucursalesChart
         isManager={currentUser?.role === 'manager' || currentUser?.role === 'branch-admin'}
-        sucursalId={
-          isGlobalAdministrator(currentUser) || multiBranch
-            ? (selectedSucursal === "all" ? undefined : selectedSucursal)
-            : branchScopeId
-        }
+        sucursalId={scopeSucursalId}
+        sucursalIds={scopeSucursalIds}
       />
 
       {/* Top 10 Empleados */}
       <TopEmpleados
         isManager={currentUser?.role === 'manager' || currentUser?.role === 'branch-admin'}
-        sucursalId={
-          isGlobalAdministrator(currentUser) || multiBranch
-            ? (selectedSucursal === "all" ? undefined : selectedSucursal)
-            : branchScopeId
-        }
+        sucursalId={scopeSucursalId}
+        sucursalIds={scopeSucursalIds}
       />
 
       {/* Cards de información adicional */}
