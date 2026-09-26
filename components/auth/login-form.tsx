@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { login } from "@/lib/auth"
+import { login, normalizeAuthEmail } from "@/lib/auth"
 import { Loader2 } from "lucide-react"
 
 export function LoginForm() {
@@ -26,7 +26,7 @@ export function LoginForm() {
     console.log("[v0] Login attempt for:", email)
 
     try {
-      const user = await login(email, password)
+      const user = await login(normalizeAuthEmail(email), password)
       console.log("[v0] Login successful:", user)
 
       await new Promise((resolve) => setTimeout(resolve, 100))

@@ -18,6 +18,18 @@ export interface AuthState {
 
 const USER_KEY = "luna27_user"
 
+export function normalizeAuthEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+function mapLoginAuthError(message: string | undefined): string {
+  const m = (message ?? "").toLowerCase()
+  if (m.includes("invalid login credentials") || m.includes("invalid credentials")) {
+    return "Correo o contraseña incorrectos. Verifica tus datos o pide al administrador que restablezca tu contraseña."
+  }
+  return message || "Credenciales inválidas"
+}
+
 /** UUID sucursal Paseo Tec (debe coincidir con BD y scripts). */
 export const PASEO_TEC_SUCURSAL_ID = "b37b010f-6e12-4700-abde-f646956a271f"
 
@@ -50,18 +62,23 @@ export function effectivePrimarySucursalId(user: User | null): string | undefine
 }
 
 export async function login(email: string, password: string): Promise<User> {
+  const emailNorm = normalizeAuthEmail(email)
+
   // 1. Autenticar con Supabase Auth
-  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    email: emailNorm,
+    password,
+  })
 
   if (authError || !authData.user) {
-    throw new Error(authError?.message || "Credenciales inválidas")
+    throw new Error(mapLoginAuthError(authError?.message))
   }
 
   // 2. Obtener datos del usuario desde la tabla usuarios
   const { data: usuarioRaw } = await supabase
     .from("usuarios")
     .select("*, usuario_sucursales(sucursal_id)")
-    .eq("email", email)
+    .ilike("email", emailNorm)
     .eq("activo", true)
     .maybeSingle()
 
@@ -125,11 +142,11 @@ export async function refreshSession(): Promise<User | null> {
     return null
   }
 
-  const email = data.session.user.email!
+  const email = normalizeAuthEmail(data.session.user.email!)
   const { data: usuarioRefreshRaw } = await supabase
     .from("usuarios")
     .select("*, usuario_sucursales(sucursal_id)")
-    .eq("email", email)
+    .ilike("email", email)
     .eq("activo", true)
     .maybeSingle()
 
@@ -201,7 +218,6 @@ export const SAN_JERONIMO_ALLOWED_ROUTE_PREFIXES = [
   "/dashboard/gift-cards",
   "/dashboard/vacaciones",
   "/dashboard/ausencias",
-  "/dashboard/reportes",
   "/dashboard/inventario/sucursal",
 ] as const
 
