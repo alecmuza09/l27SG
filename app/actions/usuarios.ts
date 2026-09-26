@@ -1,6 +1,13 @@
 "use server"
 
-import { supabaseAdmin } from '@/lib/supabase/server'
+import { getSupabaseAdmin, getSupabaseAdminConfigError } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+function requireAdmin(): { admin: SupabaseClient } | { error: string } {
+  const configError = getSupabaseAdminConfigError()
+  if (configError) return { error: configError }
+  return { admin: getSupabaseAdmin() }
+}
 
 function mapUsuario(u: any) {
   const rows: Array<{ sucursal_id: string; sucursal?: { id: string; nombre: string } }> =
@@ -37,10 +44,10 @@ const USUARIO_SELECT = `
   usuario_sucursales(sucursal_id, sucursal:sucursales(id, nombre))
 `
 
-async function syncSucursales(usuarioId: string, sucursalIds: string[]) {
-  await supabaseAdmin.from('usuario_sucursales').delete().eq('usuario_id', usuarioId)
+async function syncSucursales(admin: SupabaseClient, usuarioId: string, sucursalIds: string[]) {
+  await admin.from('usuario_sucursales').delete().eq('usuario_id', usuarioId)
   if (sucursalIds.length > 0) {
-    await supabaseAdmin.from('usuario_sucursales').insert(
+    await admin.from('usuario_sucursales').insert(
       sucursalIds.map((sid) => ({ usuario_id: usuarioId, sucursal_id: sid }))
     )
   }
@@ -50,7 +57,10 @@ export async function getUsuariosAction(): Promise<{
   usuarios: ReturnType<typeof mapUsuario>[]
   error?: string
 }> {
-  const { data, error } = await supabaseAdmin
+  const gate = requireAdmin()
+  if ('error' in gate) return { usuarios: [], error: gate.error }
+
+  const { data, error } = await gate.admin
     .from('usuarios')
     .select(USUARIO_SELECT)
     .order('created_at', { ascending: false })
@@ -67,11 +77,14 @@ export async function createUsuarioAction(datos: {
   sucursalIds?: string[]
   password: string
 }): Promise<{ success: boolean; usuario?: ReturnType<typeof mapUsuario>; error?: string }> {
+  const gate = requireAdmin()
+  if ('error' in gate) return { success: false, error: gate.error }
+
   const { email, nombre, rol, password } = datos
   const sucursalIds = datos.sucursalIds ?? (datos.sucursalId ? [datos.sucursalId] : [])
   const primarySucursalId = sucursalIds[0] ?? null
 
-  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+  const { data: authData, error: authError } = await gate.admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
@@ -82,20 +95,20 @@ export async function createUsuarioAction(datos: {
     return { success: false, error: authError?.message || 'Error creando usuario en Auth' }
   }
 
-  const { data: usuarioData, error: dbError } = await supabaseAdmin
+  const { data: usuarioData, error: dbError } = await gate.admin
     .from('usuarios')
     .insert({ id: authData.user.id, email, nombre, rol, sucursal_id: primarySucursalId, activo: true })
     .select(USUARIO_SELECT)
     .single()
 
   if (dbError) {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+    await gate.admin.auth.admin.deleteUser(authData.user.id)
     return { success: false, error: dbError.message }
   }
 
-  await syncSucursales(authData.user.id, sucursalIds)
+  await syncSucursales(gate.admin, authData.user.id, sucursalIds)
 
-  const { data: finalData } = await supabaseAdmin
+  const { data: finalData } = await gate.admin
     .from('usuarios')
     .select(USUARIO_SELECT)
     .eq('id', authData.user.id)
@@ -114,6 +127,9 @@ export async function updateUsuarioAction(
     activo?: boolean
   }
 ): Promise<{ success: boolean; usuario?: ReturnType<typeof mapUsuario>; error?: string }> {
+  const gate = requireAdmin()
+  if ('error' in gate) return { success: false, error: gate.error }
+
   const sucursalIds =
     datos.sucursalIds !== undefined
       ? datos.sucursalIds
@@ -127,7 +143,7 @@ export async function updateUsuarioAction(
   if (sucursalIds !== undefined) updateData.sucursal_id = sucursalIds[0] ?? null
   if (datos.activo !== undefined) updateData.activo = datos.activo
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await gate.admin
     .from('usuarios')
     .update(updateData)
     .eq('id', usuarioId)
@@ -137,10 +153,10 @@ export async function updateUsuarioAction(
   if (error || !data) return { success: false, error: error?.message || 'Error actualizando usuario' }
 
   if (sucursalIds !== undefined) {
-    await syncSucursales(usuarioId, sucursalIds)
+    await syncSucursales(gate.admin, usuarioId, sucursalIds)
   }
 
-  const { data: finalData } = await supabaseAdmin
+  const { data: finalData } = await gate.admin
     .from('usuarios')
     .select(USUARIO_SELECT)
     .eq('id', usuarioId)
@@ -152,7 +168,10 @@ export async function updateUsuarioAction(
 export async function deleteUsuarioAction(
   usuarioId: string
 ): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabaseAdmin
+  const gate = requireAdmin()
+  if ('error' in gate) return { success: false, error: gate.error }
+
+  const { error } = await gate.admin
     .from('usuarios')
     .update({ activo: false, updated_at: new Date().toISOString() })
     .eq('id', usuarioId)
@@ -169,7 +188,10 @@ export async function updateUsuarioPasswordAction(
     return { success: false, error: 'La contraseña debe tener al menos 6 caracteres' }
   }
 
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(usuarioId, { password })
+  const gate = requireAdmin()
+  if ('error' in gate) return { success: false, error: gate.error }
+
+  const { error } = await gate.admin.auth.admin.updateUserById(usuarioId, { password })
   if (error) return { success: false, error: error.message }
   return { success: true }
 }
@@ -178,7 +200,10 @@ export async function getUsuariosBySucursalAction(sucursalId: string): Promise<{
   usuarios: ReturnType<typeof mapUsuario>[]
   error?: string
 }> {
-  const { data, error } = await supabaseAdmin
+  const gate = requireAdmin()
+  if ('error' in gate) return { usuarios: [], error: gate.error }
+
+  const { data, error } = await gate.admin
     .from('usuarios')
     .select(USUARIO_SELECT)
     .eq('activo', true)

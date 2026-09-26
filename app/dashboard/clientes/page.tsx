@@ -115,7 +115,7 @@ export default function ClientesPage() {
       setStats({
         total: statsData.total,
         embajadoras: statsData.embajadoras,
-        conVisitas: statsData.conVisitas,
+        conVisitas: statsData.activos,
         nuevos,
       })
     } catch (err) {
@@ -588,12 +588,12 @@ export default function ClientesPage() {
             }}
           >
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Con visitas</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Clientes activos</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.conVisitas.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                ≥1 cita completada · clic para ver lista
+                ≥1 cita completada (igual que Reportes) · clic para ver lista
               </p>
             </CardContent>
           </Card>

@@ -37,7 +37,7 @@ import {
   type ServicioPorEmpleado,
 } from "@/lib/data/dashboard"
 import {
-  getClientesStats, getTopClientesPorGasto, getClientesNuevosEnPeriodo,
+  getTopClientesPorGasto, getClientesNuevosEnPeriodo, getReporteClientesTabBundle,
   type ClienteNuevoPeriodoRow,
 } from "@/lib/data/clientes"
 import {
@@ -2423,25 +2423,21 @@ export default function ReportesPage() {
             ? sucursalFilter
             : sucursalFija
       const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
-      const nuevosScope =
-        esMultiBranchAll
-          ? { sucursalIds: branchIds }
-          : sucId
-            ? { sucursalId: sucId }
-            : {}
 
-      let cliStats: Awaited<ReturnType<typeof getClientesStats>>
-      if (esMultiBranchAll) {
-        cliStats = await getClientesStats(undefined, branchIds, { fechaDesde, fechaHasta })
-      } else {
-        cliStats = await getClientesStats(sucId, undefined, { fechaDesde, fechaHasta })
-      }
-
+      let cliStats: Awaited<ReturnType<typeof getReporteClientesTabBundle>>["cliStats"]
       let nuevosPeriodo: Awaited<ReturnType<typeof getClientesNuevosEnPeriodo>>
       try {
-        nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, nuevosScope)
+        const bundle = esMultiBranchAll
+          ? await getReporteClientesTabBundle(fechaDesde, fechaHasta, { sucursalIds: branchIds })
+          : await getReporteClientesTabBundle(fechaDesde, fechaHasta, { sucursalId: sucId })
+        cliStats = bundle.cliStats
+        nuevosPeriodo = bundle.nuevosPeriodo
       } catch (err) {
-        console.error("Error cargando clientes nuevos (tab):", err)
+        console.error("Error cargando tab clientes:", err)
+        cliStats = {
+          total: 0, activos: 0, activosInicioPeriodo: 0, vip: 0, inactivos: 0,
+          nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0,
+        }
         nuevosPeriodo = { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
       }
 
@@ -3550,7 +3546,7 @@ export default function ReportesPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {isLoading || isLoadingClientesTab ? (
+                  {isLoadingClientesTab ? (
                     <div className="space-y-2">
                       {Array.from({ length: 5 }).map((_, i) => (
                         <div key={i} className="h-10 rounded bg-muted animate-pulse" />

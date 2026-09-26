@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 import { getSucursalesActivasFromDB } from './sucursales'
 import { getEmpleadosFromDB } from './empleados'
+import { getClientesStats } from './clientes'
 
 type CitaRow = Database['public']['Tables']['citas']['Row']
 
@@ -156,7 +157,10 @@ export interface ServicioPopular {
 }
 
 // Obtener estadísticas del dashboard
-export async function getDashboardStats(sucursalId?: string): Promise<DashboardStats> {
+export async function getDashboardStats(
+  sucursalId?: string,
+  sucursalIds?: string[],
+): Promise<DashboardStats> {
   try {
     const hoy = localFmt(new Date())
     
@@ -186,12 +190,21 @@ export async function getDashboardStats(sucursalId?: string): Promise<DashboardS
     const { data: ingresosData } = await ingresosQuery
     const ingresosHoy = (ingresosData ?? []).reduce((sum, p) => sum + (Number(p.monto) || 0), 0)
     
-    // Clientes activos
-    const { count: clientesCount } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-      .eq('estado', 'activo')
-    
+    // Clientes activos = ≥1 cita completada (misma regla que Reportes → tab Clientes)
+    const idsSucursales = sucursalIds?.filter(Boolean) ?? []
+    let clientesActivos = 0
+    try {
+      const cliStats =
+        idsSucursales.length > 0
+          ? await getClientesStats(undefined, idsSucursales)
+          : sucursalId && sucursalId !== 'all'
+            ? await getClientesStats(sucursalId)
+            : await getClientesStats()
+      clientesActivos = cliStats.activos
+    } catch (err) {
+      console.error('Error contando clientes activos (visitas):', err)
+    }
+
     // Calcular ocupación (citas completadas hoy / capacidad estimada)
     const { data: empleados } = await supabase
       .from('empleados')
@@ -206,7 +219,7 @@ export async function getDashboardStats(sucursalId?: string): Promise<DashboardS
     
     return {
       citasHoy: citasCount || 0,
-      clientesActivos: clientesCount || 0,
+      clientesActivos,
       ingresosHoy,
       ocupacion
     }

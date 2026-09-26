@@ -15,7 +15,7 @@ import {
   getServiciosPopulares, 
   getResumenSucursales 
 } from "@/lib/data/dashboard"
-import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, type User } from "@/lib/auth"
+import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
@@ -24,6 +24,11 @@ export default function DashboardPage() {
   const isGlobalAdmin = isGlobalAdministrator(currentUser)
   const multiBranch = userHasMultiBranchScope(currentUser)
   const branchScopeId = effectivePrimarySucursalId(currentUser)
+  const sucursalIdParaStats =
+    isGlobalAdministrator(currentUser) || userHasMultiBranchScope(currentUser)
+      ? (selectedSucursal === "all" ? undefined : selectedSucursal)
+      : branchScopeId
+  const esMultiBranchAll = multiBranch && selectedSucursal === "all"
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -52,13 +57,18 @@ export default function DashboardPage() {
           isGlobalAdministrator(currentUser) || userHasMultiBranchScope(currentUser)
             ? (selectedSucursal === "all" ? undefined : selectedSucursal)
             : branchScopeId
+        const branchIds = collectEffectiveSucursalIds(currentUser)
+        const esMultiBranchAll = multiBranch && selectedSucursal === "all"
 
         const isManager = currentUser?.role === 'manager'
         const hoy = new Date()
         const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
         
         const [statsData, estadoCitasData, proximasCitasData, serviciosPopularesData, resumenSucursalesData] = await Promise.all([
-          getDashboardStats(sucursalId),
+          getDashboardStats(
+            esMultiBranchAll ? undefined : sucursalId,
+            esMultiBranchAll ? branchIds : undefined,
+          ),
           getEstadoCitas(sucursalId),
           getProximasCitas(4, sucursalId),
           getServiciosPopulares(4, sucursalId, isManager ? fechaHoy : undefined),
@@ -123,6 +133,13 @@ export default function DashboardPage() {
             value={stats.clientesActivos.toLocaleString()}
             icon={Users}
             color="success"
+            description={
+              sucursalIdParaStats
+                ? "≥1 cita completada en la sucursal"
+                : esMultiBranchAll
+                  ? "≥1 cita completada en tus sucursales"
+                  : "≥1 cita completada en el sistema"
+            }
           />
         )}
         <StatsCard
