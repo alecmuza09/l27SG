@@ -2211,7 +2211,7 @@ export default function ReportesPage() {
         ? (sucursalFilter === "all" ? undefined : sucursalFilter)
         : sucursalFilter !== "all"
           ? sucursalFilter
-          : sucursalFija
+          : (sucursalFija ?? branchIds[0])
     const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
     const nuevosScope =
       esMultiBranchAll
@@ -2898,7 +2898,7 @@ export default function ReportesPage() {
 
   const mostrarSucursalEnNuevosClientes = sucursalFilter === "all"
   const nuevosClientesPorSucursal =
-    sucursalFilter !== "all" || (!isAdmin && multiBranch)
+    !isAdmin || sucursalFilter !== "all"
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (

@@ -49,7 +49,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
-import { getCurrentUser, isGlobalAdministrator, type User } from "@/lib/auth"
+import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, type User } from "@/lib/auth"
 
 // Ordena clientes por última visita descendente; quienes no tienen visitas van al final
 function ordenarPorUltimaVisita(clientes: Cliente[]): Cliente[] {
@@ -84,6 +84,8 @@ export default function ClientesPage() {
   >('todos')
   const [embajadoraUpdatingId, setEmbajadoraUpdatingId] = useState<string | null>(null)
   const isAdmin = isGlobalAdministrator(currentUser)
+  const isBranchAdmin = currentUser?.role === "branch-admin"
+  const sucursalTarjetasId = isBranchAdmin ? effectivePrimarySucursalId(currentUser) : undefined
 
   // Estado del formulario (genero y sucursal con valores no vacíos por requisito de Select)
   const [formData, setFormData] = useState({
@@ -112,7 +114,14 @@ export default function ClientesPage() {
     try {
       setStatsLoading(true)
       const { desde, hasta } = fechasEsteMes()
-      const resumen = await getClientesResumenTarjetas(desde, hasta)
+      const user = getCurrentUser()
+      const sucId =
+        user?.role === "branch-admin" ? effectivePrimarySucursalId(user) : undefined
+      const resumen = await getClientesResumenTarjetas(
+        desde,
+        hasta,
+        sucId ? { sucursalId: sucId } : undefined,
+      )
       setStats({
         total: resumen.total,
         embajadoras: resumen.embajadoras,
@@ -607,7 +616,9 @@ export default function ClientesPage() {
                 <div className="text-2xl font-bold">{stats.conVisitas.toLocaleString()}</div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                ≥1 cita completada (igual que Reportes) · clic para ver lista
+                {isBranchAdmin && sucursalTarjetasId
+                  ? "≥1 cita completada en tu sucursal (igual que Reportes) · clic para ver lista"
+                  : "≥1 cita completada (igual que Reportes) · clic para ver lista"}
               </p>
             </CardContent>
           </Card>
@@ -621,7 +632,11 @@ export default function ClientesPage() {
               ) : (
                 <div className="text-2xl font-bold">{stats.nuevos.toLocaleString()}</div>
               )}
-              <p className="text-xs text-muted-foreground mt-1">1.ª visita ever en el mes</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {isBranchAdmin && sucursalTarjetasId
+                  ? "Nuevos y 1.ª visita en tu sucursal · este mes"
+                  : "1.ª visita ever en el mes"}
+              </p>
             </CardContent>
           </Card>
         </div>

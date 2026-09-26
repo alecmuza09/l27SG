@@ -714,9 +714,35 @@ export type ClientesResumenTarjetas = {
 export async function getClientesResumenTarjetas(
   fechaDesdeMes: string,
   fechaHastaMes: string,
+  scope?: { sucursalId?: string; sucursalIds?: string[] },
 ): Promise<ClientesResumenTarjetas> {
   const fechaHasta = fechaHastaPorDefecto()
   const base = () => supabase.from("clientes").select("id", { count: "exact", head: true }).lte("fecha_registro", fechaHasta)
+
+  const idsSucursales = scope?.sucursalIds?.filter(Boolean) ?? []
+  const sucursalId = scope?.sucursalId
+  const hasBranchScope = !!sucursalId || idsSucursales.length > 0
+
+  if (hasBranchScope) {
+    const scopeNuevos =
+      idsSucursales.length > 0
+        ? { sucursalIds: idsSucursales }
+        : { sucursalId: sucursalId! }
+
+    const [totalR, embR, statsSucursal, nuevosPeriodo] = await Promise.all([
+      base(),
+      base().eq("embajadora", true),
+      getClientesStats(sucursalId, idsSucursales.length > 0 ? idsSucursales : undefined),
+      getClientesNuevosEnPeriodo(fechaDesdeMes, fechaHastaMes, scopeNuevos, { soloConteo: true }),
+    ])
+
+    return {
+      total: totalR.count ?? 0,
+      embajadoras: embR.count ?? 0,
+      conVisitas: statsSucursal.activos,
+      nuevos: nuevosPeriodo.nuevos,
+    }
+  }
 
   const [totalR, embR, activosR, nuevosRpc] = await Promise.all([
     base(),
