@@ -146,6 +146,10 @@ export default function ClientesPage() {
       setIsLoading(true)
       setError(null)
 
+      const user = getCurrentUser()
+      const sucIdBranch =
+        user?.role === "branch-admin" ? effectivePrimarySucursalId(user) : undefined
+
       const filtros = {
         soloEmbajadoras: filtroVisita === 'embajadoras',
         soloVetadas: filtroVisita === 'vetadas',
@@ -153,6 +157,8 @@ export default function ClientesPage() {
         soloDescuento: filtroVisita === 'descuento',
         sinVisitas: filtroVisita === 'sin-visitas',
         conVisitas: filtroVisita === 'con-visitas',
+        activosEnSucursalId:
+          filtroVisita === 'con-visitas' && sucIdBranch ? sucIdBranch : undefined,
         sinVisitaReciente: filtroVisita === 'sin-visita-reciente',
       }
 

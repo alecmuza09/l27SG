@@ -80,6 +80,8 @@ export type FiltrosListadoClientes = {
   soloDescuento?: boolean
   sinVisitas?: boolean
   conVisitas?: boolean
+  /** Con conVisitas: activos = ≥1 cita completada en esta sucursal (misma regla que Reportes). */
+  activosEnSucursalId?: string
   sinVisitaReciente?: boolean
 }
 
@@ -100,7 +102,7 @@ function aplicarFiltrosListadoClientes<T extends { eq: (...args: any[]) => T; gt
   if (filtros.soloProblematicas) q = q.eq('es_problematico', true)
   if (filtros.soloDescuento) q = q.eq('es_descuento', true)
   if (filtros.sinVisitas) q = q.eq('total_visitas', 0)
-  if (filtros.conVisitas) q = q.gt('total_visitas', 0)
+  if (filtros.conVisitas && !filtros.activosEnSucursalId) q = q.gt('total_visitas', 0)
   if (filtros.sinVisitaReciente) {
     const limite = fechaIsoHaceDias(60)
     q = q.or(`ultima_visita.is.null,ultima_visita.lt.${limite}`)
@@ -115,7 +117,9 @@ function filtrarFilasListadoClientes(rows: any[], filtros: FiltrosListadoCliente
   if (filtros.soloProblematicas) out = out.filter(row => row.es_problematico === true)
   if (filtros.soloDescuento) out = out.filter(row => row.es_descuento === true)
   if (filtros.sinVisitas) out = out.filter(row => (row.total_visitas ?? 0) === 0)
-  if (filtros.conVisitas) out = out.filter(row => (row.total_visitas ?? 0) > 0)
+  if (filtros.conVisitas && !filtros.activosEnSucursalId) {
+    out = out.filter(row => (row.total_visitas ?? 0) > 0)
+  }
   if (filtros.sinVisitaReciente) {
     const limiteMs = new Date(fechaIsoHaceDias(60) + 'T12:00:00').getTime()
     out = out.filter(row => {
@@ -136,12 +140,30 @@ export async function getClientesPaginated(
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
 
+    const filtrosDb: FiltrosListadoClientes =
+      filtros.conVisitas && filtros.activosEnSucursalId
+        ? { ...filtros, conVisitas: false }
+        : filtros
+
+    let idsActivosSucursal: string[] | null = null
+    if (filtros.conVisitas && filtros.activosEnSucursalId) {
+      idsActivosSucursal = await clienteIdsConCitaCompletadaEnSucursal(filtros.activosEnSucursalId)
+      if (idsActivosSucursal.length === 0) {
+        return { clientes: [], total: 0, totalPages: 0 }
+      }
+    }
+
+    const applyIdScope = <T extends { in: (col: string, vals: string[]) => T }>(query: T): T => {
+      if (idsActivosSucursal) return query.in("id", idsActivosSucursal)
+      return query
+    }
+
     // Obtener el total de clientes (aplicando los filtros de clasificación en la BD)
     let countQuery = supabase
       .from('clientes')
       .select('*', { count: 'exact', head: true })
 
-    countQuery = aplicarFiltrosListadoClientes(countQuery, filtros)
+    countQuery = applyIdScope(aplicarFiltrosListadoClientes(countQuery, filtrosDb))
 
     const { count, error: countError } = await countQuery
 
@@ -155,7 +177,7 @@ export async function getClientesPaginated(
 
     let dataQuery = supabase.from('clientes').select('*')
 
-    dataQuery = aplicarFiltrosListadoClientes(dataQuery, filtros)
+    dataQuery = applyIdScope(aplicarFiltrosListadoClientes(dataQuery, filtrosDb))
 
     const { data, error } = await dataQuery
       .order('created_at', { ascending: false })
@@ -304,6 +326,13 @@ export async function searchClientesPaginated(
     // los filtros se aplican sobre el resultado ya obtenido de la BD.
     let filteredData = filtrarFilasListadoClientes(allData ?? [], filtros)
 
+    if (filtros.conVisitas && filtros.activosEnSucursalId) {
+      const idsActivos = new Set(
+        await clienteIdsConCitaCompletadaEnSucursal(filtros.activosEnSucursalId),
+      )
+      filteredData = filteredData.filter(row => idsActivos.has(row.id))
+    }
+
     const total = filteredData.length
     const totalPages = Math.ceil(total / pageSize)
     const from = (page - 1) * pageSize
@@ -373,6 +402,35 @@ async function clienteIdsConActividadEnSucursal(sucursalId: string): Promise<str
     paginateClienteIds("citas", sucursalId, idSet),
     paginateClienteIds("pagos", sucursalId, idSet),
   ])
+  return [...idSet]
+}
+
+/** Clientes con al menos una cita completada en la sucursal (activos en Reportes). */
+async function clienteIdsConCitaCompletadaEnSucursal(sucursalId: string): Promise<string[]> {
+  const idSet = new Set<string>()
+  const PAGE = 1000
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from("citas")
+      .select("cliente_id")
+      .eq("sucursal_id", sucursalId)
+      .eq("estado", "completada")
+      .not("cliente_id", "is", null)
+      .range(from, from + PAGE - 1)
+
+    if (error) {
+      console.error("Error listando clientes activos por sucursal:", error)
+      break
+    }
+    const batch = data ?? []
+    for (const r of batch) {
+      const id = (r as { cliente_id: string }).cliente_id
+      if (id) idSet.add(id)
+    }
+    if (batch.length < PAGE) break
+    from += PAGE
+  }
   return [...idSet]
 }
 
