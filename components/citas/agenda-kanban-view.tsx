@@ -98,6 +98,26 @@ import { getGastosFromDB, type Gasto } from "@/lib/data/gastos"
 const fmtMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
 
+const esPagoCortesia = (p: Pick<Pago, "descuentoTipo" | "descuentoCodigo">) =>
+  p.descuentoTipo === "cortesia" || p.descuentoCodigo === "CORTESIA"
+
+function montoValorCortesia(p: Pago): number {
+  return p.subtotal ?? (Number(p.monto) || 0) + (Number(p.descuentoMonto) || 0)
+}
+
+function serviciosCortesiaLineas(p: Pago): string[] {
+  const lines: string[] = []
+  for (const item of p.servicios ?? []) {
+    const t = item?.trim()
+    if (!t) continue
+    for (const part of t.split(/,\s+/)) {
+      const s = part.trim()
+      if (s) lines.push(s)
+    }
+  }
+  return lines.length > 0 ? lines : ["—"]
+}
+
 interface AgendaKanbanViewProps {
   selectedDate: string
   onDateChange: (date: string) => void
@@ -803,8 +823,17 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   const [cortesiasDetalleOpen, setCortesiasDetalleOpen] = useState(false)
 
   const pagosCortesiasDelDia = useMemo(
-    () => pagosDelDia.filter((p) => p.descuentoCodigo === "CORTESIA"),
+    () =>
+      pagosDelDia
+        .filter(esPagoCortesia)
+        .slice()
+        .sort((a, b) => (a.hora || "").localeCompare(b.hora || "")),
     [pagosDelDia],
+  )
+
+  const totalMontoCortesiasDelDia = useMemo(
+    () => pagosCortesiasDelDia.reduce((s, p) => s + montoValorCortesia(p), 0),
+    [pagosCortesiasDelDia],
   )
 
   useEffect(() => {
@@ -847,7 +876,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
     const ingresosDelDia =
       totalEfectivo + totalTarjeta + totalTransf + totalOtro - totalPropinas - totalGastos
 
-    const cortesias = pagosDelDia.filter((p) => p.descuentoCodigo === "CORTESIA").length
+    const cortesias = pagosDelDia.filter(esPagoCortesia).length
     const garantias = pagosDelDia.filter((p) => p.descuentoCodigo === "GARANTIA").length
 
     return {
@@ -2346,38 +2375,56 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       </div>
 
       <Dialog open={cortesiasDetalleOpen} onOpenChange={setCortesiasDetalleOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[min(85vh,560px)] flex flex-col">
           <DialogHeader>
             <DialogTitle>Cortesías del día</DialogTitle>
             <DialogDescription>
               {formatDate(selectedDate)} — sucursal actual
+              {pagosCortesiasDelDia.length > 0
+                ? ` · ${pagosCortesiasDelDia.length} registro${pagosCortesiasDelDia.length === 1 ? "" : "s"}`
+                : ""}
             </DialogDescription>
           </DialogHeader>
-          <ul className="space-y-2 max-h-[min(60vh,320px)] overflow-y-auto pr-1">
-            {pagosCortesiasDelDia.map((p) => {
-              const servicio =
-                p.servicios?.length > 0 ? p.servicios.join(", ") : "—"
-              const montoValor =
-                p.subtotal ??
-                (Number(p.monto) || 0) + (Number(p.descuentoMonto) || 0)
+          <ul className="space-y-3 min-h-0 flex-1 overflow-y-auto pr-1">
+            {pagosCortesiasDelDia.map((p, index) => {
+              const lineasServicio = serviciosCortesiaLineas(p)
+              const montoValor = montoValorCortesia(p)
               return (
                 <li
                   key={p.id}
-                  className="rounded-lg border bg-muted/30 px-3 py-2 text-sm space-y-1"
+                  className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm space-y-1.5"
                 >
-                  <div className="font-medium truncate" title={p.clienteNombre}>
+                  {pagosCortesiasDelDia.length > 1 && (
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Cortesía {index + 1}
+                    </div>
+                  )}
+                  <div className="font-medium" title={p.clienteNombre}>
                     {p.clienteNombre || "—"}
                   </div>
-                  <div className="text-xs text-muted-foreground truncate" title={servicio}>
-                    {servicio}
-                  </div>
-                  <div className="text-xs font-medium tabular-nums text-foreground">
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc pl-4">
+                    {lineasServicio.map((linea, i) => (
+                      <li key={`${p.id}-svc-${i}`}>{linea}</li>
+                    ))}
+                  </ul>
+                  <div className="text-xs font-medium tabular-nums text-foreground pt-0.5">
                     {fmtMXN(montoValor)}
                   </div>
                 </li>
               )
             })}
           </ul>
+          {pagosCortesiasDelDia.length > 0 && (
+            <div className="border-t pt-3 mt-1 flex items-center justify-between gap-3 text-sm shrink-0">
+              <span className="font-medium text-muted-foreground">
+                Total cortesías
+                {pagosCortesiasDelDia.length > 1
+                  ? ` (${pagosCortesiasDelDia.length})`
+                  : ""}
+              </span>
+              <span className="font-bold tabular-nums">{fmtMXN(totalMontoCortesiasDelDia)}</span>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
