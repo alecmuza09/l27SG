@@ -1934,7 +1934,7 @@ function KpiCard({
       onClick={onClick}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick() } } : undefined}
       className={cn(
-        "min-h-[140px] h-[140px] items-start gap-2 border border-solid border-slate-200 py-3 shadow-sm",
+        "min-h-[168px] h-[168px] items-start gap-2 border border-solid border-slate-200 py-3 shadow-sm",
         onClick && "cursor-pointer hover:border-slate-300 hover:shadow-md transition-shadow",
         className,
       )}
@@ -1947,7 +1947,7 @@ function KpiCard({
           <CardTitle className="text-xs font-medium text-muted-foreground leading-snug line-clamp-2">{title}</CardTitle>
         </div>
       </CardHeader>
-      <CardContent className="px-3 pt-1 pb-0 flex flex-col items-start justify-start gap-1 flex-1 min-h-0 overflow-hidden">
+      <CardContent className="px-3 pt-1 pb-2 flex flex-col items-start justify-start gap-1 flex-1 min-h-0">
         <div className="text-xl font-bold tracking-tight leading-none">{value}</div>
         {subtitle}
         {tendencia && (
@@ -1975,23 +1975,79 @@ function BadgeOcupacion({ pct }: { pct: number }) {
   )
 }
 
+/** Donut: activos al inicio + nuevos del período + inactivos = registrados en alcance. */
 function DonutDistribucionClientes({
-  vip, activos, nuevos, total, nuevosLabel = "Nuevos",
+  activos,
+  inactivos,
+  nuevosEnSucursal,
+  primeraVezEnSucursal,
+  nuevosLabel,
+  mostrarDesgloseNuevos,
+  activosEnSucursal,
+  activosInicioPeriodo,
+  alcanceLabel,
+  fechaCierre,
 }: {
-  vip: number
   activos: number
-  nuevos: number
-  total: number
-  nuevosLabel?: string
+  inactivos: number
+  nuevosEnSucursal: number
+  primeraVezEnSucursal: number
+  nuevosLabel: string
+  mostrarDesgloseNuevos: boolean
+  activosEnSucursal: boolean
+  activosInicioPeriodo: number
+  alcanceLabel: string
+  fechaCierre: string
 }) {
-  const segments = [
-    { label: "VIP", value: vip, color: "#1a73e8" },
-    { label: "Activos", value: activos, color: "#0ea5e9" },
-    { label: nuevosLabel, value: nuevos, color: "#94a3b8" },
-  ]
-  const sum = segments.reduce((s, x) => s + x.value, 0)
+  const nuevosTotal = nuevosEnSucursal + primeraVezEnSucursal
+  const activosAnteriores = Math.max(0, activos - nuevosTotal)
 
-  if (sum === 0 && total === 0) {
+  const visitaHint = activosEnSucursal
+    ? "cita completada en la sucursal del filtro"
+    : "cita completada en el sistema"
+
+  const segments = [
+    {
+      label: "Activos (antes del período)",
+      value: activosAnteriores,
+      color: "#0369a1",
+      hint: `Con ${visitaHint} antes de ${nuevosLabel}`,
+    },
+    ...(mostrarDesgloseNuevos
+      ? [
+          {
+            label: "Nuevos clientes",
+            value: nuevosEnSucursal,
+            color: "#0ea5e9",
+            hint: "1.ª visita ever en el período en la sucursal",
+          },
+          {
+            label: "1.ª vez en sucursal",
+            value: primeraVezEnSucursal,
+            color: "#8b5cf6",
+            hint: "Ya existían; primera visita en la sucursal del filtro",
+          },
+        ]
+      : [
+          {
+            label: "Nuevos (período)",
+            value: nuevosTotal,
+            color: "#0ea5e9",
+            hint: `1.ª visita ever en ${nuevosLabel}`,
+          },
+        ]),
+    {
+      label: "Inactivos",
+      value: inactivos,
+      color: "#cbd5e1",
+      hint: activosEnSucursal
+        ? `Sin ${visitaHint} hasta el ${fechaCierre}`
+        : `Registrados al ${fechaCierre} sin visita completada`,
+    },
+  ]
+  const total = activos + inactivos
+
+  if (total === 0) {
     return <p className="text-center text-sm text-muted-foreground py-6">Sin datos de clientes</p>
   }
 
@@ -1999,46 +2055,63 @@ function DonutDistribucionClientes({
   const stops = segments
     .filter(s => s.value > 0)
     .map(s => {
-      const start = (acc / Math.max(sum, 1)) * 100
+      const start = (acc / total) * 100
       acc += s.value
-      const end = (acc / Math.max(sum, 1)) * 100
+      const end = (acc / total) * 100
       return `${s.color} ${start}% ${end}%`
     })
     .join(", ")
 
+  const pctNuevosSobreActivos =
+    activos > 0 ? Math.round((nuevosTotal / activos) * 100) : 0
+  const maxSegmento = Math.max(...segments.map(x => x.value), 1)
+
   return (
-    <div className="flex flex-col sm:flex-row items-center gap-6">
-      <div className="relative shrink-0">
-        <div
-          className="h-36 w-36 rounded-full shadow-inner"
-          style={{ background: stops ? `conic-gradient(${stops})` : "var(--muted)" }}
-        />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-card flex flex-col items-center justify-center shadow-sm border">
-            <span className="text-2xl font-bold leading-none">{total}</span>
-            <span className="text-[10px] text-muted-foreground mt-0.5">Total</span>
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{alcanceLabel}</p>
+      <div className="flex flex-col sm:flex-row items-center gap-6">
+        <div className="relative shrink-0">
+          <div
+            className="h-36 w-36 rounded-full shadow-inner"
+            style={{ background: stops ? `conic-gradient(${stops})` : "var(--muted)" }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-card flex flex-col items-center justify-center shadow-sm border">
+              <span className="text-2xl font-bold leading-none">{total.toLocaleString()}</span>
+              <span className="text-[10px] text-muted-foreground mt-0.5">Registrados</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="flex-1 space-y-3 w-full min-w-0">
-        {segments.map(s => {
-          const pct = sum > 0 ? Math.round((s.value / sum) * 100) : 0
-          return (
-            <div key={s.label} className="space-y-1">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                <span className="font-medium flex-1 truncate">{s.label}</span>
-                <span className="text-muted-foreground tabular-nums shrink-0">{s.value} · {pct}%</span>
+        <div className="flex-1 space-y-3 w-full min-w-0">
+          {segments.map(s => {
+            const pct = Math.round((s.value / total) * 100)
+            return (
+              <div key={s.label} className="space-y-1">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                  <span className="font-medium flex-1 truncate">{s.label}</span>
+                  <span className="text-muted-foreground tabular-nums shrink-0">
+                    {s.value.toLocaleString()} · {pct}%
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted-foreground pl-5">{s.hint}</p>
+                <BarraHorizontal
+                  valor={s.value}
+                  max={maxSegmento}
+                  gradientClass={BARRA_AZUL_GRADIENT}
+                />
               </div>
-              <BarraHorizontal
-                valor={s.value}
-                max={Math.max(...segments.map(x => x.value), 1)}
-                gradientClass={BARRA_AZUL_GRADIENT}
-              />
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
+      <p className="text-[10px] text-muted-foreground leading-snug">
+        Activos al cierre ({activos.toLocaleString()}) = antes del período ({activosAnteriores.toLocaleString()})
+        + nuevos ({nuevosTotal.toLocaleString()}).
+        {activos > 0 && nuevosTotal > 0 && (
+          <> Los nuevos son {pctNuevosSobreActivos}% de los activos al cierre.</>
+        )}
+      </p>
     </div>
   )
 }
@@ -2085,8 +2158,14 @@ export default function ReportesPage() {
   const [empleadoServicios,    setEmpleadoServicios]    = useState<Record<string, ServicioPorEmpleado[]>>({})
   const [isLoadingEmpleadoServicios, setIsLoadingEmpleadoServicios] = useState(false)
   const [propinasEmpleadas,    setPropinasEmpleadas]    = useState<PropinaEmpleadaRow[]>([])
-  const [clientesStats,        setClientesStats]        = useState({ total: 0, activos: 0, vip: 0, nuevos: 0 })
+  const [clientesStats,        setClientesStats]        = useState({
+    total: 0, activos: 0, activosInicioPeriodo: 0, vip: 0, inactivos: 0, nuevos: 0, conVisitas: 0,
+  })
   const [clientesNuevosDetalle, setClientesNuevosDetalle] = useState<ClienteNuevoPeriodoRow[]>([])
+  const [nuevosClientesSplit, setNuevosClientesSplit] = useState({
+    nuevosEnSucursal: 0,
+    primeraVezEnSucursal: 0,
+  })
   const [nuevosClientesDialogOpen, setNuevosClientesDialogOpen] = useState(false)
   const [topClientes,          setTopClientes]          = useState<ClienteTopRow[]>([])
   const [metodosPago,          setMetodosPago]          = useState<Array<{ metodo: string; monto: number; count: number }>>([])
@@ -2096,6 +2175,7 @@ export default function ReportesPage() {
   const [embajadorasExpandidas, setEmbajadorasExpandidas] = useState<Set<string>>(new Set())
   const [visitasExpandidas,     setVisitasExpandidas]     = useState<Set<string>>(new Set())
   const [isLoadingEmbajadoras, setIsLoadingEmbajadoras] = useState(true)
+  const [isLoadingClientesTab, setIsLoadingClientesTab] = useState(false)
 
   // ── Filtros LOCALES del tab Embajadoras (independientes de los filtros globales) ──
   const [embajadorasPeriodo,          setEmbajadorasPeriodo]          = useState<Periodo>("año")
@@ -2192,17 +2272,15 @@ export default function ReportesPage() {
       let servicios: Awaited<ReturnType<typeof getServiciosPopulares>>
       let empleados: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
       let todasEmpleadas: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
-      let cliStats: Awaited<ReturnType<typeof getClientesStats>>
       let topCli: Awaited<ReturnType<typeof getTopClientesPorGasto>>
       let metSuc: MetricaSucursal[]
 
       if (esMultiBranchAll) {
-        const [citasArr, servArr, emp10Arr, emp200Arr, cliArr, topCliArr] = await Promise.all([
+        const [citasArr, servArr, emp10Arr, emp200Arr, topCliArr] = await Promise.all([
           Promise.all(branchIds.map(id => getCitasResumenPeriodo(fechaDesde, fechaHasta, id))),
           Promise.all(branchIds.map(id => getServiciosPopulares(10, id, undefined, fechaDesde, fechaHasta))),
           Promise.all(branchIds.map(id => getTopEmpleadosFromDB(10, id, fechaDesde, fechaHasta))),
           Promise.all(branchIds.map(id => getTopEmpleadosFromDB(200, id, fechaDesde, fechaHasta))),
-          Promise.all(branchIds.map(id => getClientesStats(id))),
           Promise.all(branchIds.map(id => getTopClientesPorGasto(10, fechaDesde, fechaHasta, id))),
         ])
         citasRes = citasArr.reduce(
@@ -2247,16 +2325,6 @@ export default function ReportesPage() {
         empleados = emp10Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 10)
         todasEmpleadas = emp200Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 200)
 
-        cliStats = cliArr.reduce(
-          (acc, c) => ({
-            total: acc.total + c.total,
-            activos: acc.activos + c.activos,
-            vip: acc.vip + c.vip,
-            nuevos: acc.nuevos + c.nuevos,
-          }),
-          { total: 0, activos: 0, vip: 0, nuevos: 0 },
-        )
-
         const topMap = new Map<string, { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }>()
         for (const list of topCliArr) {
           for (const c of list) {
@@ -2276,12 +2344,11 @@ export default function ReportesPage() {
 
         metSuc = []
       } else {
-        ;[citasRes, servicios, empleados, todasEmpleadas, cliStats, topCli, metSuc] = await Promise.all([
+        ;[citasRes, servicios, empleados, todasEmpleadas, topCli, metSuc] = await Promise.all([
           getCitasResumenPeriodo(fechaDesde, fechaHasta, sucIdParaRest),
           getServiciosPopulares(10, sucIdParaRest, undefined, fechaDesde, fechaHasta),
           getTopEmpleadosFromDB(10, sucIdParaRest, fechaDesde, fechaHasta),
           getTopEmpleadosFromDB(200, sucIdParaRest, fechaDesde, fechaHasta),
-          getClientesStats(sucIdParaRest),
           getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucIdParaRest),
           isAdmin && sucursalFilter === "all"
             ? getMetricasSucursales(fechaDesde, fechaHasta)
@@ -2296,12 +2363,21 @@ export default function ReportesPage() {
             ? { sucursalId: sucIdParaRest }
             : {}
 
-      const nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, nuevosScope)
-      cliStats = { ...cliStats, nuevos: nuevosPeriodo.nuevos }
+      let nuevosPeriodo: Awaited<ReturnType<typeof getClientesNuevosEnPeriodo>>
+      try {
+        nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, nuevosScope)
+      } catch (err) {
+        console.error("Error cargando clientes nuevos del período:", err)
+        nuevosPeriodo = { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
+      }
       setClientesNuevosDetalle(nuevosPeriodo.detalle)
+      setNuevosClientesSplit({
+        nuevosEnSucursal: nuevosPeriodo.nuevosEnSucursal,
+        primeraVezEnSucursal: nuevosPeriodo.primeraVezEnSucursal,
+      })
+      setClientesStats(prev => ({ ...prev, nuevos: nuevosPeriodo.nuevos }))
 
       setCitasResumen(citasRes)
-      setClientesStats(cliStats)
       setTopClientes(topCli)
       setMetricasSucursales(metSuc)
 
@@ -2335,10 +2411,70 @@ export default function ReportesPage() {
     }
   }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
 
+  /** Donut activos/inactivos: consultas pesadas solo al abrir el tab Clientes. */
+  const cargarClientesTab = useCallback(async () => {
+    setIsLoadingClientesTab(true)
+    try {
+      const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+      const sucId =
+        isAdmin
+          ? (sucursalFilter === "all" ? undefined : sucursalFilter)
+          : sucursalFilter !== "all"
+            ? sucursalFilter
+            : sucursalFija
+      const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
+      const nuevosScope =
+        esMultiBranchAll
+          ? { sucursalIds: branchIds }
+          : sucId
+            ? { sucursalId: sucId }
+            : {}
+
+      let cliStats: Awaited<ReturnType<typeof getClientesStats>>
+      if (esMultiBranchAll) {
+        cliStats = await getClientesStats(undefined, branchIds, { fechaDesde, fechaHasta })
+      } else {
+        cliStats = await getClientesStats(sucId, undefined, { fechaDesde, fechaHasta })
+      }
+
+      let nuevosPeriodo: Awaited<ReturnType<typeof getClientesNuevosEnPeriodo>>
+      try {
+        nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, nuevosScope)
+      } catch (err) {
+        console.error("Error cargando clientes nuevos (tab):", err)
+        nuevosPeriodo = { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
+      }
+
+      const activosCierre = cliStats.activosInicioPeriodo + nuevosPeriodo.nuevos
+      setClientesStats({
+        ...cliStats,
+        nuevos: nuevosPeriodo.nuevos,
+        activos: activosCierre,
+        inactivos: Math.max(0, cliStats.total - activosCierre),
+        conVisitas: activosCierre,
+      })
+      setClientesNuevosDetalle(nuevosPeriodo.detalle)
+      setNuevosClientesSplit({
+        nuevosEnSucursal: nuevosPeriodo.nuevosEnSucursal,
+        primeraVezEnSucursal: nuevosPeriodo.primeraVezEnSucursal,
+      })
+    } catch (err) {
+      console.error("Error cargando tab clientes:", err)
+    } finally {
+      setIsLoadingClientesTab(false)
+    }
+  }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
+
   useEffect(() => {
     if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
     cargarDatos()
   }, [cargarDatos, periodo, fechaCustomDesde, fechaCustomHasta])
+
+  useEffect(() => {
+    if (activeTab !== "clientes") return
+    if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
+    cargarClientesTab()
+  }, [activeTab, cargarClientesTab, periodo, fechaCustomDesde, fechaCustomHasta])
 
   // ── Carga de datos del tab Embajadoras (usa filtros LOCALES, no los globales) ──
   const cargarEmbajadoras = useCallback(async () => {
@@ -2561,7 +2697,11 @@ export default function ReportesPage() {
     ? Math.round(statsAnterior.ingresosTotales / diasHabilesAnt)
     : 0
 
-  const { label: periodoLabel } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+  const { label: periodoLabel, fechaHasta: reporteFechaCierre } = calcularPeriodo(
+    periodo,
+    fechaCustomDesde,
+    fechaCustomHasta,
+  )
 
   const { label: embajadorasPeriodoLabel } = calcularPeriodo(
     embajadorasPeriodo, embajadorasFechaCustomDesde, embajadorasFechaCustomHasta,
@@ -2639,6 +2779,8 @@ export default function ReportesPage() {
     : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? "")
 
   const mostrarSucursalEnNuevosClientes = sucursalFilter === "all"
+  const nuevosClientesPorSucursal =
+    sucursalFilter !== "all" || (!isAdmin && multiBranch)
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -2648,7 +2790,11 @@ export default function ReportesPage() {
           <DialogHeader>
             <DialogTitle>Nuevos clientes</DialogTitle>
             <DialogDescription>
-              Primera visita ever (sin historial previo) · {periodoLabel}
+              {nuevosClientesPorSucursal
+                ? "Desglose: nuevos en la sucursal vs 1.ª visita de clientes ya existentes"
+                : "Primera visita ever (sin historial previo en ninguna sucursal)"}
+              {" · "}
+              {periodoLabel}
               {sucNombreActiva ? ` · ${sucNombreActiva}` : ""}
             </DialogDescription>
           </DialogHeader>
@@ -2657,31 +2803,64 @@ export default function ReportesPage() {
               No hay clientes nuevos en este período.
             </p>
           ) : (
-            <div className="overflow-auto -mx-1 px-1">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Primera visita</TableHead>
-                    {mostrarSucursalEnNuevosClientes && <TableHead>Sucursal</TableHead>}
-                    <TableHead>Servicios (1.ª vez)</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {clientesNuevosDetalle.map(c => (
-                    <TableRow key={c.clienteId}>
-                      <TableCell className="font-medium">{c.nombre}</TableCell>
-                      <TableCell className="tabular-nums whitespace-nowrap">{c.fechaPrimeraVisita}</TableCell>
-                      {mostrarSucursalEnNuevosClientes && (
-                        <TableCell className="text-sm">{c.sucursalNombre}</TableCell>
-                      )}
-                      <TableCell className="text-sm text-muted-foreground">
-                        {c.servicios.length > 0 ? c.servicios.join(", ") : "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="overflow-auto -mx-1 px-1 space-y-6">
+              {([
+                {
+                  key: "nuevo_en_sucursal" as const,
+                  titulo: "Nuevos clientes",
+                  desc: "Registrados por primera vez en la sucursal (1.ª visita ever en el período).",
+                  count: nuevosClientesSplit.nuevosEnSucursal,
+                },
+                ...(nuevosClientesPorSucursal
+                  ? [{
+                      key: "primera_sucursal" as const,
+                      titulo: "Primera vez en sucursal",
+                      desc: "Clientes que ya existían y acudieron por primera vez a la sucursal del filtro.",
+                      count: nuevosClientesSplit.primeraVezEnSucursal,
+                    }]
+                  : []),
+              ]).map(bloque => {
+                const filas = clientesNuevosDetalle.filter(c => c.motivo === bloque.key)
+                return (
+                  <div key={bloque.key}>
+                    <div className="mb-2">
+                      <h3 className="text-sm font-semibold">
+                        {bloque.titulo}{" "}
+                        <span className="text-muted-foreground font-normal tabular-nums">({bloque.count})</span>
+                      </h3>
+                      <p className="text-xs text-muted-foreground">{bloque.desc}</p>
+                    </div>
+                    {filas.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-2">Ninguno en este período.</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Cliente</TableHead>
+                            <TableHead>{nuevosClientesPorSucursal ? "1.ª visita (sucursal)" : "Primera visita"}</TableHead>
+                            {mostrarSucursalEnNuevosClientes && <TableHead>Sucursal</TableHead>}
+                            <TableHead>Servicios (1.ª vez)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filas.map(c => (
+                            <TableRow key={`${bloque.key}-${c.clienteId}`}>
+                              <TableCell className="font-medium">{c.nombre}</TableCell>
+                              <TableCell className="tabular-nums whitespace-nowrap">{c.fechaPrimeraVisita}</TableCell>
+                              {mostrarSucursalEnNuevosClientes && (
+                                <TableCell className="text-sm">{c.sucursalNombre}</TableCell>
+                              )}
+                              <TableCell className="text-sm text-muted-foreground">
+                                {c.servicios.length > 0 ? c.servicios.join(", ") : "—"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </DialogContent>
@@ -2830,21 +3009,13 @@ export default function ReportesPage() {
         {/* ── KPIs ── */}
         <div className="space-y-2">
           {isLoadingKpis ? (
-            <div className={cn(
-              "grid gap-3",
-              isManager
-                ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-5"
-                : "grid-cols-2 md:grid-cols-4 lg:grid-cols-8",
-            )}>
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-4">
               {Array.from({ length: isManager ? 5 : 8 }).map((_, i) => (
-                <div key={i} className="h-[140px] rounded-lg bg-muted animate-pulse" />
+                <div key={i} className="h-[168px] rounded-lg bg-muted animate-pulse" />
               ))}
             </div>
           ) : (
-          <div className={cn(
-            "grid gap-3 items-start",
-            isManager ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-5" : "grid-cols-2 md:grid-cols-4 lg:grid-cols-8",
-          )}>
+          <div className="grid gap-3 items-start grid-cols-2 md:grid-cols-4 lg:grid-cols-4">
             {!isManager && (
               <KpiCard
                 icon={DollarSign}
@@ -2934,11 +3105,29 @@ export default function ReportesPage() {
               icon={UserPlus}
               iconBg="bg-slate-50"
               iconColor="text-slate-500"
-              title="Nuevos Clientes"
-              value={clientesStats.nuevos}
+              title={nuevosClientesPorSucursal ? "Clientes (período)" : "Nuevos Clientes"}
+              value={
+                nuevosClientesPorSucursal ? (
+                  <div className="flex items-end gap-2 leading-none">
+                    <div>
+                      <span className="text-base font-bold tabular-nums">{nuevosClientesSplit.nuevosEnSucursal}</span>
+                      <span className="text-[9px] text-muted-foreground block mt-0.5">Nuevos</span>
+                    </div>
+                    <div className="text-muted-foreground text-xs pb-0.5">+</div>
+                    <div>
+                      <span className="text-base font-bold tabular-nums">{nuevosClientesSplit.primeraVezEnSucursal}</span>
+                      <span className="text-[9px] text-muted-foreground block mt-0.5">1.ª sucursal</span>
+                    </div>
+                  </div>
+                ) : (
+                  clientesStats.nuevos
+                )
+              }
               subtitle={
-                <p className="text-[10px] text-muted-foreground leading-tight line-clamp-2">
-                  1.ª visita ever · {periodoLabel}
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  {nuevosClientesPorSucursal
+                    ? `Nuevos en sucursal + 1.ª vez de existentes · ${periodoLabel}`
+                    : `1.ª visita ever · ${periodoLabel}`}
                 </p>
               }
               onClick={() => setNuevosClientesDialogOpen(true)}
@@ -3354,30 +3543,38 @@ export default function ReportesPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
-                    <Users className="h-4 w-4" />Distribución de Clientes
+                    <Users className="h-4 w-4" />Activos vs registrados sin visita
                   </CardTitle>
+                  <CardDescription>
+                    Donut: activos previos, nuevos del {periodoLabel} e inactivos · cierre {reporteFechaCierre}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {isLoading ? (
+                  {isLoading || isLoadingClientesTab ? (
                     <div className="space-y-2">
                       {Array.from({ length: 5 }).map((_, i) => (
                         <div key={i} className="h-10 rounded bg-muted animate-pulse" />
                       ))}
                     </div>
                   ) : (
-                    <>
-                      <DonutDistribucionClientes
-                        vip={clientesStats.vip}
-                        activos={clientesStats.activos}
-                        nuevos={clientesStats.nuevos}
-                        total={clientesStats.total}
-                        nuevosLabel={`Nuevos (${periodoLabel})`}
-                      />
-                      <div className="text-center p-4 rounded-lg bg-slate-50 border border-slate-200 mt-4">
-                        <div className="text-3xl font-bold text-slate-700">{clientesStats.total}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Total de clientes registrados</p>
-                      </div>
-                    </>
+                    <DonutDistribucionClientes
+                      activos={clientesStats.activos}
+                      inactivos={clientesStats.inactivos}
+                      nuevosEnSucursal={nuevosClientesSplit.nuevosEnSucursal}
+                      primeraVezEnSucursal={nuevosClientesSplit.primeraVezEnSucursal}
+                      mostrarDesgloseNuevos={nuevosClientesPorSucursal}
+                      activosEnSucursal={nuevosClientesPorSucursal}
+                      activosInicioPeriodo={clientesStats.activosInicioPeriodo}
+                      nuevosLabel={periodoLabel}
+                      fechaCierre={reporteFechaCierre}
+                      alcanceLabel={
+                        sucursalFilter !== "all"
+                          ? `Al ${reporteFechaCierre}: clientes vinculados a ${sucNombreActiva}; activos = con visita completada en esa sucursal`
+                          : !isAdmin && multiBranch
+                            ? `Al ${reporteFechaCierre}: tus sucursales (sin duplicar); activos = visita completada en ellas`
+                            : `Registrados en la base al ${reporteFechaCierre} (fecha de registro ≤ cierre)`
+                      }
+                    />
                   )}
                 </CardContent>
               </Card>

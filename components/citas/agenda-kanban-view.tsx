@@ -101,11 +101,13 @@ const fmtMXN = (n: number) =>
 const esPagoCortesia = (p: Pick<Pago, "descuentoTipo" | "descuentoCodigo">) =>
   p.descuentoTipo === "cortesia" || p.descuentoCodigo === "CORTESIA"
 
-function montoValorCortesia(p: Pago): number {
+const esPagoGarantia = (p: Pick<Pago, "descuentoCodigo">) => p.descuentoCodigo === "GARANTIA"
+
+function montoValorPagoDetalle(p: Pago): number {
   return p.subtotal ?? (Number(p.monto) || 0) + (Number(p.descuentoMonto) || 0)
 }
 
-function serviciosCortesiaLineas(p: Pago): string[] {
+function serviciosPagoLineas(p: Pago): string[] {
   const lines: string[] = []
   for (const item of p.servicios ?? []) {
     const t = item?.trim()
@@ -821,6 +823,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
 
   const [citasCanceladasOpen, setCitasCanceladasOpen] = useState(false)
   const [cortesiasDetalleOpen, setCortesiasDetalleOpen] = useState(false)
+  const [garantiasDetalleOpen, setGarantiasDetalleOpen] = useState(false)
 
   const pagosCortesiasDelDia = useMemo(
     () =>
@@ -832,8 +835,22 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   )
 
   const totalMontoCortesiasDelDia = useMemo(
-    () => pagosCortesiasDelDia.reduce((s, p) => s + montoValorCortesia(p), 0),
+    () => pagosCortesiasDelDia.reduce((s, p) => s + montoValorPagoDetalle(p), 0),
     [pagosCortesiasDelDia],
+  )
+
+  const pagosGarantiasDelDia = useMemo(
+    () =>
+      pagosDelDia
+        .filter(esPagoGarantia)
+        .slice()
+        .sort((a, b) => (a.hora || "").localeCompare(b.hora || "")),
+    [pagosDelDia],
+  )
+
+  const totalMontoGarantiasDelDia = useMemo(
+    () => pagosGarantiasDelDia.reduce((s, p) => s + montoValorPagoDetalle(p), 0),
+    [pagosGarantiasDelDia],
   )
 
   useEffect(() => {
@@ -877,7 +894,7 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
       totalEfectivo + totalTarjeta + totalTransf + totalOtro - totalPropinas - totalGastos
 
     const cortesias = pagosDelDia.filter(esPagoCortesia).length
-    const garantias = pagosDelDia.filter((p) => p.descuentoCodigo === "GARANTIA").length
+    const garantias = pagosDelDia.filter(esPagoGarantia).length
 
     return {
       porCobrar,
@@ -2360,7 +2377,23 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             <p className="text-xs text-muted-foreground">Cortesías</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={cn(
+            statsDia.garantias > 0 &&
+              "cursor-pointer hover:bg-muted/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+          role={statsDia.garantias > 0 ? "button" : undefined}
+          tabIndex={statsDia.garantias > 0 ? 0 : undefined}
+          onClick={() => {
+            if (statsDia.garantias > 0) setGarantiasDetalleOpen(true)
+          }}
+          onKeyDown={(e) => {
+            if (statsDia.garantias > 0 && (e.key === "Enter" || e.key === " ")) {
+              e.preventDefault()
+              setGarantiasDetalleOpen(true)
+            }
+          }}
+        >
           <CardContent className="p-3">
             <div className="text-lg font-bold tabular-nums">{statsDia.garantias}</div>
             <p className="text-xs text-muted-foreground">Garantías</p>
@@ -2387,8 +2420,8 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </DialogHeader>
           <ul className="space-y-3 min-h-0 flex-1 overflow-y-auto pr-1">
             {pagosCortesiasDelDia.map((p, index) => {
-              const lineasServicio = serviciosCortesiaLineas(p)
-              const montoValor = montoValorCortesia(p)
+              const lineasServicio = serviciosPagoLineas(p)
+              const montoValor = montoValorPagoDetalle(p)
               return (
                 <li
                   key={p.id}
@@ -2423,6 +2456,60 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
                   : ""}
               </span>
               <span className="font-bold tabular-nums">{fmtMXN(totalMontoCortesiasDelDia)}</span>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={garantiasDetalleOpen} onOpenChange={setGarantiasDetalleOpen}>
+        <DialogContent className="sm:max-w-md max-h-[min(85vh,560px)] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Garantías del día</DialogTitle>
+            <DialogDescription>
+              {formatDate(selectedDate)} — sucursal actual
+              {pagosGarantiasDelDia.length > 0
+                ? ` · ${pagosGarantiasDelDia.length} registro${pagosGarantiasDelDia.length === 1 ? "" : "s"}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="space-y-3 min-h-0 flex-1 overflow-y-auto pr-1">
+            {pagosGarantiasDelDia.map((p, index) => {
+              const lineasServicio = serviciosPagoLineas(p)
+              const montoValor = montoValorPagoDetalle(p)
+              return (
+                <li
+                  key={p.id}
+                  className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm space-y-1.5"
+                >
+                  {pagosGarantiasDelDia.length > 1 && (
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Garantía {index + 1}
+                    </div>
+                  )}
+                  <div className="font-medium" title={p.clienteNombre}>
+                    {p.clienteNombre || "—"}
+                  </div>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc pl-4">
+                    {lineasServicio.map((linea, i) => (
+                      <li key={`${p.id}-svc-${i}`}>{linea}</li>
+                    ))}
+                  </ul>
+                  <div className="text-xs font-medium tabular-nums text-foreground pt-0.5">
+                    {fmtMXN(montoValor)}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          {pagosGarantiasDelDia.length > 0 && (
+            <div className="border-t pt-3 mt-1 flex items-center justify-between gap-3 text-sm shrink-0">
+              <span className="font-medium text-muted-foreground">
+                Total garantías
+                {pagosGarantiasDelDia.length > 1
+                  ? ` (${pagosGarantiasDelDia.length})`
+                  : ""}
+              </span>
+              <span className="font-bold tabular-nums">{fmtMXN(totalMontoGarantiasDelDia)}</span>
             </div>
           )}
         </DialogContent>

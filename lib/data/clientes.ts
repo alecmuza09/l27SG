@@ -334,134 +334,332 @@ export async function searchClientesPaginated(
   }
 }
 
-// Obtener estadísticas de clientes
-export async function getClientesStats(sucursalId?: string): Promise<{
+const CLIENTES_STATS_VACIO = {
+  total: 0,
+  activos: 0,
+  activosInicioPeriodo: 0,
+  vip: 0,
+  inactivos: 0,
+  nuevos: 0,
+  vigentes: 0,
+  conVisitas: 0,
+  embajadoras: 0,
+} as const
+
+async function clienteIdsConActividadEnSucursal(sucursalId: string): Promise<string[]> {
+  const PAGE = 1000
+  const idSet = new Set<string>()
+
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from("citas")
+      .select("cliente_id")
+      .eq("sucursal_id", sucursalId)
+      .range(from, from + PAGE - 1)
+    if (error) {
+      console.error("Error listando clientes por citas en sucursal:", error)
+      break
+    }
+    const batch = data ?? []
+    for (const r of batch) {
+      const id = (r as { cliente_id: string }).cliente_id
+      if (id) idSet.add(id)
+    }
+    if (batch.length < PAGE) break
+    from += PAGE
+  }
+
+  from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from("pagos")
+      .select("cliente_id")
+      .eq("sucursal_id", sucursalId)
+      .eq("estado", "completado")
+      .range(from, from + PAGE - 1)
+    if (error) {
+      console.error("Error listando clientes por pagos en sucursal:", error)
+      break
+    }
+    const batch = data ?? []
+    for (const r of batch) {
+      const id = (r as { cliente_id: string }).cliente_id
+      if (id) idSet.add(id)
+    }
+    if (batch.length < PAGE) break
+    from += PAGE
+  }
+
+  return [...idSet]
+}
+
+type VisitaAlCierreScope = {
+  sucursalId?: string
+  sucursalIds?: string[]
+}
+
+type CitaLite = {
+  cliente_id: string
+  fecha: string
+  hora_inicio: string | null
+  sucursal_id: string
+}
+
+async function fetchCitasCompletadasLite(opts: {
+  fechaHasta: string
+  visitaScope?: VisitaAlCierreScope
+  clienteIds?: string[]
+}): Promise<CitaLite[]> {
+  const PAGE = 1000
+  const all: CitaLite[] = []
+  let from = 0
+
+  while (true) {
+    let query = supabase
+      .from("citas")
+      .select("cliente_id, fecha, hora_inicio, sucursal_id")
+      .eq("estado", "completada")
+      .lte("fecha", opts.fechaHasta)
+      .not("cliente_id", "is", null)
+
+    if (opts.visitaScope?.sucursalId) {
+      query = query.eq("sucursal_id", opts.visitaScope.sucursalId)
+    } else if (opts.visitaScope?.sucursalIds?.length) {
+      query = query.in("sucursal_id", opts.visitaScope.sucursalIds)
+    }
+
+    if (opts.clienteIds?.length) {
+      query = query.in("cliente_id", opts.clienteIds)
+    }
+
+    const { data, error } = await query
+      .order("fecha", { ascending: true })
+      .order("cliente_id", { ascending: true })
+      .range(from, from + PAGE - 1)
+
+    if (error) {
+      console.error("Error obteniendo citas (lite):", error)
+      break
+    }
+    const batch = (data ?? []) as CitaLite[]
+    all.push(...batch)
+    if (batch.length < PAGE) break
+    from += PAGE
+    // Evita saturar el navegador con decenas de requests seguidas a Supabase
+    await new Promise(r => setTimeout(r, 25))
+  }
+
+  return all
+}
+
+/** Una sola pasada sobre citas ≤ fechaHasta (evita doble barrido a Supabase). */
+async function clasificarClientesConVisitaAlCierre(
+  fechaHasta: string,
+  fechaDesde: string | undefined,
+  visitaScope?: VisitaAlCierreScope,
+): Promise<{ alCierre: Set<string>; antesPeriodo: Set<string> }> {
+  const alCierre = new Set<string>()
+  const antesPeriodo = new Set<string>()
+  const citas = await fetchCitasCompletadasLite({ fechaHasta, visitaScope })
+
+  for (const row of citas) {
+    alCierre.add(row.cliente_id)
+    if (fechaDesde && row.fecha < fechaDesde) {
+      antesPeriodo.add(row.cliente_id)
+    }
+  }
+
+  return { alCierre, antesPeriodo }
+}
+
+async function contarActivosInactivosAlCierre(
+  fechaHasta: string,
+  scopeClienteIds: string[] | null,
+  visitaScope?: VisitaAlCierreScope,
+  fechaDesde?: string,
+): Promise<{
   total: number
-  /** estado = activo (sin VIP ni inactivos) — usado en reportes */
   activos: number
+  activosInicioPeriodo: number
+  inactivos: number
   vip: number
-  nuevos: number
-  /** Clientes en operación: activo + VIP */
   vigentes: number
-  /** Al menos una cita completada (total_visitas > 0) */
+  conVisitas: number
+  embajadoras: number
+  nuevos: number
+}> {
+  let conVisitaAlCierre = new Set<string>()
+  let conVisitaAntesPeriodo = new Set<string>()
+  try {
+    const clasificados = await clasificarClientesConVisitaAlCierre(
+      fechaHasta,
+      fechaDesde,
+      visitaScope,
+    )
+    conVisitaAlCierre = clasificados.alCierre
+    conVisitaAntesPeriodo = clasificados.antesPeriodo
+  } catch (err) {
+    console.error("Error clasificando visitas al cierre:", err)
+  }
+
+  if (scopeClienteIds !== null && scopeClienteIds.length === 0) {
+    return { ...CLIENTES_STATS_VACIO }
+  }
+
+  let total = 0
+  let activos = 0
+  let activosInicioPeriodo = 0
+  let inactivos = 0
+  let vip = 0
+  let vigentes = 0
+  let embajadoras = 0
+  const hoy = new Date()
+  const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const fechaLimite = hace30Dias.toISOString().split("T")[0]
+  let nuevos = 0
+
+  const procesarFilas = (
+    rows: { id: string; estado: string | null; fecha_registro: string | null; embajadora: boolean | null }[],
+  ) => {
+    for (const row of rows) {
+      total++
+      const tieneVisita = conVisitaAlCierre.has(row.id)
+      if (tieneVisita) activos++
+      else inactivos++
+      if (conVisitaAntesPeriodo.has(row.id)) activosInicioPeriodo++
+      if (row.estado === "vip") vip++
+      if (row.estado === "activo" || row.estado === "vip") vigentes++
+      if (row.embajadora === true) embajadoras++
+      if (row.fecha_registro && row.fecha_registro >= fechaLimite) nuevos++
+    }
+  }
+
+  if (scopeClienteIds === null) {
+    const PAGE = 1000
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from("clientes")
+        .select("id, estado, fecha_registro, embajadora")
+        .lte("fecha_registro", fechaHasta)
+        .order("fecha_registro", { ascending: true })
+        .range(from, from + PAGE - 1)
+
+      if (error) {
+        console.error("Error contando clientes al cierre:", error)
+        break
+      }
+      const batch = (data ?? []) as {
+        id: string
+        estado: string | null
+        fecha_registro: string | null
+        embajadora: boolean | null
+      }[]
+      procesarFilas(batch)
+      if (batch.length < PAGE) break
+      from += PAGE
+    }
+  } else {
+    const chunks: string[][] = []
+    for (let i = 0; i < scopeClienteIds.length; i += 400) {
+      chunks.push(scopeClienteIds.slice(i, i + 400))
+    }
+    for (const chunk of chunks) {
+      const { data: rows } = await supabase
+        .from("clientes")
+        .select("id, estado, fecha_registro, embajadora")
+        .in("id", chunk)
+        .lte("fecha_registro", fechaHasta)
+
+      procesarFilas(
+        (rows ?? []) as {
+          id: string
+          estado: string | null
+          fecha_registro: string | null
+          embajadora: boolean | null
+        }[],
+      )
+    }
+  }
+
+  return {
+    total,
+    activos,
+    activosInicioPeriodo,
+    inactivos,
+    vip,
+    vigentes,
+    conVisitas: activos,
+    embajadoras,
+    nuevos,
+  }
+}
+
+export type GetClientesStatsOpts = {
+  fechaDesde?: string
+  /** Cierre del período (visitas con fecha ≤ fechaHasta) */
+  fechaHasta?: string
+}
+
+function fechaHastaPorDefecto(): string {
+  const hoy = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`
+}
+
+// Obtener estadísticas de clientes
+export async function getClientesStats(
+  sucursalId?: string,
+  sucursalIds?: string[],
+  opts: GetClientesStatsOpts = {},
+): Promise<{
+  total: number
+  /** Activos al cierre (reconciliado en reportes con inicio + nuevos del período) */
+  activos: number
+  /** Con visita en alcance antes de fechaDesde (inicio del filtro) */
+  activosInicioPeriodo: number
+  vip: number
+  /** Registrados al cierre sin cita completada hasta esa fecha */
+  inactivos: number
+  nuevos: number
+  vigentes: number
   conVisitas: number
   embajadoras: number
 }> {
   try {
-    if (sucursalId) {
-      const { data: cRows } = await supabase.from("citas").select("cliente_id").eq("sucursal_id", sucursalId)
-      const { data: pRows } = await supabase
-        .from("pagos")
-        .select("cliente_id")
-        .eq("sucursal_id", sucursalId)
-        .eq("estado", "completado")
+    const fechaHasta = opts.fechaHasta ?? fechaHastaPorDefecto()
+    const fechaDesde = opts.fechaDesde
 
+    const idsSucursales = sucursalIds?.filter(Boolean) ?? []
+    if (idsSucursales.length > 0) {
       const idSet = new Set<string>()
-      for (const r of cRows ?? []) {
-        const id = (r as { cliente_id: string }).cliente_id
-        if (id) idSet.add(id)
-      }
-      for (const r of pRows ?? []) {
-        const id = (r as { cliente_id: string }).cliente_id
-        if (id) idSet.add(id)
-      }
-      const ids = [...idSet]
-      if (ids.length === 0) {
-        return { total: 0, activos: 0, vip: 0, nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0 }
-      }
-
-      const chunks: string[][] = []
-      for (let i = 0; i < ids.length; i += 400) chunks.push(ids.slice(i, i + 400))
-
-      let activos = 0
-      let vip = 0
-      let nuevos = 0
-      let vigentes = 0
-      let conVisitas = 0
-      let embajadoras = 0
-      const hoy = new Date()
-      const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
-      const fechaLimite = hace30Dias.toISOString().split("T")[0]
-
-      for (const chunk of chunks) {
-        const { data: rows } = await supabase
-          .from("clientes")
-          .select("estado, fecha_registro, total_visitas, embajadora")
-          .in("id", chunk)
-
-        for (const row of rows ?? []) {
-          const estado = (row as { estado: string | null }).estado
-          const fr = (row as { fecha_registro: string | null }).fecha_registro
-          const visitas = (row as { total_visitas: number | null }).total_visitas ?? 0
-          const esEmbajadora = (row as { embajadora: boolean | null }).embajadora === true
-          if (estado === "activo") activos++
-          if (estado === "vip") vip++
-          if (estado === "activo" || estado === "vip") vigentes++
-          if (visitas > 0) conVisitas++
-          if (esEmbajadora) embajadoras++
-          if (fr && fr >= fechaLimite) nuevos++
+      for (const id of idsSucursales) {
+        for (const clienteId of await clienteIdsConActividadEnSucursal(id)) {
+          idSet.add(clienteId)
         }
       }
-
-      return { total: ids.length, activos, vip, nuevos, vigentes, conVisitas, embajadoras }
+      return contarActivosInactivosAlCierre(
+        fechaHasta,
+        [...idSet],
+        { sucursalIds: idsSucursales },
+        fechaDesde,
+      )
     }
 
-    // Obtener el total de clientes usando count
-    const { count: totalCount, error: totalError } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-
-    if (totalError) {
-      console.error('Error obteniendo total de clientes:', totalError)
-      return { total: 0, activos: 0, vip: 0, nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0 }
+    if (sucursalId) {
+      return contarActivosInactivosAlCierre(
+        fechaHasta,
+        await clienteIdsConActividadEnSucursal(sucursalId),
+        { sucursalId },
+        fechaDesde,
+      )
     }
 
-    const total = totalCount || 0
-
-    // Obtener conteos por estado usando count
-    const { data: activosData } = await supabase.rpc('contar_clientes_activos')
-    const activos = (activosData as number) ?? 0
-
-    const { count: vipCount, error: vipError } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-      .eq('estado', 'vip')
-
-    const { count: vigentesCount, error: vigentesError } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-      .in('estado', ['activo', 'vip'])
-
-    const { count: conVisitasCount, error: conVisitasError } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-      .gt('total_visitas', 0)
-
-    const { count: embajadorasCount, error: embajadorasError } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-      .eq('embajadora', true)
-
-    // Clientes nuevos en los últimos 30 días
-    const hoy = new Date()
-    const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
-    const fechaLimite = hace30Dias.toISOString().split('T')[0]
-
-    const { count: nuevosCount, error: nuevosError } = await supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-      .gte('fecha_registro', fechaLimite)
-
-    const vip = vipError ? 0 : (vipCount || 0)
-    const nuevos = nuevosError ? 0 : (nuevosCount || 0)
-    const vigentes = vigentesError ? activos + vip : (vigentesCount || 0)
-    const conVisitas = conVisitasError ? 0 : (conVisitasCount || 0)
-    const embajadoras = embajadorasError ? 0 : (embajadorasCount || 0)
-
-    return { total, activos, vip, nuevos, vigentes, conVisitas, embajadoras }
+    return contarActivosInactivosAlCierre(fechaHasta, null, undefined, fechaDesde)
   } catch (error) {
-    console.error('Error inesperado obteniendo estadísticas:', error)
-    return { total: 0, activos: 0, vip: 0, nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0 }
+    console.error("Error inesperado obteniendo estadísticas:", error)
+    return { ...CLIENTES_STATS_VACIO }
   }
 }
 
@@ -516,12 +714,16 @@ export async function getTopClientesPorGasto(
   }
 }
 
+export type ClienteNuevoMotivo = 'nuevo_en_sucursal' | 'primera_sucursal'
+
 export type ClienteNuevoPeriodoRow = {
   clienteId: string
   nombre: string
   fechaPrimeraVisita: string
   servicios: string[]
   sucursalNombre: string
+  /** Con filtro de sucursal: por qué entra en el conteo */
+  motivo?: ClienteNuevoMotivo
 }
 
 type CitaPrimeraVisitaRow = {
@@ -539,102 +741,248 @@ function esVisitaAnterior(a: { fecha: string; hora: string | null }, b: { fecha:
   return (a.hora ?? '') < (b.hora ?? '')
 }
 
-/** Todas las citas completadas (global) para detectar la verdadera primera visita. */
-async function fetchTodasCitasCompletadas(): Promise<CitaPrimeraVisitaRow[]> {
-  const PAGE = 1000
-  const all: CitaPrimeraVisitaRow[] = []
-  let from = 0
+function citaEnScopeSucursal(
+  sucursalId: string,
+  scope: { sucursalId?: string; sucursalIds?: string[] },
+): boolean {
+  if (scope.sucursalId) return sucursalId === scope.sucursalId
+  if (scope.sucursalIds?.length) return scope.sucursalIds.includes(sucursalId)
+  return true
+}
 
-  while (true) {
-    const query = supabase
-      .from('citas')
-      .select(`
-        cliente_id, fecha, hora_inicio, sucursal_id,
-        cliente:clientes(nombre, apellido),
-        sucursal:sucursales(nombre),
-        servicio:servicios(nombre)
-      `)
-      .eq('estado', 'completada')
-      .not('cliente_id', 'is', null)
-      .order('fecha', { ascending: true })
-      .order('hora_inicio', { ascending: true })
-      .range(from, from + PAGE - 1)
+function tieneFiltroSucursal(scope: { sucursalId?: string; sucursalIds?: string[] }): boolean {
+  return !!(scope.sucursalId || (scope.sucursalIds?.length ?? 0) > 0)
+}
 
-    const { data, error } = await query
-    if (error) {
-      console.error('Error obteniendo citas para clientes nuevos:', error)
-      break
+function fechaEnPeriodo(fecha: string, fechaDesde: string, fechaHasta: string): boolean {
+  return fecha >= fechaDesde && fecha <= fechaHasta
+}
+
+function earliestVisita(
+  rows: CitaPrimeraVisitaRow[],
+): { fecha: string; hora: string | null; row: CitaPrimeraVisitaRow } | null {
+  let best: { fecha: string; hora: string | null; row: CitaPrimeraVisitaRow } | null = null
+  for (const row of rows) {
+    const visita = { fecha: row.fecha, hora: row.hora_inicio }
+    if (!best || esVisitaAnterior(visita, best)) {
+      best = { ...visita, row }
     }
-    const batch = (data ?? []) as CitaPrimeraVisitaRow[]
-    all.push(...batch)
-    if (batch.length < PAGE) break
-    from += PAGE
+  }
+  return best
+}
+
+function serviciosEnMismoDia(citasCliente: CitaPrimeraVisitaRow[], fecha: string): string[] {
+  const serviciosSet = new Set<string>()
+  for (const c of citasCliente) {
+    if (c.fecha !== fecha) continue
+    const nombreSvc = c.servicio?.nombre?.trim()
+    if (nombreSvc) serviciosSet.add(nombreSvc)
+  }
+  return [...serviciosSet].sort((a, b) => a.localeCompare(b, 'es'))
+}
+
+async function fetchNombresClientes(
+  ids: string[],
+): Promise<Map<string, { nombre: string; apellido: string }>> {
+  const map = new Map<string, { nombre: string; apellido: string }>()
+  if (ids.length === 0) return map
+  for (let i = 0; i < ids.length; i += 400) {
+    const chunk = ids.slice(i, i + 400)
+    const { data } = await supabase.from("clientes").select("id, nombre, apellido").in("id", chunk)
+    for (const row of data ?? []) {
+      const r = row as { id: string; nombre: string; apellido: string }
+      map.set(r.id, { nombre: r.nombre, apellido: r.apellido })
+    }
+  }
+  return map
+}
+
+async function fetchNombresSucursales(ids: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const uniq = [...new Set(ids.filter(Boolean))]
+  if (uniq.length === 0) return map
+  const { data } = await supabase.from("sucursales").select("id, nombre").in("id", uniq)
+  for (const row of data ?? []) {
+    const r = row as { id: string; nombre: string }
+    map.set(r.id, r.nombre)
+  }
+  return map
+}
+
+function citasLiteToPrimeraVisitaRows(
+  citas: CitaLite[],
+  nombres: Map<string, { nombre: string; apellido: string }>,
+  sucursales: Map<string, string>,
+): CitaPrimeraVisitaRow[] {
+  return citas.map(c => ({
+    cliente_id: c.cliente_id,
+    fecha: c.fecha,
+    hora_inicio: c.hora_inicio,
+    sucursal_id: c.sucursal_id,
+    cliente: nombres.get(c.cliente_id) ?? null,
+    sucursal: sucursales.has(c.sucursal_id) ? { nombre: sucursales.get(c.sucursal_id)! } : null,
+    servicio: null,
+  }))
+}
+
+function earliestVisitaLite(rows: CitaLite[]): { fecha: string; hora: string | null; row: CitaLite } | null {
+  let best: { fecha: string; hora: string | null; row: CitaLite } | null = null
+  for (const row of rows) {
+    const visita = { fecha: row.fecha, hora: row.hora_inicio }
+    if (!best || esVisitaAnterior(visita, best)) {
+      best = { ...visita, row }
+    }
+  }
+  return best
+}
+
+async function loadCitasParaClientesNuevos(
+  fechaDesde: string,
+  fechaHasta: string,
+  scope: { sucursalId?: string; sucursalIds?: string[] },
+): Promise<CitaPrimeraVisitaRow[]> {
+  const conFiltroSucursal = tieneFiltroSucursal(scope)
+  const visitaScope: VisitaAlCierreScope | undefined = conFiltroSucursal
+    ? scope.sucursalId
+      ? { sucursalId: scope.sucursalId }
+      : { sucursalIds: scope.sucursalIds }
+    : undefined
+
+  let lite: CitaLite[]
+
+  if (conFiltroSucursal && visitaScope) {
+    const branchLite = await fetchCitasCompletadasLite({ fechaHasta, visitaScope })
+    const porCliente = new Map<string, CitaLite[]>()
+    for (const c of branchLite) {
+      const bucket = porCliente.get(c.cliente_id)
+      if (bucket) bucket.push(c)
+      else porCliente.set(c.cliente_id, [c])
+    }
+
+    const candidateIds: string[] = []
+    for (const [clienteId, list] of porCliente) {
+      const primera = earliestVisitaLite(list)
+      if (primera && fechaEnPeriodo(primera.fecha, fechaDesde, fechaHasta)) {
+        candidateIds.push(clienteId)
+      }
+    }
+    if (candidateIds.length === 0) return []
+
+    lite = []
+    for (let i = 0; i < candidateIds.length; i += 200) {
+      const chunk = candidateIds.slice(i, i + 200)
+      lite.push(...(await fetchCitasCompletadasLite({ fechaHasta, clienteIds: chunk })))
+    }
+  } else {
+    lite = await fetchCitasCompletadasLite({ fechaHasta })
   }
 
-  return all
+  if (lite.length === 0) return []
+
+  const clienteIds = [...new Set(lite.map(c => c.cliente_id))]
+  const sucursalIds = [...new Set(lite.map(c => c.sucursal_id))]
+  const [nombres, sucursales] = await Promise.all([
+    fetchNombresClientes(clienteIds),
+    fetchNombresSucursales(sucursalIds),
+  ])
+  return citasLiteToPrimeraVisitaRows(lite, nombres, sucursales)
 }
 
 /**
- * Clientes cuya primera visita ever (primera cita completada en cualquier sucursal)
- * cae en el rango. Excluye a quien ya tenía historial antes del período.
- * Con filtro de sucursal: solo si esa primera visita fue en la sucursal indicada.
+ * Sin filtro de sucursal: clientes cuya primera visita ever (cita completada en cualquier sucursal)
+ * cae en el rango.
+ *
+ * Con filtro de sucursal: clientes cuya 1.ª cita completada en esa(s) sucursal(es)
+ * cae en el rango (incluye quien ya visitaba otras sucursales). El detalle distingue
+ * si además es su 1.ª visita ever en el sistema en el mismo período.
  */
 export async function getClientesNuevosEnPeriodo(
   fechaDesde: string,
   fechaHasta: string,
   scope: { sucursalId?: string; sucursalIds?: string[] } = {},
-): Promise<{ nuevos: number; detalle: ClienteNuevoPeriodoRow[] }> {
+): Promise<{
+  nuevos: number
+  nuevosEnSucursal: number
+  primeraVezEnSucursal: number
+  detalle: ClienteNuevoPeriodoRow[]
+}> {
   try {
-    const citas = await fetchTodasCitasCompletadas()
-    if (citas.length === 0) return { nuevos: 0, detalle: [] }
-
-    const primeraPorCliente = new Map<string, { fecha: string; hora: string | null }>()
-    for (const row of citas) {
-      const id = row.cliente_id
-      const visita = { fecha: row.fecha, hora: row.hora_inicio }
-      const prev = primeraPorCliente.get(id)
-      if (!prev || esVisitaAnterior(visita, prev)) {
-        primeraPorCliente.set(id, visita)
-      }
+    const citasRows = await loadCitasParaClientesNuevos(fechaDesde, fechaHasta, scope)
+    if (citasRows.length === 0) {
+      return { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
     }
 
+    const citasPorCliente = new Map<string, CitaPrimeraVisitaRow[]>()
     const metaCliente = new Map<string, { nombre: string }>()
-    for (const row of citas) {
-      if (!metaCliente.has(row.cliente_id)) {
+
+    for (const row of citasRows) {
+      const id = row.cliente_id
+      const bucket = citasPorCliente.get(id)
+      if (bucket) bucket.push(row)
+      else citasPorCliente.set(id, [row])
+
+      if (!metaCliente.has(id)) {
         const nombre = row.cliente
           ? `${row.cliente.nombre} ${row.cliente.apellido}`.trim()
-          : 'Desconocido'
-        metaCliente.set(row.cliente_id, { nombre })
+          : "Desconocido"
+        metaCliente.set(id, { nombre })
       }
     }
 
     const detalle: ClienteNuevoPeriodoRow[] = []
+    const conFiltroSucursal = tieneFiltroSucursal(scope)
 
-    for (const [clienteId, primera] of primeraPorCliente) {
-      if (primera.fecha < fechaDesde || primera.fecha > fechaHasta) continue
+    for (const [clienteId, citasCliente] of citasPorCliente) {
+      const primeraGlobal = earliestVisita(citasCliente)
+      if (!primeraGlobal) continue
 
-      const citasPrimeraDia = citas
-        .filter(c => c.cliente_id === clienteId && c.fecha === primera.fecha)
-        .sort((a, b) => (a.hora_inicio ?? '').localeCompare(b.hora_inicio ?? ''))
+      if (!conFiltroSucursal) {
+        if (!fechaEnPeriodo(primeraGlobal.fecha, fechaDesde, fechaHasta)) continue
 
-      const earliest = citasPrimeraDia[0]
-      if (!earliest) continue
+        const citasPrimeraDia = citasCliente
+          .filter(c => c.fecha === primeraGlobal.fecha)
+          .sort((a, b) => (a.hora_inicio ?? '').localeCompare(b.hora_inicio ?? ''))
+        const earliest = citasPrimeraDia[0]
+        if (!earliest) continue
 
-      if (scope.sucursalId && earliest.sucursal_id !== scope.sucursalId) continue
-      if (scope.sucursalIds?.length && !scope.sucursalIds.includes(earliest.sucursal_id)) continue
-
-      const serviciosSet = new Set<string>()
-      for (const c of citasPrimeraDia) {
-        const nombreSvc = c.servicio?.nombre?.trim()
-        if (nombreSvc) serviciosSet.add(nombreSvc)
+        detalle.push({
+          clienteId,
+          nombre: metaCliente.get(clienteId)?.nombre ?? 'Desconocido',
+          fechaPrimeraVisita: primeraGlobal.fecha,
+          servicios: serviciosEnMismoDia(citasCliente, primeraGlobal.fecha),
+          sucursalNombre: earliest.sucursal?.nombre ?? '—',
+          motivo: 'nuevo_en_sucursal',
+        })
+        continue
       }
+
+      const citasEnScope = citasCliente.filter(c => citaEnScopeSucursal(c.sucursal_id, scope))
+      const primeraEnSucursal = earliestVisita(citasEnScope)
+      if (
+        !primeraEnSucursal ||
+        !fechaEnPeriodo(primeraEnSucursal.fecha, fechaDesde, fechaHasta)
+      ) {
+        continue
+      }
+
+      const esNuevoEnSucursal =
+        fechaEnPeriodo(primeraGlobal.fecha, fechaDesde, fechaHasta) &&
+        citaEnScopeSucursal(primeraGlobal.row.sucursal_id, scope) &&
+        primeraGlobal.fecha === primeraEnSucursal.fecha &&
+        primeraGlobal.row.sucursal_id === primeraEnSucursal.row.sucursal_id
+
+      const motivo: ClienteNuevoMotivo = esNuevoEnSucursal ? 'nuevo_en_sucursal' : 'primera_sucursal'
 
       detalle.push({
         clienteId,
         nombre: metaCliente.get(clienteId)?.nombre ?? 'Desconocido',
-        fechaPrimeraVisita: primera.fecha,
-        servicios: [...serviciosSet].sort((a, b) => a.localeCompare(b, 'es')),
-        sucursalNombre: earliest.sucursal?.nombre ?? '—',
+        fechaPrimeraVisita: primeraEnSucursal.fecha,
+        servicios: serviciosEnMismoDia(
+          citasEnScope.filter(c => c.sucursal_id === primeraEnSucursal.row.sucursal_id),
+          primeraEnSucursal.fecha,
+        ),
+        sucursalNombre: primeraEnSucursal.row.sucursal?.nombre ?? '—',
+        motivo,
       })
     }
 
@@ -645,10 +993,18 @@ export async function getClientesNuevosEnPeriodo(
       return a.nombre.localeCompare(b.nombre, 'es')
     })
 
-    return { nuevos: detalle.length, detalle }
+    const nuevosEnSucursal = detalle.filter(d => d.motivo === 'nuevo_en_sucursal').length
+    const primeraVezEnSucursal = detalle.filter(d => d.motivo === 'primera_sucursal').length
+
+    return {
+      nuevos: detalle.length,
+      nuevosEnSucursal,
+      primeraVezEnSucursal,
+      detalle,
+    }
   } catch (err) {
     console.error('Error obteniendo clientes nuevos en período:', err)
-    return { nuevos: 0, detalle: [] }
+    return { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
   }
 }
 
