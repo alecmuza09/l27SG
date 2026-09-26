@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
+import { getTopClientesPorGastoRpc, getReporteClientesTabStatsRpc } from './reportes-aggregados'
 
 type ClienteRow = Database['public']['Tables']['clientes']['Row']
 type ClienteInsert = Database['public']['Tables']['clientes']['Insert']
@@ -152,13 +153,7 @@ export async function getClientesPaginated(
     const total = count || 0
     const totalPages = Math.ceil(total / pageSize)
 
-    // Obtener los clientes de la página actual con sus citas
-    let dataQuery = supabase
-      .from('clientes')
-      .select(`
-        *,
-        citas!left(fecha, estado)
-      `)
+    let dataQuery = supabase.from('clientes').select('*')
 
     dataQuery = aplicarFiltrosListadoClientes(dataQuery, filtros)
 
@@ -172,13 +167,7 @@ export async function getClientesPaginated(
     }
 
     return {
-      clientes: (data as any[]).map((row) => ({
-        ...transformCliente(row),
-        ultimaVisita: (row.citas as any[])
-          ?.filter((c) => c.estado === 'completada')
-          ?.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())[0]
-          ?.fecha ?? null,
-      })),
+      clientes: (data ?? []).map(row => transformCliente(row)),
       total,
       totalPages,
     }
@@ -667,6 +656,97 @@ function fechaHastaPorDefecto(): string {
   return `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`
 }
 
+function esFechaHastaHoy(fechaHasta: string): boolean {
+  return fechaHasta === fechaHastaPorDefecto()
+}
+
+/** Conteos en BD (total_visitas mantenido por trigger) — sin barrer citas desde el navegador. */
+async function getClientesStatsGlobalRapido(fechaHasta: string): Promise<{
+  total: number
+  activos: number
+  activosInicioPeriodo: number
+  vip: number
+  inactivos: number
+  nuevos: number
+  vigentes: number
+  conVisitas: number
+  embajadoras: number
+}> {
+  const hoy = new Date()
+  const hace30Dias = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const fechaLimite = hace30Dias.toISOString().split("T")[0]
+
+  const base = () => supabase.from("clientes").select("id", { count: "exact", head: true }).lte("fecha_registro", fechaHasta)
+
+  const [totalR, activosR, vipR, embR, nuevosRegistroR, vigentesR] = await Promise.all([
+    base(),
+    base().gt("total_visitas", 0),
+    base().eq("estado", "vip"),
+    base().eq("embajadora", true),
+    base().gte("fecha_registro", fechaLimite),
+    base().in("estado", ["activo", "vip"]),
+  ])
+
+  const total = totalR.count ?? 0
+  const activos = activosR.count ?? 0
+
+  return {
+    total,
+    activos,
+    activosInicioPeriodo: 0,
+    vip: vipR.count ?? 0,
+    inactivos: Math.max(0, total - activos),
+    nuevos: nuevosRegistroR.count ?? 0,
+    vigentes: vigentesR.count ?? 0,
+    conVisitas: activos,
+    embajadoras: embR.count ?? 0,
+  }
+}
+
+export type ClientesResumenTarjetas = {
+  total: number
+  embajadoras: number
+  conVisitas: number
+  nuevos: number
+}
+
+/** Tarjetas superiores en /dashboard/clientes — paralelo, sin recorrer todas las citas. */
+export async function getClientesResumenTarjetas(
+  fechaDesdeMes: string,
+  fechaHastaMes: string,
+): Promise<ClientesResumenTarjetas> {
+  const fechaHasta = fechaHastaPorDefecto()
+  const base = () => supabase.from("clientes").select("id", { count: "exact", head: true }).lte("fecha_registro", fechaHasta)
+
+  const [totalR, embR, activosR, nuevosRpc] = await Promise.all([
+    base(),
+    base().eq("embajadora", true),
+    base().gt("total_visitas", 0),
+    supabase.rpc("contar_clientes_nuevos_periodo", {
+      p_fecha_desde: fechaDesdeMes,
+      p_fecha_hasta: fechaHastaMes,
+    }),
+  ])
+
+  let nuevos = 0
+  if (!nuevosRpc.error && nuevosRpc.data != null) {
+    nuevos = Number(nuevosRpc.data)
+  } else {
+    if (nuevosRpc.error) {
+      console.warn("RPC contar_clientes_nuevos_periodo no disponible, usando cálculo lento:", nuevosRpc.error.message)
+    }
+    const lento = await getClientesNuevosEnPeriodo(fechaDesdeMes, fechaHastaMes, {}, { soloConteo: true })
+    nuevos = lento.nuevos
+  }
+
+  return {
+    total: totalR.count ?? 0,
+    embajadoras: embR.count ?? 0,
+    conVisitas: activosR.count ?? 0,
+    nuevos,
+  }
+}
+
 // Obtener estadísticas de clientes
 export async function getClientesStats(
   sucursalId?: string,
@@ -691,6 +771,11 @@ export async function getClientesStats(
     const fechaDesde = opts.fechaDesde
 
     const idsSucursales = sucursalIds?.filter(Boolean) ?? []
+    const hasSucursalScope = idsSucursales.length > 0 || !!sucursalId
+    if (!hasSucursalScope && !fechaDesde && esFechaHastaHoy(fechaHasta)) {
+      return getClientesStatsGlobalRapido(fechaHasta)
+    }
+
     const visitaScope: VisitaAlCierreScope | undefined =
       idsSucursales.length > 0
         ? { sucursalIds: idsSucursales }
@@ -724,6 +809,11 @@ export async function getTopClientesPorGasto(
   sucursalId?: string,
 ): Promise<Array<{ clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }>> {
   try {
+    if (fechaDesde && fechaHasta) {
+      const rpc = await getTopClientesPorGastoRpc(limit, fechaDesde, fechaHasta, sucursalId)
+      if (rpc) return rpc
+    }
+
     let query = (supabase as any)
       .from('pagos')
       .select('cliente_id, monto, fecha, cliente:clientes(nombre, apellido)')
@@ -1049,6 +1139,7 @@ export async function getClientesNuevosEnPeriodo(
   fechaDesde: string,
   fechaHasta: string,
   scope: { sucursalId?: string; sucursalIds?: string[] } = {},
+  opts: { soloConteo?: boolean } = {},
 ): Promise<{
   nuevos: number
   nuevosEnSucursal: number
@@ -1056,6 +1147,18 @@ export async function getClientesNuevosEnPeriodo(
   detalle: ClienteNuevoPeriodoRow[]
 }> {
   try {
+    const conFiltroSucursal = tieneFiltroSucursal(scope)
+    if (opts.soloConteo && !conFiltroSucursal) {
+      const { data, error } = await supabase.rpc("contar_clientes_nuevos_periodo", {
+        p_fecha_desde: fechaDesde,
+        p_fecha_hasta: fechaHasta,
+      })
+      if (!error && data != null) {
+        const n = Number(data)
+        return { nuevos: n, nuevosEnSucursal: n, primeraVezEnSucursal: 0, detalle: [] }
+      }
+    }
+
     const citasRows = await loadCitasParaClientesNuevos(fechaDesde, fechaHasta, scope)
     return buildNuevosEnPeriodoFromCitas(citasRows, fechaDesde, fechaHasta, scope)
   } catch (err) {
@@ -1069,11 +1172,27 @@ export async function getReporteClientesTabBundle(
   fechaDesde: string,
   fechaHasta: string,
   params: { sucursalId?: string; sucursalIds?: string[] },
+  opts: { omitirDetalleNuevos?: boolean } = {},
 ): Promise<{
   cliStats: Awaited<ReturnType<typeof getClientesStats>>
   nuevosPeriodo: Awaited<ReturnType<typeof getClientesNuevosEnPeriodo>>
 }> {
   const idsSucursales = params.sucursalIds?.filter(Boolean) ?? []
+  const scopeNuevos =
+    idsSucursales.length > 0
+      ? { sucursalIds: idsSucursales }
+      : params.sucursalId
+        ? { sucursalId: params.sucursalId }
+        : {}
+
+  const rpcStats = await getReporteClientesTabStatsRpc(fechaDesde, fechaHasta, params)
+  if (rpcStats) {
+    const nuevosPeriodo = opts.omitirDetalleNuevos
+      ? await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, scopeNuevos, { soloConteo: true })
+      : await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, scopeNuevos)
+    return { cliStats: rpcStats, nuevosPeriodo }
+  }
+
   const visitaScope: VisitaAlCierreScope | undefined =
     idsSucursales.length > 0
       ? { sucursalIds: idsSucursales }
@@ -1094,12 +1213,12 @@ export async function getReporteClientesTabBundle(
     clasificacion,
   )
 
-  const scopeNuevos =
-    idsSucursales.length > 0
-      ? { sucursalIds: idsSucursales }
-      : params.sucursalId
-        ? { sucursalId: params.sucursalId }
-        : {}
+  if (opts.omitirDetalleNuevos) {
+    const nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, scopeNuevos, {
+      soloConteo: true,
+    })
+    return { cliStats, nuevosPeriodo }
+  }
 
   const citasRows = await loadCitasParaClientesNuevos(
     fechaDesde,
@@ -1115,6 +1234,16 @@ export async function getReporteClientesTabBundle(
   )
 
   return { cliStats, nuevosPeriodo }
+}
+
+/** Detalle de clientes nuevos (diálogo en Reportes) — carga bajo demanda. */
+export async function getClientesNuevosDetallePeriodo(
+  fechaDesde: string,
+  fechaHasta: string,
+  scope: { sucursalId?: string; sucursalIds?: string[] } = {},
+): Promise<ClienteNuevoPeriodoRow[]> {
+  const { detalle } = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, scope)
+  return detalle
 }
 
 // Crear un nuevo cliente

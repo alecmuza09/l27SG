@@ -22,7 +22,7 @@ import {
   Star,
 } from "lucide-react"
 import {
-  getClientesPaginated, searchClientesPaginated, getClientesStats, getClientesNuevosEnPeriodo,
+  getClientesPaginated, searchClientesPaginated, getClientesResumenTarjetas,
   createCliente, updateCliente, updateClienteEmbajadora, type Cliente,
 } from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -72,6 +72,7 @@ export default function ClientesPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
@@ -109,19 +110,20 @@ export default function ClientesPage() {
   // Función para cargar estadísticas
   const loadStats = async () => {
     try {
-      const statsData = await getClientesStats()
+      setStatsLoading(true)
       const { desde, hasta } = fechasEsteMes()
-      const { nuevos } = await getClientesNuevosEnPeriodo(desde, hasta)
+      const resumen = await getClientesResumenTarjetas(desde, hasta)
       setStats({
-        total: statsData.total,
-        embajadoras: statsData.embajadoras,
-        conVisitas: statsData.activos,
-        nuevos,
+        total: resumen.total,
+        embajadoras: resumen.embajadoras,
+        conVisitas: resumen.conVisitas,
+        nuevos: resumen.nuevos,
       })
     } catch (err) {
       console.error('Error cargando estadísticas:', err)
-      // Establecer valores por defecto en caso de error
       setStats({ total: 0, embajadoras: 0, conVisitas: 0, nuevos: 0 })
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -561,7 +563,11 @@ export default function ClientesPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Total en base</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.total.toLocaleString()}</div>
+              {statsLoading ? (
+                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+              ) : (
+                <div className="text-2xl font-bold">{stats.total.toLocaleString()}</div>
+              )}
               <p className="text-xs text-muted-foreground mt-1">Activos, VIP e inactivos</p>
             </CardContent>
           </Card>
@@ -576,7 +582,11 @@ export default function ClientesPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Embajadoras</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.embajadoras.toLocaleString()}</div>
+              {statsLoading ? (
+                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+              ) : (
+                <div className="text-2xl font-bold">{stats.embajadoras.toLocaleString()}</div>
+              )}
               <p className="text-xs text-muted-foreground mt-1">Marcadas como embajadora · clic para ver lista</p>
             </CardContent>
           </Card>
@@ -591,7 +601,11 @@ export default function ClientesPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Clientes activos</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.conVisitas.toLocaleString()}</div>
+              {statsLoading ? (
+                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+              ) : (
+                <div className="text-2xl font-bold">{stats.conVisitas.toLocaleString()}</div>
+              )}
               <p className="text-xs text-muted-foreground mt-1">
                 ≥1 cita completada (igual que Reportes) · clic para ver lista
               </p>
@@ -602,7 +616,11 @@ export default function ClientesPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Nuevos (este mes)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.nuevos.toLocaleString()}</div>
+              {statsLoading ? (
+                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+              ) : (
+                <div className="text-2xl font-bold">{stats.nuevos.toLocaleString()}</div>
+              )}
               <p className="text-xs text-muted-foreground mt-1">1.ª visita ever en el mes</p>
             </CardContent>
           </Card>

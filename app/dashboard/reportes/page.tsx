@@ -38,6 +38,7 @@ import {
 } from "@/lib/data/dashboard"
 import {
   getTopClientesPorGasto, getClientesNuevosEnPeriodo, getReporteClientesTabBundle,
+  getClientesNuevosDetallePeriodo,
   type ClienteNuevoPeriodoRow,
 } from "@/lib/data/clientes"
 import {
@@ -2176,6 +2177,13 @@ export default function ReportesPage() {
   const [visitasExpandidas,     setVisitasExpandidas]     = useState<Set<string>>(new Set())
   const [isLoadingEmbajadoras, setIsLoadingEmbajadoras] = useState(true)
   const [isLoadingClientesTab, setIsLoadingClientesTab] = useState(false)
+  const [isLoadingServiciosTab, setIsLoadingServiciosTab] = useState(false)
+  const [isLoadingEmpleadosTab, setIsLoadingEmpleadosTab] = useState(false)
+  const [isLoadingNominaTab, setIsLoadingNominaTab] = useState(false)
+  const [isLoadingSucursalesTab, setIsLoadingSucursalesTab] = useState(false)
+  const [isLoadingNuevosDetalle, setIsLoadingNuevosDetalle] = useState(false)
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(() => new Set())
+  const [reporteFiltrosKey, setReporteFiltrosKey] = useState("")
 
   // ── Filtros LOCALES del tab Embajadoras (independientes de los filtros globales) ──
   const [embajadorasPeriodo,          setEmbajadorasPeriodo]          = useState<Periodo>("año")
@@ -2196,33 +2204,90 @@ export default function ReportesPage() {
   }, [isAdmin, multiBranch, branchIds.join(",")])
 
   // ── Carga de datos reactiva ──────────────────────────────────────────────
+  const resolverContextoReporte = useCallback(() => {
+    const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
+    const sucId =
+      isAdmin
+        ? (sucursalFilter === "all" ? undefined : sucursalFilter)
+        : sucursalFilter !== "all"
+          ? sucursalFilter
+          : sucursalFija
+    const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
+    const nuevosScope =
+      esMultiBranchAll
+        ? { sucursalIds: branchIds }
+        : sucId
+          ? { sucursalId: sucId }
+          : {}
+    const filtrosKey = `${fechaDesde}|${fechaHasta}|${sucId ?? "all"}|${esMultiBranchAll ? branchIds.join(",") : ""}`
+    return { fechaDesde, fechaHasta, sucId, esMultiBranchAll, nuevosScope, filtrosKey }
+  }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
+
+  const mergeCitasResumen = (
+    citasArr: Awaited<ReturnType<typeof getCitasResumenPeriodo>>[],
+  ): CitasResumen => {
+    const citasRes = citasArr.reduce(
+      (acc, c) => ({
+        completadas: acc.completadas + c.completadas,
+        canceladas: acc.canceladas + c.canceladas,
+        pendientes: acc.pendientes + c.pendientes,
+        noShow: acc.noShow + c.noShow,
+        total: 0,
+        tasaCancelacion: 0,
+      }),
+      { completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 },
+    )
+    citasRes.total = citasRes.completadas + citasRes.canceladas + citasRes.pendientes + citasRes.noShow
+    citasRes.tasaCancelacion =
+      citasRes.total > 0
+        ? Math.round(((citasRes.canceladas + citasRes.noShow) / citasRes.total) * 100)
+        : 0
+    return citasRes
+  }
+
+  const mapEmpleadoRows = (lista: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>): EmpleadoRow[] =>
+    lista.map(e => ({
+      empleadoId: e.empleadoId,
+      nombre: e.nombre,
+      apellido: e.apellido,
+      sucursal: e.sucursalNombre,
+      servicios: e.citas,
+      ingresos: e.ingresos,
+      comision: Math.round(e.ingresos * 0.3),
+      ocupacion: e.ocupacion,
+    }))
+
   const cargarDatos = useCallback(async () => {
     setIsLoading(true)
     setIsLoadingKpis(true)
+    setLoadedTabs(new Set())
+    setClientesNuevosDetalle([])
+    setServiciosMasVendidos([])
+    setEmpleadosTop([])
+    setTodasEmpleadasNomina([])
+    setTopClientes([])
+    setMetricasSucursales([])
     try {
-      const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
-      const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(periodo, fechaCustomDesde, fechaCustomHasta)
-
-      // Admin global: sin filtro cuando es "all"
-      // Manager multi-sucursal: filtrar por sucursal seleccionada o cargar cada una
-      // Usuario single-branch: su sucursal fija
-      const sucId =
-        isAdmin
-          ? (sucursalFilter === "all" ? undefined : sucursalFilter)
-          : sucursalFilter !== "all"
-            ? sucursalFilter
-            : sucursalFija
-
-      const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
+      const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, nuevosScope, filtrosKey } =
+        resolverContextoReporte()
+      setReporteFiltrosKey(filtrosKey)
+      const { fechaDesde: antDesde, fechaHasta: antHasta } = calcularPeriodoAnterior(
+        periodo,
+        fechaCustomDesde,
+        fechaCustomHasta,
+      )
 
       const calcStats = (lista: Pago[]): KpiStats => {
-        const comp      = lista.filter(p => p.estado === "completado" && cuentaEnTotales(p))
-        const ingresos  = comp.reduce((s, p) => s + p.monto, 0)
-        const total     = comp.length
-        return { ingresosTotales: ingresos, totalServicios: total, ticketPromedio: total > 0 ? Math.round(ingresos / total) : 0 }
+        const comp = lista.filter(p => p.estado === "completado" && cuentaEnTotales(p))
+        const ingresos = comp.reduce((s, p) => s + p.monto, 0)
+        const total = comp.length
+        return {
+          ingresosTotales: ingresos,
+          totalServicios: total,
+          ticketPromedio: total > 0 ? Math.round(ingresos / total) : 0,
+        }
       }
 
-      // FASE 1: pagos — base de todos los KPIs
       let pagos: Pago[]
       let pagosAnt: Pago[]
 
@@ -2262,44 +2327,55 @@ export default function ReportesPage() {
         bump1("transferencia", d.transferencia)
         bump1("otro", d.otro)
       })
-      setMetodosPago(Array.from(metodosMapFase1.entries()).map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto))
+      setMetodosPago(
+        Array.from(metodosMapFase1.entries())
+          .map(([metodo, v]) => ({ metodo, ...v }))
+          .sort((a, b) => b.monto - a.monto),
+      )
       setIsLoadingKpis(false)
 
-      const sucIdParaRest = sucId
+      const citasRes = esMultiBranchAll
+        ? mergeCitasResumen(
+            await Promise.all(branchIds.map(id => getCitasResumenPeriodo(fechaDesde, fechaHasta, id))),
+          )
+        : await getCitasResumenPeriodo(fechaDesde, fechaHasta, sucId)
 
-      // FASE 2: resto de datos en paralelo (tabs secundarias)
-      let citasRes: Awaited<ReturnType<typeof getCitasResumenPeriodo>>
+      let nuevosPeriodo: Awaited<ReturnType<typeof getClientesNuevosEnPeriodo>>
+      try {
+        nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, nuevosScope, {
+          soloConteo: true,
+        })
+      } catch (err) {
+        console.error("Error cargando clientes nuevos del período:", err)
+        nuevosPeriodo = { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
+      }
+
+      setCitasResumen(citasRes)
+      setNuevosClientesSplit({
+        nuevosEnSucursal: nuevosPeriodo.nuevosEnSucursal,
+        primeraVezEnSucursal: nuevosPeriodo.primeraVezEnSucursal,
+      })
+      setClientesStats(prev => ({ ...prev, nuevos: nuevosPeriodo.nuevos }))
+    } catch (err) {
+      console.error("Error cargando reportes:", err)
+    } finally {
+      setIsLoading(false)
+      setIsLoadingKpis(false)
+    }
+  }, [periodo, fechaCustomDesde, fechaCustomHasta, resolverContextoReporte, branchIds.join(",")])
+
+  const cargarTabServicios = useCallback(async () => {
+    if (loadedTabs.has("servicios") || reporteFiltrosKey === "") return
+    const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, filtrosKey } = resolverContextoReporte()
+    if (filtrosKey !== reporteFiltrosKey) return
+
+    setIsLoadingServiciosTab(true)
+    try {
       let servicios: Awaited<ReturnType<typeof getServiciosPopulares>>
-      let empleados: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
-      let todasEmpleadas: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
-      let topCli: Awaited<ReturnType<typeof getTopClientesPorGasto>>
-      let metSuc: MetricaSucursal[]
-
       if (esMultiBranchAll) {
-        const [citasArr, servArr, emp10Arr, emp200Arr, topCliArr] = await Promise.all([
-          Promise.all(branchIds.map(id => getCitasResumenPeriodo(fechaDesde, fechaHasta, id))),
-          Promise.all(branchIds.map(id => getServiciosPopulares(10, id, undefined, fechaDesde, fechaHasta))),
-          Promise.all(branchIds.map(id => getTopEmpleadosFromDB(10, id, fechaDesde, fechaHasta))),
-          Promise.all(branchIds.map(id => getTopEmpleadosFromDB(200, id, fechaDesde, fechaHasta))),
-          Promise.all(branchIds.map(id => getTopClientesPorGasto(10, fechaDesde, fechaHasta, id))),
-        ])
-        citasRes = citasArr.reduce(
-          (acc, c) => ({
-            completadas: acc.completadas + c.completadas,
-            canceladas: acc.canceladas + c.canceladas,
-            pendientes: acc.pendientes + c.pendientes,
-            noShow: acc.noShow + c.noShow,
-            total: 0,
-            tasaCancelacion: 0,
-          }),
-          { completadas: 0, canceladas: 0, pendientes: 0, noShow: 0, total: 0, tasaCancelacion: 0 },
+        const servArr = await Promise.all(
+          branchIds.map(id => getServiciosPopulares(10, id, undefined, fechaDesde, fechaHasta)),
         )
-        citasRes.total = citasRes.completadas + citasRes.canceladas + citasRes.pendientes + citasRes.noShow
-        citasRes.tasaCancelacion =
-          citasRes.total > 0
-            ? Math.round(((citasRes.canceladas + citasRes.noShow) / citasRes.total) * 100)
-            : 0
-
         const servMap = new Map<string, { name: string; count: number; revenue: number }>()
         for (const list of servArr) {
           for (const s of list) {
@@ -2321,115 +2397,121 @@ export default function ReportesPage() {
           ...s,
           percentage: totalSvcMerged > 0 ? Math.round((s.count / totalSvcMerged) * 100) : 0,
         }))
-
-        empleados = emp10Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 10)
-        todasEmpleadas = emp200Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 200)
-
-        const topMap = new Map<string, { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }>()
-        for (const list of topCliArr) {
-          for (const c of list) {
-            const prev = topMap.get(c.clienteId)
-            if (prev) {
-              prev.visitas += c.visitas
-              prev.totalGastado += c.totalGastado
-              if (c.ultimaVisita > prev.ultimaVisita) prev.ultimaVisita = c.ultimaVisita
-            } else {
-              topMap.set(c.clienteId, { ...c })
-            }
-          }
-        }
-        topCli = Array.from(topMap.values())
-          .sort((a, b) => b.totalGastado - a.totalGastado)
-          .slice(0, 10)
-
-        metSuc = []
       } else {
-        ;[citasRes, servicios, empleados, todasEmpleadas, topCli, metSuc] = await Promise.all([
-          getCitasResumenPeriodo(fechaDesde, fechaHasta, sucIdParaRest),
-          getServiciosPopulares(10, sucIdParaRest, undefined, fechaDesde, fechaHasta),
-          getTopEmpleadosFromDB(10, sucIdParaRest, fechaDesde, fechaHasta),
-          getTopEmpleadosFromDB(200, sucIdParaRest, fechaDesde, fechaHasta),
-          getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucIdParaRest),
-          isAdmin && sucursalFilter === "all"
-            ? getMetricasSucursales(fechaDesde, fechaHasta)
-            : Promise.resolve([] as MetricaSucursal[]),
-        ])
+        servicios = await getServiciosPopulares(10, sucId, undefined, fechaDesde, fechaHasta)
       }
-
-      const nuevosScope =
-        esMultiBranchAll
-          ? { sucursalIds: branchIds }
-          : sucIdParaRest
-            ? { sucursalId: sucIdParaRest }
-            : {}
-
-      let nuevosPeriodo: Awaited<ReturnType<typeof getClientesNuevosEnPeriodo>>
-      try {
-        nuevosPeriodo = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, nuevosScope)
-      } catch (err) {
-        console.error("Error cargando clientes nuevos del período:", err)
-        nuevosPeriodo = { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
-      }
-      setClientesNuevosDetalle(nuevosPeriodo.detalle)
-      setNuevosClientesSplit({
-        nuevosEnSucursal: nuevosPeriodo.nuevosEnSucursal,
-        primeraVezEnSucursal: nuevosPeriodo.primeraVezEnSucursal,
-      })
-      setClientesStats(prev => ({ ...prev, nuevos: nuevosPeriodo.nuevos }))
-
-      setCitasResumen(citasRes)
-      setTopClientes(topCli)
-      setMetricasSucursales(metSuc)
-
       const totalSvc = servicios.reduce((s, x) => s + x.count, 0)
-      setServiciosMasVendidos(servicios.map(s => ({
-        name: s.name, cantidad: s.count, ingresos: s.revenue,
-        pctTotal: totalSvc > 0 ? Math.round((s.count / totalSvc) * 100) : 0,
-      })))
-
-      setEmpleadosTop(empleados.map(e => ({
-        empleadoId: e.empleadoId,
-        nombre: e.nombre, apellido: e.apellido,
-        sucursal: e.sucursalNombre,
-        servicios: e.citas, ingresos: e.ingresos,
-        comision: Math.round(e.ingresos * 0.3),
-        ocupacion: e.ocupacion,
-      })))
-      setTodasEmpleadasNomina(todasEmpleadas.map(e => ({
-        empleadoId: e.empleadoId,
-        nombre: e.nombre, apellido: e.apellido,
-        sucursal: e.sucursalNombre,
-        servicios: e.citas, ingresos: e.ingresos,
-        comision: Math.round(e.ingresos * 0.3),
-        ocupacion: e.ocupacion,
-      })))
+      setServiciosMasVendidos(
+        servicios.map(s => ({
+          name: s.name,
+          cantidad: s.count,
+          ingresos: s.revenue,
+          pctTotal: totalSvc > 0 ? Math.round((s.count / totalSvc) * 100) : 0,
+        })),
+      )
+      setLoadedTabs(prev => new Set(prev).add("servicios"))
     } catch (err) {
-      console.error("Error cargando reportes:", err)
+      console.error("Error cargando tab servicios:", err)
     } finally {
-      setIsLoading(false)
-      setIsLoadingKpis(false)
+      setIsLoadingServiciosTab(false)
     }
-  }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
+  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, branchIds.join(",")])
+
+  const cargarTabEmpleadosNomina = useCallback(async () => {
+    if (loadedTabs.has("empleados-nomina") || reporteFiltrosKey === "") return
+    const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, filtrosKey } = resolverContextoReporte()
+    if (filtrosKey !== reporteFiltrosKey) return
+
+    setIsLoadingEmpleadosTab(true)
+    setIsLoadingNominaTab(true)
+    try {
+      let todasEmpleadas: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
+      if (esMultiBranchAll) {
+        const emp200Arr = await Promise.all(
+          branchIds.map(id => getTopEmpleadosFromDB(200, id, fechaDesde, fechaHasta)),
+        )
+        todasEmpleadas = emp200Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 200)
+      } else {
+        todasEmpleadas = await getTopEmpleadosFromDB(200, sucId, fechaDesde, fechaHasta)
+      }
+      const rows = mapEmpleadoRows(todasEmpleadas)
+      setTodasEmpleadasNomina(rows)
+      setEmpleadosTop(rows.slice(0, 10))
+      setLoadedTabs(prev => new Set(prev).add("empleados-nomina"))
+    } catch (err) {
+      console.error("Error cargando tab empleados/nómina:", err)
+    } finally {
+      setIsLoadingEmpleadosTab(false)
+      setIsLoadingNominaTab(false)
+    }
+  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, branchIds.join(",")])
+
+  const cargarTabSucursales = useCallback(async () => {
+    if (loadedTabs.has("sucursales") || reporteFiltrosKey === "") return
+    if (!isAdmin || sucursalFilter !== "all") return
+    const { fechaDesde, fechaHasta, filtrosKey } = resolverContextoReporte()
+    if (filtrosKey !== reporteFiltrosKey) return
+
+    setIsLoadingSucursalesTab(true)
+    try {
+      const metSuc = await getMetricasSucursales(fechaDesde, fechaHasta)
+      setMetricasSucursales(metSuc)
+      setLoadedTabs(prev => new Set(prev).add("sucursales"))
+    } catch (err) {
+      console.error("Error cargando tab sucursales:", err)
+    } finally {
+      setIsLoadingSucursalesTab(false)
+    }
+  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, isAdmin, sucursalFilter])
 
   /** Donut activos/inactivos: consultas pesadas solo al abrir el tab Clientes. */
   const cargarClientesTab = useCallback(async () => {
+    if (loadedTabs.has("clientes") || reporteFiltrosKey === "") return
+    const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, filtrosKey } = resolverContextoReporte()
+    if (filtrosKey !== reporteFiltrosKey) return
+
     setIsLoadingClientesTab(true)
     try {
-      const { fechaDesde, fechaHasta } = calcularPeriodo(periodo, fechaCustomDesde, fechaCustomHasta)
-      const sucId =
-        isAdmin
-          ? (sucursalFilter === "all" ? undefined : sucursalFilter)
-          : sucursalFilter !== "all"
-            ? sucursalFilter
-            : sucursalFija
-      const esMultiBranchAll = !isAdmin && multiBranch && sucursalFilter === "all"
-
       let cliStats: Awaited<ReturnType<typeof getReporteClientesTabBundle>>["cliStats"]
       let nuevosPeriodo: Awaited<ReturnType<typeof getClientesNuevosEnPeriodo>>
+      let topCli: Awaited<ReturnType<typeof getTopClientesPorGasto>>
       try {
-        const bundle = esMultiBranchAll
-          ? await getReporteClientesTabBundle(fechaDesde, fechaHasta, { sucursalIds: branchIds })
-          : await getReporteClientesTabBundle(fechaDesde, fechaHasta, { sucursalId: sucId })
+        const bundlePromise = esMultiBranchAll
+          ? getReporteClientesTabBundle(fechaDesde, fechaHasta, { sucursalIds: branchIds }, {
+              omitirDetalleNuevos: true,
+            })
+          : getReporteClientesTabBundle(fechaDesde, fechaHasta, { sucursalId: sucId }, {
+              omitirDetalleNuevos: true,
+            })
+
+        const topCliPromise = esMultiBranchAll
+          ? Promise.all(branchIds.map(id => getTopClientesPorGasto(10, fechaDesde, fechaHasta, id))).then(
+              topCliArr => {
+                const topMap = new Map<
+                  string,
+                  { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }
+                >()
+                for (const list of topCliArr) {
+                  for (const c of list) {
+                    const prev = topMap.get(c.clienteId)
+                    if (prev) {
+                      prev.visitas += c.visitas
+                      prev.totalGastado += c.totalGastado
+                      if (c.ultimaVisita > prev.ultimaVisita) prev.ultimaVisita = c.ultimaVisita
+                    } else {
+                      topMap.set(c.clienteId, { ...c })
+                    }
+                  }
+                }
+                return Array.from(topMap.values())
+                  .sort((a, b) => b.totalGastado - a.totalGastado)
+                  .slice(0, 10)
+              },
+            )
+          : getTopClientesPorGasto(10, fechaDesde, fechaHasta, sucId)
+
+        const [bundle, topCliResult] = await Promise.all([bundlePromise, topCliPromise])
+        topCli = topCliResult
         cliStats = bundle.cliStats
         nuevosPeriodo = bundle.nuevosPeriodo
       } catch (err) {
@@ -2439,8 +2521,10 @@ export default function ReportesPage() {
           nuevos: 0, vigentes: 0, conVisitas: 0, embajadoras: 0,
         }
         nuevosPeriodo = { nuevos: 0, nuevosEnSucursal: 0, primeraVezEnSucursal: 0, detalle: [] }
+        topCli = []
       }
 
+      setTopClientes(topCli)
       const activosCierre = cliStats.activosInicioPeriodo + nuevosPeriodo.nuevos
       setClientesStats({
         ...cliStats,
@@ -2449,17 +2533,31 @@ export default function ReportesPage() {
         inactivos: Math.max(0, cliStats.total - activosCierre),
         conVisitas: activosCierre,
       })
-      setClientesNuevosDetalle(nuevosPeriodo.detalle)
       setNuevosClientesSplit({
         nuevosEnSucursal: nuevosPeriodo.nuevosEnSucursal,
         primeraVezEnSucursal: nuevosPeriodo.primeraVezEnSucursal,
       })
+      setLoadedTabs(prev => new Set(prev).add("clientes"))
     } catch (err) {
       console.error("Error cargando tab clientes:", err)
     } finally {
       setIsLoadingClientesTab(false)
     }
-  }, [periodo, fechaCustomDesde, fechaCustomHasta, sucursalFilter, sucursalFija, isAdmin, multiBranch, branchIds.join(",")])
+  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, branchIds.join(",")])
+
+  const cargarDetalleNuevosClientes = useCallback(async () => {
+    if (clientesNuevosDetalle.length > 0 || isLoadingNuevosDetalle) return
+    const { fechaDesde, fechaHasta, nuevosScope } = resolverContextoReporte()
+    setIsLoadingNuevosDetalle(true)
+    try {
+      const detalle = await getClientesNuevosDetallePeriodo(fechaDesde, fechaHasta, nuevosScope)
+      setClientesNuevosDetalle(detalle)
+    } catch (err) {
+      console.error("Error cargando detalle de nuevos clientes:", err)
+    } finally {
+      setIsLoadingNuevosDetalle(false)
+    }
+  }, [clientesNuevosDetalle.length, isLoadingNuevosDetalle, resolverContextoReporte])
 
   useEffect(() => {
     if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
@@ -2470,7 +2568,31 @@ export default function ReportesPage() {
     if (activeTab !== "clientes") return
     if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
     cargarClientesTab()
-  }, [activeTab, cargarClientesTab, periodo, fechaCustomDesde, fechaCustomHasta])
+  }, [activeTab, cargarClientesTab, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
+
+  useEffect(() => {
+    if (activeTab !== "servicios") return
+    if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
+    cargarTabServicios()
+  }, [activeTab, cargarTabServicios, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
+
+  useEffect(() => {
+    if (activeTab !== "empleados" && activeTab !== "nomina") return
+    if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
+    cargarTabEmpleadosNomina()
+  }, [activeTab, cargarTabEmpleadosNomina, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
+
+  useEffect(() => {
+    if (activeTab !== "sucursales") return
+    if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
+    cargarTabSucursales()
+  }, [activeTab, cargarTabSucursales, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
+
+  useEffect(() => {
+    if (!nuevosClientesDialogOpen) return
+    if (clientesStats.nuevos <= 0) return
+    void cargarDetalleNuevosClientes()
+  }, [nuevosClientesDialogOpen, clientesStats.nuevos, cargarDetalleNuevosClientes])
 
   // ── Carga de datos del tab Embajadoras (usa filtros LOCALES, no los globales) ──
   const cargarEmbajadoras = useCallback(async () => {
@@ -2781,7 +2903,13 @@ export default function ReportesPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      <Dialog open={nuevosClientesDialogOpen} onOpenChange={setNuevosClientesDialogOpen}>
+      <Dialog
+        open={nuevosClientesDialogOpen}
+        onOpenChange={open => {
+          setNuevosClientesDialogOpen(open)
+          if (open && clientesStats.nuevos > 0) void cargarDetalleNuevosClientes()
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Nuevos clientes</DialogTitle>
@@ -2794,9 +2922,15 @@ export default function ReportesPage() {
               {sucNombreActiva ? ` · ${sucNombreActiva}` : ""}
             </DialogDescription>
           </DialogHeader>
-          {clientesNuevosDetalle.length === 0 ? (
+          {isLoadingNuevosDetalle ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : clientesNuevosDetalle.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
-              No hay clientes nuevos en este período.
+              {clientesStats.nuevos > 0
+                ? "No se pudo cargar el detalle. Cierra e intenta de nuevo."
+                : "No hay clientes nuevos en este período."}
             </p>
           ) : (
             <div className="overflow-auto -mx-1 px-1 space-y-6">
@@ -3312,7 +3446,7 @@ export default function ReportesPage() {
                 <CardDescription>Top 10 · {periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isLoadingServiciosTab ? (
                   <div className="space-y-2">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="h-10 rounded bg-muted animate-pulse" />
@@ -3367,7 +3501,7 @@ export default function ReportesPage() {
                 <CardDescription>Top 10 · {periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isLoadingEmpleadosTab ? (
                   <div className="space-y-2">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="h-10 rounded bg-muted animate-pulse" />
@@ -3492,7 +3626,7 @@ export default function ReportesPage() {
                 <CardDescription>{periodoLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isLoadingKpis ? (
                   <div className="space-y-2">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="h-10 rounded bg-muted animate-pulse" />
@@ -3584,7 +3718,7 @@ export default function ReportesPage() {
                   <CardDescription>{periodoLabel}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {isLoading ? (
+                  {isLoadingClientesTab ? (
                     <div className="space-y-2">
                       {Array.from({ length: 5 }).map((_, i) => (
                         <div key={i} className="h-10 rounded bg-muted animate-pulse" />
@@ -3876,7 +4010,7 @@ export default function ReportesPage() {
                   <CardDescription>{periodoLabel}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {isLoading ? (
+                  {isLoadingSucursalesTab ? (
                     <div className="space-y-2">
                       {Array.from({ length: 5 }).map((_, i) => (
                         <div key={i} className="h-10 rounded bg-muted animate-pulse" />
@@ -3980,13 +4114,13 @@ export default function ReportesPage() {
                   <CardDescription>{periodoLabel}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {isLoading ? (
+                  {isLoadingNominaTab ? (
                     <div className="space-y-2">
                       {Array.from({ length: 5 }).map((_, i) => (
                         <div key={i} className="h-10 rounded bg-muted animate-pulse" />
                       ))}
                     </div>
-                  ) : empleadosTop.length === 0 ? (
+                  ) : todasEmpleadasNomina.length === 0 ? (
                     <p className="text-center py-8 text-sm text-muted-foreground">
                       Sin datos en este período
                     </p>

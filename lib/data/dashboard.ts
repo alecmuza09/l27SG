@@ -5,6 +5,7 @@ import type { Database } from '@/lib/supabase/types'
 import { getSucursalesActivasFromDB } from './sucursales'
 import { getEmpleadosFromDB } from './empleados'
 import { getClientesStats } from './clientes'
+import { getServiciosPopularesRpc } from './reportes-aggregados'
 
 type CitaRow = Database['public']['Tables']['citas']['Row']
 
@@ -312,6 +313,12 @@ export async function getServiciosPopulares(
   fechaHasta?: string,
 ): Promise<ServicioPopular[]> {
   try {
+    if (fechaDesde && fechaHasta && !fecha) {
+      const sid = sucursalId && sucursalId !== 'all' ? sucursalId : undefined
+      const rpc = await getServiciosPopularesRpc(limit, fechaDesde, fechaHasta, sid)
+      if (rpc) return rpc
+    }
+
     let citasQuery = supabase
       .from('citas')
       .select(`
