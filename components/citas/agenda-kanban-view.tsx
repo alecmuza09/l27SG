@@ -800,6 +800,12 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
   )
 
   const [citasCanceladasOpen, setCitasCanceladasOpen] = useState(false)
+  const [cortesiasDetalleOpen, setCortesiasDetalleOpen] = useState(false)
+
+  const pagosCortesiasDelDia = useMemo(
+    () => pagosDelDia.filter((p) => p.descuentoCodigo === "CORTESIA"),
+    [pagosDelDia],
+  )
 
   useEffect(() => {
     setCitasCanceladasOpen(false)
@@ -2303,7 +2309,23 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
             <p className="text-xs text-muted-foreground">Canceladas</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={cn(
+            statsDia.cortesias > 0 &&
+              "cursor-pointer hover:bg-muted/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+          role={statsDia.cortesias > 0 ? "button" : undefined}
+          tabIndex={statsDia.cortesias > 0 ? 0 : undefined}
+          onClick={() => {
+            if (statsDia.cortesias > 0) setCortesiasDetalleOpen(true)
+          }}
+          onKeyDown={(e) => {
+            if (statsDia.cortesias > 0 && (e.key === "Enter" || e.key === " ")) {
+              e.preventDefault()
+              setCortesiasDetalleOpen(true)
+            }
+          }}
+        >
           <CardContent className="p-3">
             <div className="text-lg font-bold tabular-nums">{statsDia.cortesias}</div>
             <p className="text-xs text-muted-foreground">Cortesías</p>
@@ -2322,6 +2344,42 @@ export function AgendaKanbanView({ selectedDate, onDateChange, selectedSucursal:
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={cortesiasDetalleOpen} onOpenChange={setCortesiasDetalleOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cortesías del día</DialogTitle>
+            <DialogDescription>
+              {formatDate(selectedDate)} — sucursal actual
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="space-y-2 max-h-[min(60vh,320px)] overflow-y-auto pr-1">
+            {pagosCortesiasDelDia.map((p) => {
+              const servicio =
+                p.servicios?.length > 0 ? p.servicios.join(", ") : "—"
+              const montoValor =
+                p.subtotal ??
+                (Number(p.monto) || 0) + (Number(p.descuentoMonto) || 0)
+              return (
+                <li
+                  key={p.id}
+                  className="rounded-lg border bg-muted/30 px-3 py-2 text-sm space-y-1"
+                >
+                  <div className="font-medium truncate" title={p.clienteNombre}>
+                    {p.clienteNombre || "—"}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate" title={servicio}>
+                    {servicio}
+                  </div>
+                  <div className="text-xs font-medium tabular-nums text-foreground">
+                    {fmtMXN(montoValor)}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </DialogContent>
+      </Dialog>
 
       {citasCanceladasDia.length > 0 && (
         <Card className="border-red-200/60 dark:border-red-900/50">
