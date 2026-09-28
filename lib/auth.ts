@@ -196,6 +196,16 @@ export function isGlobalAdministrator(user: User | null): boolean {
   return user?.role === "admin" || user?.role === "superadmin"
 }
 
+/** Exportar listado de clientes (Excel) en /dashboard/clientes. */
+export const CLIENTES_EXPORT_ALLOWED_EMAIL = "carrizalejofranq@luna27.mx"
+
+export function canExportClientesListado(user: User | null): boolean {
+  if (!user) return false
+  if (isGlobalAdministrator(user)) return true
+  if (!user.email) return false
+  return normalizeAuthEmail(user.email) === normalizeAuthEmail(CLIENTES_EXPORT_ALLOWED_EMAIL)
+}
+
 /** Usuario con más de una sucursal asignada (columna + usuario_sucursales), sin ser admin global. */
 export function userHasMultiBranchScope(user: User | null): boolean {
   if (!user || isGlobalAdministrator(user)) return false

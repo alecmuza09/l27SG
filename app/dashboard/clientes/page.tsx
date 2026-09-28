@@ -52,7 +52,13 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
-import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, type User } from "@/lib/auth"
+import {
+  getCurrentUser,
+  isGlobalAdministrator,
+  canExportClientesListado,
+  effectivePrimarySucursalId,
+  type User,
+} from "@/lib/auth"
 
 type VisitaFilter =
   | "todos"
@@ -142,6 +148,7 @@ export default function ClientesPage() {
   const [embajadoraUpdatingId, setEmbajadoraUpdatingId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const isAdmin = isGlobalAdministrator(currentUser)
+  const canExportClientes = canExportClientesListado(currentUser)
   const isBranchAdmin = currentUser?.role === "branch-admin"
   const sucursalTarjetasId = isBranchAdmin ? effectivePrimarySucursalId(currentUser) : undefined
   const sucursalAlcanceAdmin =
@@ -321,7 +328,7 @@ export default function ClientesPage() {
   }
 
   const handleExportClientes = async () => {
-    if (!isAdmin || isExporting) return
+    if (!canExportClientesListado(getCurrentUser()) || isExporting) return
 
     setIsExporting(true)
     try {
@@ -708,7 +715,7 @@ export default function ClientesPage() {
           <p className="text-muted-foreground">Gestiona tu base de clientes</p>
         </div>
         <div className="flex gap-2">
-          {isAdmin && (
+          {canExportClientes && (
             <Button variant="outline" onClick={handleExportClientes} disabled={isExporting}>
               {isExporting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
