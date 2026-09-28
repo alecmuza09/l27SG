@@ -2417,34 +2417,42 @@ export default function ReportesPage() {
     }
   }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, branchIds.join(",")])
 
-  const cargarTabEmpleadosNomina = useCallback(async () => {
-    if (loadedTabs.has("empleados-nomina") || reporteFiltrosKey === "") return
-    const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, filtrosKey } = resolverContextoReporte()
-    if (filtrosKey !== reporteFiltrosKey) return
+  /** Consulta empleadas para nómina con los filtros actuales (sin depender del tab activo). */
+  const fetchEmpleadosNominaRows = useCallback(async (): Promise<EmpleadoRow[]> => {
+    const { fechaDesde, fechaHasta, sucId, esMultiBranchAll } = resolverContextoReporte()
+    let todasEmpleadas: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
+    if (esMultiBranchAll) {
+      const emp200Arr = await Promise.all(
+        branchIds.map(id => getTopEmpleadosFromDB(200, id, fechaDesde, fechaHasta)),
+      )
+      todasEmpleadas = emp200Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 200)
+    } else {
+      todasEmpleadas = await getTopEmpleadosFromDB(200, sucId, fechaDesde, fechaHasta)
+    }
+    return mapEmpleadoRows(todasEmpleadas)
+  }, [resolverContextoReporte, branchIds.join(",")])
+
+  const cargarTabEmpleadosNomina = useCallback(async (): Promise<EmpleadoRow[] | undefined> => {
+    if (loadedTabs.has("empleados-nomina") || reporteFiltrosKey === "") return undefined
+    const { filtrosKey } = resolverContextoReporte()
+    if (filtrosKey !== reporteFiltrosKey) return undefined
 
     setIsLoadingEmpleadosTab(true)
     setIsLoadingNominaTab(true)
     try {
-      let todasEmpleadas: Awaited<ReturnType<typeof getTopEmpleadosFromDB>>
-      if (esMultiBranchAll) {
-        const emp200Arr = await Promise.all(
-          branchIds.map(id => getTopEmpleadosFromDB(200, id, fechaDesde, fechaHasta)),
-        )
-        todasEmpleadas = emp200Arr.flat().sort((a, b) => b.ingresos - a.ingresos).slice(0, 200)
-      } else {
-        todasEmpleadas = await getTopEmpleadosFromDB(200, sucId, fechaDesde, fechaHasta)
-      }
-      const rows = mapEmpleadoRows(todasEmpleadas)
+      const rows = await fetchEmpleadosNominaRows()
       setTodasEmpleadasNomina(rows)
       setEmpleadosTop(rows.slice(0, 10))
       setLoadedTabs(prev => new Set(prev).add("empleados-nomina"))
+      return rows
     } catch (err) {
       console.error("Error cargando tab empleados/nómina:", err)
+      return undefined
     } finally {
       setIsLoadingEmpleadosTab(false)
       setIsLoadingNominaTab(false)
     }
-  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, branchIds.join(",")])
+  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, fetchEmpleadosNominaRows])
 
   const cargarTabSucursales = useCallback(async () => {
     if (loadedTabs.has("sucursales") || reporteFiltrosKey === "") return
@@ -2756,15 +2764,19 @@ export default function ReportesPage() {
         : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? sucursalFilter)
       const agrupar = sucursalFilter === "all" && (isAdmin || multiBranch)
 
+      const rowsNomina = await fetchEmpleadosNominaRows()
+      setTodasEmpleadasNomina(rowsNomina)
+      setEmpleadosTop(rowsNomina.slice(0, 10))
+      setLoadedTabs(prev => new Set(prev).add("empleados-nomina"))
+      const fuenteRows = agrupar ? rowsNomina : rowsNomina.slice(0, 10)
+
       // propinas por nombre de empleada (ya calculadas correctamente)
       const propMap = new Map<string, number>()
       for (const p of propinasEmpleadas) {
         propMap.set(p.nombre, p.totalPropinas)
       }
 
-      const fuente = agrupar ? todasEmpleadasNomina : empleadosTop
-
-      const empleadosConPropinas = fuente.map(e => {
+      const empleadosConPropinas = fuenteRows.map(e => {
         const nombreCompleto = `${e.nombre} ${e.apellido}`.trim()
         return {
           nombre: e.nombre,
@@ -3088,7 +3100,7 @@ export default function ReportesPage() {
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="outline"
-                        disabled={isExportingNomina || empleadosTop.length === 0}
+                        disabled={isExportingNomina}
                         className="border-slate-300 bg-slate-50 hover:bg-slate-100 text-[#1e40af] font-medium shadow-sm"
                       >
                         {isExportingNomina ? (
