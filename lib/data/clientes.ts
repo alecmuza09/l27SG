@@ -132,6 +132,80 @@ function filtrarFilasListadoClientes(rows: any[], filtros: FiltrosListadoCliente
   return out
 }
 
+/** PostgREST falla si `.in('id', …)` lleva demasiados UUID en la URL. */
+const CLIENTES_ID_IN_CHUNK = 150
+
+function supabaseErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message)
+  }
+  return String(error)
+}
+
+async function contarClientesListado(
+  filtros: FiltrosListadoClientes,
+  idsScope: string[] | null,
+): Promise<{ total: number; error: unknown | null }> {
+  const buildCountQuery = (ids: string[] | null) => {
+    let countQuery = supabase
+      .from('clientes')
+      .select('id', { count: 'exact', head: true })
+    if (ids?.length) countQuery = countQuery.in('id', ids)
+    return aplicarFiltrosListadoClientes(countQuery, filtros)
+  }
+
+  if (!idsScope?.length || idsScope.length <= CLIENTES_ID_IN_CHUNK) {
+    const { count, error } = await buildCountQuery(idsScope?.length ? idsScope : null)
+    return { total: count ?? 0, error }
+  }
+
+  let total = 0
+  for (let i = 0; i < idsScope.length; i += CLIENTES_ID_IN_CHUNK) {
+    const chunk = idsScope.slice(i, i + CLIENTES_ID_IN_CHUNK)
+    const { count, error } = await buildCountQuery(chunk)
+    if (error) return { total: 0, error }
+    total += count ?? 0
+  }
+  return { total, error: null }
+}
+
+async function fetchClientesListadoPagina(
+  filtros: FiltrosListadoClientes,
+  idsScope: string[] | null,
+  from: number,
+  to: number,
+): Promise<{ rows: ClienteRow[]; error: unknown | null }> {
+  const pageSize = to - from + 1
+
+  const buildSelectQuery = (ids: string[] | null) => {
+    let dataQuery = supabase.from('clientes').select('*')
+    if (ids?.length) dataQuery = dataQuery.in('id', ids)
+    dataQuery = aplicarFiltrosListadoClientes(dataQuery, filtros)
+    return dataQuery.order('created_at', { ascending: false })
+  }
+
+  if (!idsScope?.length || idsScope.length <= CLIENTES_ID_IN_CHUNK) {
+    const { data, error } = await buildSelectQuery(idsScope?.length ? idsScope : null).range(from, to)
+    return { rows: (data ?? []) as ClienteRow[], error }
+  }
+
+  const rows: ClienteRow[] = []
+  for (let i = 0; i < idsScope.length; i += CLIENTES_ID_IN_CHUNK) {
+    const chunk = idsScope.slice(i, i + CLIENTES_ID_IN_CHUNK)
+    const { data, error } = await buildSelectQuery(chunk)
+    if (error) return { rows: [], error }
+    rows.push(...((data ?? []) as ClienteRow[]))
+  }
+
+  rows.sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+    return tb - ta
+  })
+
+  return { rows: rows.slice(from, from + pageSize), error: null }
+}
+
 // Obtener clientes con paginación
 export async function getClientesPaginated(
   page: number = 1,
@@ -152,43 +226,28 @@ export async function getClientesPaginated(
       return { clientes: [], total: 0, totalPages: 0 }
     }
 
-    const applyIdScope = <T extends { in: (col: string, vals: string[]) => T }>(query: T): T => {
-      if (idsScope) return query.in("id", idsScope)
-      return query
-    }
-
-    // Obtener el total de clientes (aplicando los filtros de clasificación en la BD)
-    let countQuery = supabase
-      .from('clientes')
-      .select('*', { count: 'exact', head: true })
-
-    countQuery = applyIdScope(aplicarFiltrosListadoClientes(countQuery, filtrosDb))
-
-    const { count, error: countError } = await countQuery
+    const { total, error: countError } = await contarClientesListado(filtrosDb, idsScope)
 
     if (countError) {
-      console.error('Error obteniendo conteo de clientes:', countError)
+      console.error(
+        'Error obteniendo conteo de clientes:',
+        supabaseErrorMessage(countError),
+        countError,
+      )
       return { clientes: [], total: 0, totalPages: 0 }
     }
 
-    const total = count || 0
     const totalPages = Math.ceil(total / pageSize)
 
-    let dataQuery = supabase.from('clientes').select('*')
-
-    dataQuery = applyIdScope(aplicarFiltrosListadoClientes(dataQuery, filtrosDb))
-
-    const { data, error } = await dataQuery
-      .order('created_at', { ascending: false })
-      .range(from, to)
+    const { rows, error } = await fetchClientesListadoPagina(filtrosDb, idsScope, from, to)
 
     if (error) {
-      console.error('Error obteniendo clientes:', error)
+      console.error('Error obteniendo clientes:', supabaseErrorMessage(error), error)
       return { clientes: [], total, totalPages }
     }
 
     return {
-      clientes: (data ?? []).map(row => transformCliente(row)),
+      clientes: rows.map(row => transformCliente(row)),
       total,
       totalPages,
     }
@@ -439,7 +498,9 @@ async function paginateClienteIds(
             .eq("sucursal_id", sucursalId)
             .eq("estado", "completado")
 
-    const { data, error } = await query.range(from, from + PAGE - 1)
+    const { data, error } = await query
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1)
     if (error) {
       console.error(`Error listando clientes por ${table} en sucursal:`, error)
       break
@@ -485,32 +546,20 @@ async function resolveIdsScopeListadoClientes(
   return ids
 }
 
-/** Clientes con al menos una cita completada en la sucursal (activos en Reportes). */
-async function clienteIdsConCitaCompletadaEnSucursal(sucursalId: string): Promise<string[]> {
+/** Clientes con ≥1 cita completada en la sucursal (misma regla que tarjeta «Clientes activos»). */
+async function clienteIdsConCitaCompletadaEnSucursal(
+  sucursalId: string,
+  fechaHasta: string = fechaHastaPorDefecto(),
+): Promise<string[]> {
   const idSet = new Set<string>()
-  const PAGE = 1000
-  let from = 0
-  while (true) {
-    const { data, error } = await supabase
-      .from("citas")
-      .select("cliente_id")
-      .eq("sucursal_id", sucursalId)
-      .eq("estado", "completada")
-      .not("cliente_id", "is", null)
-      .range(from, from + PAGE - 1)
-
-    if (error) {
-      console.error("Error listando clientes activos por sucursal:", error)
-      break
-    }
-    const batch = data ?? []
-    for (const r of batch) {
-      const id = (r as { cliente_id: string }).cliente_id
-      if (id) idSet.add(id)
-    }
-    if (batch.length < PAGE) break
-    from += PAGE
-  }
+  await streamCitasCompletadasLite(
+    { fechaHasta, visitaScope: { sucursalId } },
+    batch => {
+      for (const row of batch) {
+        idSet.add(row.cliente_id)
+      }
+    },
+  )
   return [...idSet]
 }
 
