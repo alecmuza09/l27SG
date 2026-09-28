@@ -24,8 +24,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
-  getPagosFromDB, distribuirMontoPago, totalizarVentasSaldoGiftCards,
-  esVentaSaldoGiftCard, etiquetaMetodosPago, cuentaEnTotales, type Pago,
+  getPagosFromDB, getPagosKpiStatsFromDB, distribuirMontoPago, totalizarVentasSaldoGiftCards,
+  esVentaSaldoGiftCard, etiquetaMetodosPago, cuentaEnTotales, type Pago, type PagosKpiStats,
 } from "@/lib/data/pagos"
 import {
   getServiciosPopulares,
@@ -2277,38 +2277,49 @@ export default function ReportesPage() {
         fechaCustomHasta,
       )
 
-      const calcStats = (lista: Pago[]): KpiStats => {
-        const comp = lista.filter(p => p.estado === "completado" && cuentaEnTotales(p))
-        const ingresos = comp.reduce((s, p) => s + p.monto, 0)
-        const total = comp.length
+      const mergeKpiStats = (partes: PagosKpiStats[]): KpiStats => {
+        const ingresosTotales = partes.reduce((s, k) => s + k.ingresosTotales, 0)
+        const totalServicios = partes.reduce((s, k) => s + k.totalServicios, 0)
         return {
-          ingresosTotales: ingresos,
-          totalServicios: total,
-          ticketPromedio: total > 0 ? Math.round(ingresos / total) : 0,
+          ingresosTotales,
+          totalServicios,
+          ticketPromedio: totalServicios > 0 ? Math.round(ingresosTotales / totalServicios) : 0,
         }
       }
 
       let pagos: Pago[]
       let pagosAnt: Pago[]
+      let kpiActual: KpiStats
+      let kpiAnterior: KpiStats
 
       if (esMultiBranchAll) {
-        const [pagosPorSuc, pagosAntPorSuc] = await Promise.all([
+        const [pagosPorSuc, pagosAntPorSuc, kpiActualPorSuc, kpiAntPorSuc] = await Promise.all([
           Promise.all(branchIds.map(id => getPagosFromDB(id, undefined, fechaDesde, fechaHasta))),
           Promise.all(branchIds.map(id => getPagosFromDB(id, undefined, antDesde, antHasta))),
+          Promise.all(branchIds.map(id => getPagosKpiStatsFromDB(id, undefined, fechaDesde, fechaHasta))),
+          Promise.all(branchIds.map(id => getPagosKpiStatsFromDB(id, undefined, antDesde, antHasta))),
         ])
         pagos = pagosPorSuc.flat()
         pagosAnt = pagosAntPorSuc.flat()
+        kpiActual = mergeKpiStats(kpiActualPorSuc)
+        kpiAnterior = mergeKpiStats(kpiAntPorSuc)
       } else {
-        ;[pagos, pagosAnt] = await Promise.all([
+        const [pagosRes, pagosAntRes, kpiAct, kpiAnt] = await Promise.all([
           getPagosFromDB(sucId, undefined, fechaDesde, fechaHasta),
           getPagosFromDB(sucId, undefined, antDesde, antHasta),
+          getPagosKpiStatsFromDB(sucId, undefined, fechaDesde, fechaHasta),
+          getPagosKpiStatsFromDB(sucId, undefined, antDesde, antHasta),
         ])
+        pagos = pagosRes
+        pagosAnt = pagosAntRes
+        kpiActual = kpiAct
+        kpiAnterior = kpiAnt
       }
 
       setPagosBrutos(pagos)
       setPagosAnteriores(pagosAnt)
-      setStatsActual(calcStats(pagos))
-      setStatsAnterior(calcStats(pagosAnt))
+      setStatsActual(kpiActual)
+      setStatsAnterior(kpiAnterior)
       setVentasSaldoGcActual(totalizarVentasSaldoGiftCards(pagos))
       setVentasSaldoGcAnt(totalizarVentasSaldoGiftCards(pagosAnt))
       setPropinasEmpleadas(calcularPropinasPorEmpleada(pagos))
@@ -4157,13 +4168,9 @@ export default function ReportesPage() {
                               const propMap = new Map(
                                 propinasEmpleadas.map(p => [p.empleadoId, p.totalPropinas])
                               )
-                              const rows = empleadosTop.map(e => ({
+                              const rows = todasEmpleadasNomina.map(e => ({
                                 ...e,
-                                propinas: propMap.get(
-                                  pagosBrutos
-                                    .find(p => p.empleadoNombre === `${e.nombre} ${e.apellido}`)
-                                    ?.empleadoId ?? ""
-                                ) ?? 0,
+                                propinas: propMap.get(e.empleadoId) ?? 0,
                               }))
                               const totalVentas    = rows.reduce((s, r) => s + r.ingresos, 0)
                               const totalComision  = rows.reduce((s, r) => s + r.comision, 0)

@@ -653,14 +653,14 @@ export async function getTopEmpleadosFromDB(
       empleados.map(async (empleado) => {
         const { data: citasMes, count: citasCount } = await supabase
           .from('citas')
-          .select('precio, duracion')
+          .select('precio, duracion', { count: 'exact' })
           .eq('empleado_id', empleado.id)
           .eq('estado', 'completada')
           .gte('fecha', desde)
           .lte('fecha', hasta)
-        
+
         const ingresos = citasMes?.reduce((sum, c: Pick<CitaRow, 'precio' | 'cliente_id'>) => sum + Number(c.precio || 0), 0) || 0
-        const citas = citasCount || 0
+        const citas = citasCount ?? citasMes?.length ?? 0
         const serviciosCompletados = citas
         const promedioTicket = citas > 0 ? Math.round(ingresos / citas) : 0
         

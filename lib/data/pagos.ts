@@ -374,7 +374,179 @@ export function getPagosPendientes(): Pago[] {
   return MOCK_PAGOS.filter((p) => p.estado === "pendiente")
 }
 
-// Obtener pagos desde Supabase
+const PAGOS_FROM_DB_COLUMNS = `
+  id, cita_id, cliente_id, empleado_id, sucursal_id,
+  monto, metodo_pago, estado, fecha, hora, servicios,
+  notas, referencia, subtotal,
+  descuento_monto, descuento_tipo, descuento_codigo,
+  propina, monto_efectivo, monto_tarjeta, gift_card_codigo, excluir_de_totales
+`
+
+export type PagosKpiStats = {
+  ingresosTotales: number
+  totalServicios: number
+  ticketPromedio: number
+}
+
+function mapPagoFromDbRowPlain(pago: any): Pago {
+  return {
+    id: pago.id,
+    citaId: pago.cita_id || '',
+    clienteId: pago.cliente_id ?? null,
+    clienteNombre: pago.cliente_id ? 'Cliente desconocido' : 'Sin cliente',
+    monto: Number(pago.monto) || 0,
+    metodoPago: pago.metodo_pago,
+    estado: pago.estado,
+    fecha: pago.fecha,
+    hora: pago.hora || '',
+    sucursalId: pago.sucursal_id,
+    empleadoId: pago.empleado_id ?? null,
+    empleadoNombre: 'Sin empleado',
+    servicios: pago.servicios || [],
+    notas: pago.notas || undefined,
+    referencia: pago.referencia || undefined,
+    subtotal: Number(pago.subtotal) || 0,
+    descuentoMonto: Number(pago.descuento_monto) || 0,
+    descuentoTipo: pago.descuento_tipo || undefined,
+    descuentoCodigo: pago.descuento_codigo || undefined,
+    propina: Number(pago.propina) || 0,
+    montoEfectivo: Number(pago.monto_efectivo) || 0,
+    montoTarjeta: Number(pago.monto_tarjeta) || 0,
+    giftCardCodigo: pago.gift_card_codigo || undefined,
+    excluirDeTotales: Boolean(pago.excluir_de_totales),
+  }
+}
+
+async function enrichPagosWithNombres(pagos: Pago[]): Promise<Pago[]> {
+  if (!pagos.length) return pagos
+
+  const clienteIds = [...new Set(
+    pagos.map(p => p.clienteId).filter((id): id is string => Boolean(id)),
+  )]
+  const empleadoIds = [...new Set(
+    pagos.map(p => p.empleadoId).filter((id): id is string => Boolean(id)),
+  )]
+
+  const clientesMap = new Map<string, string>()
+  const empleadosMap = new Map<string, string>()
+  const BATCH = 200
+
+  for (let i = 0; i < clienteIds.length; i += BATCH) {
+    const { data } = await supabase
+      .from('clientes')
+      .select('id, nombre, apellido')
+      .in('id', clienteIds.slice(i, i + BATCH))
+    for (const c of data ?? []) {
+      clientesMap.set(c.id, `${c.nombre} ${c.apellido}`.trim())
+    }
+  }
+
+  for (let i = 0; i < empleadoIds.length; i += BATCH) {
+    const { data } = await supabase
+      .from('empleados')
+      .select('id, nombre, apellido')
+      .in('id', empleadoIds.slice(i, i + BATCH))
+    for (const e of data ?? []) {
+      empleadosMap.set(e.id, `${e.nombre} ${e.apellido}`.trim())
+    }
+  }
+
+  return pagos.map(p => ({
+    ...p,
+    clienteNombre: p.clienteId
+      ? (clientesMap.get(p.clienteId) ?? 'Cliente desconocido')
+      : 'Sin cliente',
+    empleadoNombre: p.empleadoId
+      ? (empleadosMap.get(p.empleadoId) ?? 'Sin empleado')
+      : 'Sin empleado',
+  }))
+}
+
+type PagosQueryFilters = {
+  sucursalId?: string
+  fecha?: string
+  fechaDesde?: string
+  fechaHasta?: string
+}
+
+function applyPagosListFilters<T>(query: T, filters: PagosQueryFilters): T {
+  let q = query as any
+  if (filters.sucursalId) q = q.eq('sucursal_id', filters.sucursalId)
+  if (filters.fecha) q = q.eq('fecha', filters.fecha)
+  if (filters.fechaDesde) q = q.gte('fecha', filters.fechaDesde)
+  if (filters.fechaHasta) q = q.lte('fecha', filters.fechaHasta)
+  return q
+}
+
+/** KPIs de reportes sin tope de 1000 filas (count exacto + suma paginada). */
+export async function getPagosKpiStatsFromDB(
+  sucursalId?: string,
+  fecha?: string,
+  fechaDesde?: string,
+  fechaHasta?: string,
+): Promise<PagosKpiStats> {
+  const filters: PagosQueryFilters = { sucursalId, fecha, fechaDesde, fechaHasta }
+  const empty: PagosKpiStats = { ingresosTotales: 0, totalServicios: 0, ticketPromedio: 0 }
+
+  try {
+    let countQuery = applyPagosListFilters(
+      supabase
+        .from('pagos')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'completado')
+        .or('excluir_de_totales.is.null,excluir_de_totales.eq.false'),
+      filters,
+    )
+
+    const { count, error: countError } = await countQuery
+    if (countError) {
+      console.error('Error contando pagos para KPI:', countError)
+      return empty
+    }
+
+    const totalServicios = count ?? 0
+    let ingresosTotales = 0
+    const PAGE = 1000
+    let offset = 0
+
+    for (;;) {
+      let sumQuery = applyPagosListFilters(
+        supabase
+          .from('pagos')
+          .select('monto')
+          .eq('estado', 'completado')
+          .or('excluir_de_totales.is.null,excluir_de_totales.eq.false')
+          .order('id', { ascending: true })
+          .range(offset, offset + PAGE - 1),
+        filters,
+      )
+
+      const { data, error } = await sumQuery
+      if (error) {
+        console.error('Error sumando ingresos para KPI:', error)
+        break
+      }
+
+      const chunk = data ?? []
+      if (!chunk.length) break
+
+      ingresosTotales += chunk.reduce((s, row) => s + (Number(row.monto) || 0), 0)
+      if (chunk.length < PAGE) break
+      offset += PAGE
+    }
+
+    return {
+      ingresosTotales,
+      totalServicios,
+      ticketPromedio: totalServicios > 0 ? Math.round(ingresosTotales / totalServicios) : 0,
+    }
+  } catch (error) {
+    console.error('Error inesperado en KPI de pagos:', error)
+    return empty
+  }
+}
+
+/** PostgREST limita ~1000 filas por request; paginamos sin joins embebidos (más fiable). */
 export async function getPagosFromDB(
   sucursalId?: string,
   fecha?: string,
@@ -382,63 +554,40 @@ export async function getPagosFromDB(
   fechaHasta?: string,
 ): Promise<Pago[]> {
   try {
-    let query = supabase
-      .from('pagos')
-      .select(`
-        id, cita_id, cliente_id, empleado_id, sucursal_id,
-        monto, metodo_pago, estado, fecha, hora, servicios,
-        notas, referencia, subtotal,
-        descuento_monto, descuento_tipo, descuento_codigo,
-        propina, monto_efectivo, monto_tarjeta, gift_card_codigo, excluir_de_totales,
-        cliente:clientes(nombre, apellido),
-        empleado:empleados(nombre, apellido)
-      `)
-      .order('hora', { ascending: false })
+    const filters: PagosQueryFilters = { sucursalId, fecha, fechaDesde, fechaHasta }
+    const PAGE = 1000
+    const rows: any[] = []
+    let offset = 0
 
-    if (sucursalId)  query = query.eq('sucursal_id', sucursalId)
-    if (fecha)       query = query.eq('fecha', fecha)
-    if (fechaDesde)  query = query.gte('fecha', fechaDesde)
-    if (fechaHasta)  query = query.lte('fecha', fechaHasta)
+    for (;;) {
+      let query = applyPagosListFilters(
+        supabase
+          .from('pagos')
+          .select(PAGOS_FROM_DB_COLUMNS)
+          .order('fecha', { ascending: false })
+          .order('hora', { ascending: false })
+          .order('id', { ascending: false })
+          .range(offset, offset + PAGE - 1),
+        filters,
+      )
 
-    const { data, error } = await query
+      const { data, error } = await query
 
-    if (error) {
-      console.error('Error obteniendo pagos:', error)
-      return []
+      if (error) {
+        console.error('Error obteniendo pagos:', error)
+        return []
+      }
+
+      const chunk = data ?? []
+      if (!chunk.length) break
+
+      rows.push(...chunk)
+      if (chunk.length < PAGE) break
+      offset += PAGE
     }
 
-    if (!data) return []
-
-    return data.map((pago: any) => ({
-      id: pago.id,
-      citaId: pago.cita_id || '',
-      clienteId: pago.cliente_id ?? null,
-      clienteNombre: pago.cliente
-        ? `${pago.cliente.nombre} ${pago.cliente.apellido}`
-        : pago.cliente_id
-          ? 'Cliente desconocido'
-          : 'Sin cliente',
-      monto: Number(pago.monto) || 0,
-      metodoPago: pago.metodo_pago,
-      estado: pago.estado,
-      fecha: pago.fecha,
-      hora: pago.hora || '',
-      sucursalId: pago.sucursal_id,
-      empleadoId: pago.empleado_id ?? null,
-      empleadoNombre: pago.empleado ? `${pago.empleado.nombre} ${pago.empleado.apellido}` : 'Sin empleado',
-      servicios: pago.servicios || [],
-      notas: pago.notas || undefined,
-      referencia: pago.referencia || undefined,
-      subtotal: Number(pago.subtotal) || 0,
-      descuentoMonto: Number(pago.descuento_monto) || 0,
-      descuentoTipo: pago.descuento_tipo || undefined,
-      descuentoCodigo: pago.descuento_codigo || undefined,
-      propina: Number(pago.propina) || 0,
-      montoEfectivo: Number(pago.monto_efectivo) || 0,
-      montoTarjeta: Number(pago.monto_tarjeta) || 0,
-      giftCardCodigo: pago.gift_card_codigo || undefined,
-      excluirDeTotales: Boolean(pago.excluir_de_totales),
-    }))
+    const pagos = rows.map(mapPagoFromDbRowPlain)
+    return enrichPagosWithNombres(pagos)
   } catch (error) {
     console.error('Error inesperado obteniendo pagos:', error)
     return []
