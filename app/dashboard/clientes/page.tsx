@@ -20,10 +20,13 @@ import {
   Download,
   Loader2,
   Star,
+  Building2,
 } from "lucide-react"
 import {
   getClientesPaginated, searchClientesPaginated, getClientesResumenTarjetas,
-  createCliente, updateCliente, updateClienteEmbajadora, type Cliente,
+  createCliente, updateCliente, updateClienteEmbajadora,
+  getClientesByIds, fetchAllClientesListado, fetchAllClientesBusqueda,
+  getClientesNuevosListadoEnPeriodo, type Cliente, type ClienteNuevoPeriodoRow,
 } from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { toast } from "sonner"
@@ -51,6 +54,55 @@ import {
 } from "@/components/ui/pagination"
 import { getCurrentUser, isGlobalAdministrator, effectivePrimarySucursalId, type User } from "@/lib/auth"
 
+type VisitaFilter =
+  | "todos"
+  | "con-visitas"
+  | "sin-visita-reciente"
+  | "sin-visitas"
+  | "embajadoras"
+  | "vetadas"
+  | "problematicas"
+  | "descuento"
+  | "nuevos-este-mes"
+  | "primera-vez-sucursal"
+
+function esFiltroNuevosPeriodo(f: VisitaFilter): boolean {
+  return f === "nuevos-este-mes" || f === "primera-vez-sucursal"
+}
+
+function fmtFechaExport(iso: string | null | undefined): string {
+  if (!iso) return ""
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
+}
+
+function ordenarClientesParaExport(clientes: Cliente[]): Cliente[] {
+  return [...clientes].sort((a, b) => {
+    const fa = a.ultimaVisita || a.fechaRegistro
+    const fb = b.ultimaVisita || b.fechaRegistro
+    return fb.localeCompare(fa)
+  })
+}
+
+function labelFiltroClientes(f: VisitaFilter): string {
+  const map: Record<VisitaFilter, string> = {
+    todos: "Todos",
+    embajadoras: "Embajadoras",
+    "con-visitas": "Con visitas",
+    "sin-visita-reciente": "Sin visita reciente (+60 días)",
+    "sin-visitas": "Sin visitas",
+    vetadas: "Vetadas",
+    problematicas: "Problemáticas",
+    descuento: "Descuento",
+    "nuevos-este-mes": "Clientes nuevos (sin historial previo)",
+    "primera-vez-sucursal": "Primera vez en sucursal (ya existían)",
+  }
+  return map[f]
+}
+
 // Ordena clientes por última visita descendente; quienes no tienen visitas van al final
 function ordenarPorUltimaVisita(clientes: Cliente[]): Cliente[] {
   return [...clientes].sort((a, b) => {
@@ -63,7 +115,13 @@ function ordenarPorUltimaVisita(clientes: Cliente[]): Cliente[] {
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
-  const [stats, setStats] = useState({ total: 0, embajadoras: 0, conVisitas: 0, nuevos: 0 })
+  const [stats, setStats] = useState({
+    total: 0,
+    embajadoras: 0,
+    conVisitas: 0,
+    nuevosPrimeraVisitaEver: 0,
+    primeraVezEnSucursal: 0,
+  })
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -79,13 +137,22 @@ export default function ClientesPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalClientes, setTotalClientes] = useState(0)
   const [pageSize] = useState(50) // 50 clientes por página
-  const [visitaFilter, setVisitaFilter] = useState<
-    'todos' | 'con-visitas' | 'sin-visita-reciente' | 'sin-visitas' | 'embajadoras' | 'vetadas' | 'problematicas' | 'descuento'
-  >('todos')
+  const [visitaFilter, setVisitaFilter] = useState<VisitaFilter>("todos")
+  const [sucursalFilter, setSucursalFilter] = useState<string>("all")
   const [embajadoraUpdatingId, setEmbajadoraUpdatingId] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
   const isAdmin = isGlobalAdministrator(currentUser)
   const isBranchAdmin = currentUser?.role === "branch-admin"
   const sucursalTarjetasId = isBranchAdmin ? effectivePrimarySucursalId(currentUser) : undefined
+  const sucursalAlcanceAdmin =
+    isAdmin && sucursalFilter !== "all" ? sucursalFilter : undefined
+  const sucursalNombreActiva =
+    sucursalFilter === "all"
+      ? null
+      : (sucursales.find(s => s.id === sucursalFilter)?.nombre ?? null)
+  /** Primera vez en sucursal solo aplica con una sucursal concreta (admin debe elegirla). */
+  const primeraVezRequiereSeleccionSucursal =
+    isAdmin && sucursalFilter === "all"
 
   // Estado del formulario (genero y sucursal con valores no vacíos por requisito de Select)
   const [formData, setFormData] = useState({
@@ -115,32 +182,84 @@ export default function ClientesPage() {
       setStatsLoading(true)
       const { desde, hasta } = fechasEsteMes()
       const user = getCurrentUser()
-      const sucId =
+      const admin = isGlobalAdministrator(user)
+      const sucIdBranch =
         user?.role === "branch-admin" ? effectivePrimarySucursalId(user) : undefined
-      const resumen = await getClientesResumenTarjetas(
-        desde,
-        hasta,
-        sucId ? { sucursalId: sucId } : undefined,
-      )
+      const scopeResumen =
+        sucIdBranch
+          ? { sucursalId: sucIdBranch }
+          : admin && sucursalFilter !== "all"
+            ? { sucursalId: sucursalFilter }
+            : undefined
+      const resumen = await getClientesResumenTarjetas(desde, hasta, scopeResumen)
       setStats({
         total: resumen.total,
         embajadoras: resumen.embajadoras,
         conVisitas: resumen.conVisitas,
-        nuevos: resumen.nuevos,
+        nuevosPrimeraVisitaEver: resumen.nuevosPrimeraVisitaEver,
+        primeraVezEnSucursal: resumen.primeraVezEnSucursal,
       })
     } catch (err) {
       console.error('Error cargando estadísticas:', err)
-      setStats({ total: 0, embajadoras: 0, conVisitas: 0, nuevos: 0 })
+      setStats({
+        total: 0,
+        embajadoras: 0,
+        conVisitas: 0,
+        nuevosPrimeraVisitaEver: 0,
+        primeraVezEnSucursal: 0,
+      })
     } finally {
       setStatsLoading(false)
     }
+  }
+
+  const buildFiltrosListado = (
+    filtroVisita: VisitaFilter,
+    sucIdBranch?: string,
+    sucIdAdmin?: string,
+  ) => {
+    const sucIdActivos =
+      filtroVisita === "con-visitas" ? (sucIdAdmin ?? sucIdBranch) : undefined
+    const alcanceSucursalId =
+      !esFiltroNuevosPeriodo(filtroVisita) &&
+      filtroVisita !== "con-visitas" &&
+      sucIdAdmin
+        ? sucIdAdmin
+        : undefined
+
+    return {
+      soloEmbajadoras: filtroVisita === "embajadoras",
+      soloVetadas: filtroVisita === "vetadas",
+      soloProblematicas: filtroVisita === "problematicas",
+      soloDescuento: filtroVisita === "descuento",
+      sinVisitas: filtroVisita === "sin-visitas",
+      conVisitas: filtroVisita === "con-visitas",
+      activosEnSucursalId: sucIdActivos,
+      alcanceSucursalId,
+      sinVisitaReciente: filtroVisita === "sin-visita-reciente",
+    }
+  }
+
+  const scopeNuevosClientes = (sucIdBranch: string | undefined, filtro: VisitaFilter) => {
+    if (sucIdBranch) return { sucursalId: sucIdBranch }
+    if (sucursalAlcanceAdmin) return { sucursalId: sucursalAlcanceAdmin }
+    return {}
+  }
+
+  const filtrarNuevosPorBusqueda = (
+    rows: ClienteNuevoPeriodoRow[],
+    term: string,
+  ): ClienteNuevoPeriodoRow[] => {
+    const q = term.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter(r => r.nombre.toLowerCase().includes(q))
   }
 
   // Función para cargar clientes
   const loadClientes = async (
     page: number = currentPage,
     term: string = searchActivo,
-    filtroVisita: typeof visitaFilter = visitaFilter
+    filtroVisita: VisitaFilter = visitaFilter
   ) => {
     try {
       setIsLoading(true)
@@ -150,17 +269,38 @@ export default function ClientesPage() {
       const sucIdBranch =
         user?.role === "branch-admin" ? effectivePrimarySucursalId(user) : undefined
 
-      const filtros = {
-        soloEmbajadoras: filtroVisita === 'embajadoras',
-        soloVetadas: filtroVisita === 'vetadas',
-        soloProblematicas: filtroVisita === 'problematicas',
-        soloDescuento: filtroVisita === 'descuento',
-        sinVisitas: filtroVisita === 'sin-visitas',
-        conVisitas: filtroVisita === 'con-visitas',
-        activosEnSucursalId:
-          filtroVisita === 'con-visitas' && sucIdBranch ? sucIdBranch : undefined,
-        sinVisitaReciente: filtroVisita === 'sin-visita-reciente',
+      if (esFiltroNuevosPeriodo(filtroVisita)) {
+        if (
+          filtroVisita === "primera-vez-sucursal" &&
+          primeraVezRequiereSeleccionSucursal
+        ) {
+          setClientes([])
+          setTotalClientes(0)
+          setTotalPages(0)
+          return
+        }
+        const { desde, hasta } = fechasEsteMes()
+        const motivo =
+          filtroVisita === "nuevos-este-mes" ? "nuevo_en_sucursal" : "primera_sucursal"
+        let detalle = await getClientesNuevosListadoEnPeriodo(
+          desde,
+          hasta,
+          scopeNuevosClientes(sucIdBranch, filtroVisita),
+          motivo,
+        )
+        detalle = filtrarNuevosPorBusqueda(detalle, term)
+        const total = detalle.length
+        const totalPagesCalc = Math.max(1, Math.ceil(total / pageSize))
+        const from = (page - 1) * pageSize
+        const slice = detalle.slice(from, from + pageSize)
+        const clientesPagina = await getClientesByIds(slice.map(r => r.clienteId))
+        setClientes(clientesPagina)
+        setTotalClientes(total)
+        setTotalPages(totalPagesCalc)
+        return
       }
+
+      const filtros = buildFiltrosListado(filtroVisita, sucIdBranch, sucursalAlcanceAdmin)
 
       let result
       if (term.trim()) {
@@ -177,6 +317,143 @@ export default function ClientesPage() {
       setError('Error al cargar los clientes. Por favor, intenta de nuevo.')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleExportClientes = async () => {
+    if (!isAdmin || isExporting) return
+
+    setIsExporting(true)
+    try {
+      const user = getCurrentUser()
+      const sucIdBranch =
+        user?.role === "branch-admin" ? effectivePrimarySucursalId(user) : undefined
+      const XLSX = await import("xlsx")
+      const { desde, hasta } = fechasEsteMes()
+      const filtroLabel = labelFiltroClientes(visitaFilter)
+      const sucursalLabel = sucursalNombreActiva ? ` · ${sucursalNombreActiva}` : ""
+      const busquedaLabel = searchActivo.trim() ? ` · Búsqueda: «${searchActivo.trim()}»` : ""
+
+      type FilaExport = (string | number)[]
+      let headers: string[]
+      let filas: FilaExport[]
+
+      if (esFiltroNuevosPeriodo(visitaFilter)) {
+        const motivo =
+          visitaFilter === "nuevos-este-mes" ? "nuevo_en_sucursal" : "primera_sucursal"
+        let detalle = await getClientesNuevosListadoEnPeriodo(
+          desde,
+          hasta,
+          scopeNuevosClientes(sucIdBranch, visitaFilter),
+          motivo,
+        )
+        detalle = filtrarNuevosPorBusqueda(detalle, searchActivo)
+        const clientesMap = new Map(
+          (await getClientesByIds(detalle.map(d => d.clienteId))).map(c => [c.id, c]),
+        )
+
+        headers = [
+          "Fecha 1.ª visita",
+          "Cliente",
+          "Teléfono",
+          "Email",
+          "Sucursal (1.ª visita)",
+          "Servicios (1.ª vez)",
+          "Total visitas",
+          "Total gastado",
+          "Última visita",
+          "Estado",
+        ]
+        filas = detalle.map(d => {
+          const c = clientesMap.get(d.clienteId)
+          return [
+            fmtFechaExport(d.fechaPrimeraVisita),
+            d.nombre,
+            c?.telefono ?? "",
+            c?.email ?? "",
+            d.sucursalNombre,
+            d.servicios.length > 0 ? d.servicios.join(", ") : "",
+            c?.totalVisitas ?? 0,
+            c?.totalGastado ?? 0,
+            fmtFechaExport(c?.ultimaVisita),
+            c?.estado?.toUpperCase() ?? "",
+          ]
+        })
+      } else {
+        const filtros = buildFiltrosListado(visitaFilter, sucIdBranch, sucursalAlcanceAdmin)
+        const listado = searchActivo.trim()
+          ? await fetchAllClientesBusqueda(searchActivo, filtros)
+          : await fetchAllClientesListado(filtros)
+        const ordenados = ordenarClientesParaExport(listado)
+
+        headers = [
+          "Última visita",
+          "Fecha registro",
+          "Nombre",
+          "Apellido",
+          "Teléfono",
+          "Email",
+          "Visitas",
+          "Total gastado",
+          "Puntos",
+          "Estado",
+          "Embajadora",
+          "Vetada",
+          "Problemática",
+          "Descuento",
+        ]
+        filas = ordenados.map(c => [
+          fmtFechaExport(c.ultimaVisita),
+          fmtFechaExport(c.fechaRegistro),
+          c.nombre,
+          c.apellido,
+          c.telefono,
+          c.email,
+          c.totalVisitas,
+          c.totalGastado,
+          c.puntosFidelidad,
+          c.estado.toUpperCase(),
+          c.embajadora ? "Sí" : "No",
+          c.esVetado ? "Sí" : "No",
+          c.esProblematico ? "Sí" : "No",
+          c.esDescuento ? "Sí" : "No",
+        ])
+      }
+
+      const titulo = `Listado de clientes — ${filtroLabel}${sucursalLabel}${busquedaLabel}`
+      const rows: FilaExport[] = [
+        [titulo],
+        [`Generado: ${fmtFechaExport(new Date().toISOString().slice(0, 10))} · ${filas.length} registro(s)`],
+        [],
+        headers,
+        ...filas,
+      ]
+
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+      ws["!cols"] = headers.map((h, i) => {
+        if (i === 0 && esFiltroNuevosPeriodo(visitaFilter)) return { wch: 14 }
+        if (h === "Cliente" || h === "Nombre") return { wch: 28 }
+        if (h === "Apellido") return { wch: 22 }
+        if (h === "Email") return { wch: 28 }
+        if (h === "Servicios (1.ª vez)") return { wch: 36 }
+        if (h === "Teléfono") return { wch: 14 }
+        return { wch: Math.min(24, Math.max(10, h.length + 2)) }
+      })
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Clientes")
+
+      const slug = visitaFilter.replace(/[^a-z0-9]+/gi, "-").toLowerCase()
+      const hoy = new Date()
+      const pad = (n: number) => String(n).padStart(2, "0")
+      const stamp = `${hoy.getFullYear()}${pad(hoy.getMonth() + 1)}${pad(hoy.getDate())}`
+      XLSX.writeFile(wb, `clientes-${slug}-${stamp}.xlsx`)
+      toast.success(`Excel descargado (${filas.length} clientes)`)
+    } catch (err) {
+      console.error("Error exportando clientes:", err)
+      toast.error("No se pudo generar el Excel. Intenta de nuevo.")
+    } finally {
+      setIsExporting(false)
     }
   }
 
@@ -199,11 +476,17 @@ export default function ClientesPage() {
     loadInitialData()
   }, [])
 
+  useEffect(() => {
+    if (!currentUser) return
+    void loadStats()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sucursalFilter, currentUser, sucursales.length])
+
   // Cargar clientes cuando cambia la página, el término de búsqueda activo o el filtro de visita
   useEffect(() => {
     loadClientes(currentPage, searchActivo, visitaFilter)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, searchActivo, visitaFilter])
+  }, [currentPage, searchActivo, visitaFilter, sucursalFilter])
 
   const handleBuscar = () => {
     setCurrentPage(1)
@@ -425,9 +708,13 @@ export default function ClientesPage() {
           <p className="text-muted-foreground">Gestiona tu base de clientes</p>
         </div>
         <div className="flex gap-2">
-          {currentUser?.role !== 'manager' && (
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
+          {isAdmin && (
+            <Button variant="outline" onClick={handleExportClientes} disabled={isExporting}>
+              {isExporting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
               Exportar
             </Button>
           )}
@@ -572,7 +859,7 @@ export default function ClientesPage() {
       </div>
 
       {currentUser?.role !== "manager" && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total en base</CardTitle>
@@ -624,25 +911,80 @@ export default function ClientesPage() {
               <p className="text-xs text-muted-foreground mt-1">
                 {isBranchAdmin && sucursalTarjetasId
                   ? "≥1 cita completada en tu sucursal (igual que Reportes) · clic para ver lista"
-                  : "≥1 cita completada (igual que Reportes) · clic para ver lista"}
+                  : sucursalNombreActiva
+                    ? `≥1 cita completada en ${sucursalNombreActiva} · clic para ver lista`
+                    : "≥1 cita completada (igual que Reportes) · clic para ver lista"}
               </p>
             </CardContent>
           </Card>
-          <Card>
+          <Card
+            className="cursor-pointer hover:border-primary/40 transition-colors"
+            onClick={() => {
+              setVisitaFilter("nuevos-este-mes")
+              setCurrentPage(1)
+            }}
+          >
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Nuevos (este mes)</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Clientes nuevos
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {statsLoading ? (
                 <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
               ) : (
-                <div className="text-2xl font-bold">{stats.nuevos.toLocaleString()}</div>
+                <div className="text-2xl font-bold">
+                  {stats.nuevosPrimeraVisitaEver.toLocaleString()}
+                </div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                {isBranchAdmin && sucursalTarjetasId
-                  ? "Nuevos y 1.ª visita en tu sucursal · este mes"
-                  : "1.ª visita ever en el mes"}
+                {sucursalNombreActiva
+                  ? `Sin historial previo; 1.ª cita este mes en ${sucursalNombreActiva} · clic para lista`
+                  : isBranchAdmin && sucursalTarjetasId
+                    ? "Sin historial previo en ninguna sucursal; 1.ª cita este mes en la tuya · clic para lista"
+                    : "Sin historial previo en ninguna sucursal; 1.ª cita este mes · clic para lista"}
               </p>
+            </CardContent>
+          </Card>
+          <Card
+            className={
+              primeraVezRequiereSeleccionSucursal
+                ? "opacity-95"
+                : "cursor-pointer hover:border-primary/40 transition-colors"
+            }
+            onClick={() => {
+              if (primeraVezRequiereSeleccionSucursal) return
+              setVisitaFilter("primera-vez-sucursal")
+              setCurrentPage(1)
+            }}
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Primera vez en sucursal
+              </CardTitle>
+              <CardDescription className="text-[11px]">
+                No son clientes nuevos al negocio
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {statsLoading ? (
+                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+              ) : primeraVezRequiereSeleccionSucursal ? (
+                <p className="text-sm text-muted-foreground leading-snug">
+                  Selecciona una sucursal en el filtro de arriba para ver este dato.
+                </p>
+              ) : (
+                <>
+                  <div className="text-2xl font-bold">
+                    {stats.primeraVezEnSucursal.toLocaleString()}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {sucursalNombreActiva
+                      ? `Ya visitaban otras sucursales; 1.ª cita en ${sucursalNombreActiva} este mes · clic para lista`
+                      : "Ya visitaban otras sucursales; 1.ª cita en la tuya este mes · clic para lista"}
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -661,8 +1003,8 @@ export default function ClientesPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <div className="relative flex-1">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar por nombre, email o teléfono en toda la base de datos..."
@@ -678,6 +1020,28 @@ export default function ClientesPage() {
               <Search className="h-4 w-4 mr-2" />
               Buscar
             </Button>
+            {isAdmin && sucursales.length > 0 && (
+              <Select
+                value={sucursalFilter}
+                onValueChange={v => {
+                  setSucursalFilter(v)
+                  setCurrentPage(1)
+                }}
+              >
+                <SelectTrigger className="w-52">
+                  <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="Sucursal" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las sucursales</SelectItem>
+                  {sucursales.map(s => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select
               value={visitaFilter}
               onValueChange={(v) => {
@@ -685,11 +1049,17 @@ export default function ClientesPage() {
                 setCurrentPage(1)
               }}
             >
-              <SelectTrigger className="w-52">
+              <SelectTrigger className="w-60">
                 <SelectValue placeholder="Filtrar por visita" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="nuevos-este-mes">Clientes nuevos (sin historial previo)</SelectItem>
+                {(isAdmin || isBranchAdmin) && (
+                  <SelectItem value="primera-vez-sucursal">
+                    Primera vez en sucursal (ya existían)
+                  </SelectItem>
+                )}
                 <SelectItem value="embajadoras">Embajadoras</SelectItem>
                 <SelectItem value="con-visitas">Con visitas</SelectItem>
                 <SelectItem value="sin-visita-reciente">Sin visita reciente (+60 días)</SelectItem>
@@ -730,7 +1100,11 @@ export default function ClientesPage() {
                 {clientesFiltrados.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={currentUser?.role === 'manager' ? 7 : 8} className="text-center py-8 text-muted-foreground">
-                      {searchActivo ? 'No se encontraron clientes con ese criterio de búsqueda' : 'No hay clientes registrados'}
+                      {visitaFilter === "primera-vez-sucursal" && primeraVezRequiereSeleccionSucursal
+                        ? "Selecciona una sucursal en el filtro de arriba para ver clientes con primera visita en sucursal."
+                        : searchActivo
+                          ? "No se encontraron clientes con ese criterio de búsqueda"
+                          : "No hay clientes registrados"}
                     </TableCell>
                   </TableRow>
                 ) : (

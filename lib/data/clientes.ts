@@ -82,6 +82,8 @@ export type FiltrosListadoClientes = {
   conVisitas?: boolean
   /** Con conVisitas: activos = ≥1 cita completada en esta sucursal (misma regla que Reportes). */
   activosEnSucursalId?: string
+  /** Limita a clientes con citas o pagos en la sucursal (alcance como Reportes). */
+  alcanceSucursalId?: string
   sinVisitaReciente?: boolean
 }
 
@@ -145,16 +147,13 @@ export async function getClientesPaginated(
         ? { ...filtros, conVisitas: false }
         : filtros
 
-    let idsActivosSucursal: string[] | null = null
-    if (filtros.conVisitas && filtros.activosEnSucursalId) {
-      idsActivosSucursal = await clienteIdsConCitaCompletadaEnSucursal(filtros.activosEnSucursalId)
-      if (idsActivosSucursal.length === 0) {
-        return { clientes: [], total: 0, totalPages: 0 }
-      }
+    const idsScope = await resolveIdsScopeListadoClientes(filtros)
+    if (idsScope !== null && idsScope.length === 0) {
+      return { clientes: [], total: 0, totalPages: 0 }
     }
 
     const applyIdScope = <T extends { in: (col: string, vals: string[]) => T }>(query: T): T => {
-      if (idsActivosSucursal) return query.in("id", idsActivosSucursal)
+      if (idsScope) return query.in("id", idsScope)
       return query
     }
 
@@ -326,11 +325,13 @@ export async function searchClientesPaginated(
     // los filtros se aplican sobre el resultado ya obtenido de la BD.
     let filteredData = filtrarFilasListadoClientes(allData ?? [], filtros)
 
-    if (filtros.conVisitas && filtros.activosEnSucursalId) {
-      const idsActivos = new Set(
-        await clienteIdsConCitaCompletadaEnSucursal(filtros.activosEnSucursalId),
-      )
-      filteredData = filteredData.filter(row => idsActivos.has(row.id))
+    const idsScope = await resolveIdsScopeListadoClientes(filtros)
+    if (idsScope !== null) {
+      if (idsScope.length === 0) {
+        return { clientes: [], total: 0, totalPages: 0 }
+      }
+      const allowed = new Set(idsScope)
+      filteredData = filteredData.filter(row => allowed.has(row.id))
     }
 
     const total = filteredData.length
@@ -350,6 +351,63 @@ export async function searchClientesPaginated(
     console.error('Error inesperado buscando clientes:', error)
     return { clientes: [], total: 0, totalPages: 0 }
   }
+}
+
+/** Carga clientes por IDs (lotes) preservando el orden de `ids`. */
+export async function getClientesByIds(ids: string[]): Promise<Cliente[]> {
+  const unique = [...new Set(ids.filter(Boolean))]
+  if (unique.length === 0) return []
+
+  const byId = new Map<string, Cliente>()
+  for (let i = 0; i < unique.length; i += 150) {
+    const chunk = unique.slice(i, i + 150)
+    const { data, error } = await supabase.from('clientes').select('*').in('id', chunk)
+    if (error) {
+      console.error('Error obteniendo clientes por IDs:', error)
+      continue
+    }
+    for (const row of data ?? []) {
+      byId.set(row.id, transformCliente(row))
+    }
+  }
+
+  return unique.map(id => byId.get(id)).filter((c): c is Cliente => !!c)
+}
+
+const EXPORT_PAGE_SIZE = 500
+
+/** Todos los clientes que coinciden con filtros (sin paginación UI). */
+export async function fetchAllClientesListado(
+  filtros: FiltrosListadoClientes = {},
+): Promise<Cliente[]> {
+  const all: Cliente[] = []
+  let page = 1
+  while (true) {
+    const { clientes, totalPages } = await getClientesPaginated(page, EXPORT_PAGE_SIZE, filtros)
+    all.push(...clientes)
+    if (page >= totalPages || totalPages === 0) break
+    page++
+  }
+  return all
+}
+
+/** Resultados de búsqueda completos con filtros aplicados. */
+export async function fetchAllClientesBusqueda(
+  query: string,
+  filtros: FiltrosListadoClientes = {},
+): Promise<Cliente[]> {
+  const term = query.trim()
+  if (!term) return []
+
+  const all: Cliente[] = []
+  let page = 1
+  while (true) {
+    const { clientes, totalPages } = await searchClientesPaginated(term, page, EXPORT_PAGE_SIZE, filtros)
+    all.push(...clientes)
+    if (page >= totalPages || totalPages === 0) break
+    page++
+  }
+  return all
 }
 
 const CLIENTES_STATS_VACIO = {
@@ -403,6 +461,28 @@ async function clienteIdsConActividadEnSucursal(sucursalId: string): Promise<str
     paginateClienteIds("pagos", sucursalId, idSet),
   ])
   return [...idSet]
+}
+
+async function resolveIdsScopeListadoClientes(
+  filtros: FiltrosListadoClientes,
+): Promise<string[] | null> {
+  let ids: string[] | null = null
+
+  if (filtros.alcanceSucursalId) {
+    ids = await clienteIdsConActividadEnSucursal(filtros.alcanceSucursalId)
+  }
+
+  if (filtros.conVisitas && filtros.activosEnSucursalId) {
+    const activos = await clienteIdsConCitaCompletadaEnSucursal(filtros.activosEnSucursalId)
+    if (ids) {
+      const activosSet = new Set(activos)
+      ids = ids.filter(id => activosSet.has(id))
+    } else {
+      ids = activos
+    }
+  }
+
+  return ids
 }
 
 /** Clientes con al menos una cita completada en la sucursal (activos en Reportes). */
@@ -765,7 +845,10 @@ export type ClientesResumenTarjetas = {
   total: number
   embajadoras: number
   conVisitas: number
-  nuevos: number
+  /** 1.ª visita ever en el mes (global) o nuevos en sucursal (con alcance). */
+  nuevosPrimeraVisitaEver: number
+  /** Ya existían; 1.ª cita completada en la sucursal del alcance, este mes. */
+  primeraVezEnSucursal: number
 }
 
 /** Tarjetas superiores en /dashboard/clientes — paralelo, sin recorrer todas las citas. */
@@ -798,7 +881,8 @@ export async function getClientesResumenTarjetas(
       total: totalR.count ?? 0,
       embajadoras: embR.count ?? 0,
       conVisitas: statsSucursal.activos,
-      nuevos: nuevosPeriodo.nuevos,
+      nuevosPrimeraVisitaEver: nuevosPeriodo.nuevosEnSucursal,
+      primeraVezEnSucursal: nuevosPeriodo.primeraVezEnSucursal,
     }
   }
 
@@ -827,7 +911,8 @@ export async function getClientesResumenTarjetas(
     total: totalR.count ?? 0,
     embajadoras: embR.count ?? 0,
     conVisitas: activosR.count ?? 0,
-    nuevos,
+    nuevosPrimeraVisitaEver: nuevos,
+    primeraVezEnSucursal: 0,
   }
 }
 
@@ -951,6 +1036,19 @@ export type ClienteNuevoPeriodoRow = {
   sucursalNombre: string
   /** Con filtro de sucursal: por qué entra en el conteo */
   motivo?: ClienteNuevoMotivo
+}
+
+export type NuevosClientesListadoMotivo = 'nuevo_en_sucursal' | 'primera_sucursal'
+
+/** Lista de nuevos del período (misma lógica que Reportes), filtrada por motivo. */
+export async function getClientesNuevosListadoEnPeriodo(
+  fechaDesde: string,
+  fechaHasta: string,
+  scope: { sucursalId?: string; sucursalIds?: string[] },
+  motivo: NuevosClientesListadoMotivo,
+): Promise<ClienteNuevoPeriodoRow[]> {
+  const { detalle } = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, scope)
+  return detalle.filter(d => d.motivo === motivo)
 }
 
 type CitaPrimeraVisitaRow = {

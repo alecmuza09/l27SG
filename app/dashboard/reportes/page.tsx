@@ -2910,7 +2910,7 @@ export default function ReportesPage() {
           if (open && clientesStats.nuevos > 0) void cargarDetalleNuevosClientes()
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-h-[85vh] flex flex-col sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Nuevos clientes</DialogTitle>
             <DialogDescription>
