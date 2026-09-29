@@ -83,6 +83,26 @@ const esPagoCortesia = (p: Pick<Pago, "descuentoTipo" | "descuentoCodigo">) =>
 const esPagoGarantia = (p: Pick<Pago, "descuentoCodigo">) =>
   p.descuentoCodigo === "GARANTIA"
 
+/** Uso de saldo GC en cobro (método de pago o descuento), sin venta de tarjeta nueva ni VIP Pass. */
+const esPagoGiftCardCobrada = (p: Pago) => {
+  if (esReferenciaEmisionGiftCard(p.referencia) || esVentaSaldoGiftCard(p)) return false
+  if (p.descuentoTipo === "vip_pass") return false
+  return !!(p.giftCardCodigo || p.descuentoTipo === "gift_card")
+}
+
+const folioGiftCardCobrada = (p: Pago) =>
+  p.giftCardCodigo || (p.descuentoTipo === "gift_card" ? p.descuentoCodigo : undefined)
+
+const montoGiftCardCobrada = (p: Pago) => {
+  const d = distribuirMontoPago(p)
+  if (p.giftCardCodigo && d.otro > 0.009) return d.otro
+  if (p.descuentoTipo === "gift_card" && (p.descuentoMonto ?? 0) > 0.009) return p.descuentoMonto!
+  if (p.giftCardCodigo && p.metodoPago === "otro" && !(Number(p.montoEfectivo) || Number(p.montoTarjeta))) {
+    return Number(p.monto) || 0
+  }
+  return 0
+}
+
 // Usa fecha local para que no cambie de día a las 6 PM (UTC−6)
 const hoy = () => {
   const now = new Date()
@@ -330,6 +350,7 @@ export default function PagosPage() {
   }
 
   const cobrosCompletadosCount = pagos.filter(p => p.estado === "completado").length
+  const giftCardsCobradasCount = pagos.filter(esPagoGiftCardCobrada).length
 
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
   const totalPropinas   = pagos
@@ -948,7 +969,14 @@ export default function PagosPage() {
                   </span>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="giftcards" className="text-xs">Giftcards cobradas</TabsTrigger>
+              <TabsTrigger value="giftcards" className="text-xs">
+                Giftcards cobradas
+                {giftCardsCobradasCount > 0 && (
+                  <span className="ml-1.5 bg-violet-600 text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
+                    {giftCardsCobradasCount}
+                  </span>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="gastos" className="text-xs">
                 Gastos del día
                 {gastos.length > 0 && (
@@ -1333,11 +1361,7 @@ export default function PagosPage() {
                 </p>
               </div>
               {(() => {
-                const gcPagos = pagos.filter(p => {
-                  if (debePersistirMetodoMixtoEfectivoTarjeta(p.montoEfectivo, p.montoTarjeta)) return false
-                  if (esReferenciaEmisionGiftCard(p.referencia)) return false
-                  return p.metodoPago === "otro" || (p.referencia ?? "").toLowerCase().includes("giftcard")
-                })
+                const gcPagos = pagos.filter(esPagoGiftCardCobrada)
                 return gcPagos.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                     <Gift className="h-10 w-10 mb-3 opacity-30" />
@@ -1356,18 +1380,22 @@ export default function PagosPage() {
                     </TableHeader>
                     <TableBody>
                       {gcPagos.map(p => (
-                        <TableRow key={p.id} className="hover:bg-muted/30">
+                        <TableRow
+                          key={p.id}
+                          className="hover:bg-muted/30 cursor-pointer"
+                          onClick={() => abrirDetallePago(p)}
+                        >
                           <TableCell className="text-xs tabular-nums">{p.hora}</TableCell>
                           <TableCell className="text-sm font-medium">{p.clienteNombre}</TableCell>
                           <TableCell className="text-xs max-w-[180px] truncate">{p.servicios.join(", ")}</TableCell>
                           <TableCell className="text-xs">
-                            {p.giftCardCodigo ? (
+                            {folioGiftCardCobrada(p) ? (
                               <span className="inline-flex items-center gap-1 text-xs border border-violet-200 rounded px-1.5 py-0.5 bg-violet-50 text-violet-700 font-mono">
-                                {p.giftCardCodigo}
+                                {folioGiftCardCobrada(p)}
                               </span>
-                            ) : (p.referencia ?? "—")}
+                            ) : "—"}
                           </TableCell>
-                          <TableCell className="text-right font-semibold text-sm">{fmtMXN(p.monto)}</TableCell>
+                          <TableCell className="text-right font-semibold text-sm">{fmtMXN(montoGiftCardCobrada(p))}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
