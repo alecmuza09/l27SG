@@ -18,12 +18,13 @@ import {
   getPagosFromDB, calcularResumenDesdePagos, updatePago, deletePago,
   distribuirMontoPago,
   cuentaEnTotales,
+  pagoIngresaEnTotalResumenDia,
   etiquetaMetodosPago,
   debePersistirMetodoMixtoEfectivoTarjeta,
   esReferenciaEmisionGiftCard,
   sincronizarPagosEmisionGiftCardsFaltantes,
   esVentaSaldoGiftCard,
-  excluirVentasSaldoGcOnlineDePagos,
+  aplicarReglasVentasSaldoGcEnLineaEnPagos,
   metodoPagoAParaEdicionUI,
   normalizarMetodoYMontosPago,
   sincronizarMontosDesgloseParaMetodoUI,
@@ -254,11 +255,10 @@ export default function PagosPage() {
 
       if (isAdmin || userSucursalIds.length > 0) setSucursales(sucData)
 
-      // Pagos + resumen — excluye ventas de saldo de gift cards emitidas en línea
-      // (no son ingreso de la sucursal; ya se excluyen así en el PDF de Reportes).
-      const pagosSinGcOnline = await excluirVentasSaldoGcOnlineDePagos(pagosData)
-      setPagos(pagosSinGcOnline)
-      setResumen(calcularResumenDesdePagos(pagosSinGcOnline, fecha))
+      // GC tienda en línea (Lovable): visibles en Cobros, excluidas del total del día.
+      const pagosConReglasGc = await aplicarReglasVentasSaldoGcEnLineaEnPagos(pagosData)
+      setPagos(pagosConReglasGc)
+      setResumen(calcularResumenDesdePagos(pagosConReglasGc, fecha))
 
       // Gastos del día (mismo filtro de sucursal que pagos; RLS acota el alcance)
       const gastosData = await getGastosFromDB(fecha, sidFiltro)
@@ -331,7 +331,7 @@ export default function PagosPage() {
   let totalGiftCard = 0
   let totalOtro = 0
   for (const p of pagos) {
-    if (p.estado !== "completado" || !cuentaEnTotales(p)) continue
+    if (!pagoIngresaEnTotalResumenDia(p)) continue
     const d = distribuirMontoPago(p)
     totalEfectivo += d.efectivo
     totalTarjeta += d.tarjeta
@@ -354,10 +354,10 @@ export default function PagosPage() {
 
   const totalGastos     = gastos.reduce((s, g) => s + g.monto, 0)
   const totalPropinas   = pagos
-    .filter(p => p.estado === "completado" && cuentaEnTotales(p))
+    .filter(pagoIngresaEnTotalResumenDia)
     .reduce((s, p) => s + (p.propina ?? 0), 0)
   const totalDescuentos = pagos
-    .filter(p => p.estado === "completado" && cuentaEnTotales(p))
+    .filter(pagoIngresaEnTotalResumenDia)
     .reduce((s, p) => s + (p.descuentoMonto ?? 0), 0)
 
   // totalEfectivo/Tarjeta/Transf ya incluyen propina en el monto,
@@ -1243,7 +1243,12 @@ export default function PagosPage() {
                         <TableCell className="text-sm font-medium">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span>{pago.clienteNombre}</span>
-                            {pago.excluirDeTotales && (
+                            {pago.ventaSaldoGcEnLinea && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-sky-300 text-sky-800 bg-sky-50">
+                                Tienda en línea
+                              </Badge>
+                            )}
+                            {pago.excluirDeTotales && !pago.ventaSaldoGcEnLinea && (
                               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-gray-100 text-gray-600 border-gray-200">
                                 Excluido del total
                               </Badge>
@@ -1254,7 +1259,7 @@ export default function PagosPage() {
                         <TableCell className="text-xs max-w-[220px]">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <span className="truncate">{pago.servicios.join(", ")}</span>
-                            {esVentaSaldoGiftCard(pago) && (
+                            {esVentaSaldoGiftCard(pago) && !pago.ventaSaldoGcEnLinea && (
                               <Badge variant="outline" className="text-[10px] shrink-0 px-1 py-0 border-violet-300 text-violet-800 bg-violet-50">
                                 Venta saldo
                               </Badge>
@@ -1806,7 +1811,12 @@ export default function PagosPage() {
             <DialogTitle className="flex items-center gap-2 flex-wrap">
               <Receipt className="h-5 w-5 text-violet-600" />
               {editando ? "Editar cobro" : "Detalle del cobro"}
-              {pagoDetalle?.excluirDeTotales && (
+              {pagoDetalle?.ventaSaldoGcEnLinea && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-sky-300 text-sky-800 bg-sky-50 font-normal">
+                  Tienda en línea
+                </Badge>
+              )}
+              {pagoDetalle?.excluirDeTotales && !pagoDetalle?.ventaSaldoGcEnLinea && (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-gray-100 text-gray-600 border-gray-200 font-normal">
                   Excluido del total
                 </Badge>

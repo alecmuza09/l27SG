@@ -75,11 +75,13 @@ import {
   analizarFolioTiendaEnLinea,
   detectarFolioTiendaCompleto,
   intentandoFormatoTiendaEnLinea,
+  esCandidatoCodigoTiendaEnLinea,
 } from "@/lib/data/gift-card-folios-tienda"
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
+import { METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA } from "@/lib/data/pagos"
 
 // ─── Configuración de estados ─────────────────────────────────────────────
 
@@ -295,6 +297,14 @@ export default function GiftCardsPage() {
     setKpis(kpiData)
   }
 
+  // Folio Lovable válido: el pago ya fue en luna27.mx (no elegir efectivo/tarjeta en mostrador).
+  useEffect(() => {
+    if (createFolioStatus === "lovable_valid") {
+      setNewMetodoPago("otro")
+      setNewMetodoPagoOtro(METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA)
+    }
+  }, [createFolioStatus])
+
   // Carga inicial: sucursales + KPIs + primera página en paralelo
   useEffect(() => {
     async function init() {
@@ -435,11 +445,7 @@ export default function GiftCardsPage() {
       return
     }
 
-    const esCandidatoTienda = intentandoFormatoTiendaEnLinea(folio)
-      || /^GIFT/i.test(folio)
-      || /^LUNAc\d/i.test(folio)
-      || /^LUNAr\d/i.test(folio)
-      || /^LUNAt/i.test(folio)
+    const esCandidatoTienda = esCandidatoCodigoTiendaEnLinea(folio)
 
     setCreateFolioStatus("checking")
     setCreateFolioData(null)
@@ -523,13 +529,16 @@ export default function GiftCardsPage() {
       }
     }
 
-    if (!newMetodoPago) {
-      toast.error("Selecciona el método de pago")
-      return
-    }
-    if (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()) {
-      toast.error("Especifica el método de pago")
-      return
+    const esLovableValido = createFolioStatus === "lovable_valid"
+    if (!esLovableValido) {
+      if (!newMetodoPago) {
+        toast.error("Selecciona el método de pago")
+        return
+      }
+      if (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()) {
+        toast.error("Especifica el método de pago")
+        return
+      }
     }
     setIsSubmitting(true)
 
@@ -556,7 +565,11 @@ export default function GiftCardsPage() {
       clienteIdFinal = selectedCliente?.id ?? null
     }
 
-    const metodoPagoFinal = newMetodoPago === "otro" ? newMetodoPagoOtro.trim() : newMetodoPago
+    const metodoPagoFinal = esLovableValido
+      ? METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA
+      : newMetodoPago === "otro"
+        ? newMetodoPagoOtro.trim()
+        : newMetodoPago
 
     const existente = await getGiftCardByCodigoFromDB(newCodigo.trim())
     if (existente && !existente.clienteId) {
@@ -574,6 +587,9 @@ export default function GiftCardsPage() {
       return
     }
 
+    const packageName =
+      createFolioData && "packageName" in createFolioData ? createFolioData.packageName : null
+
     const res = await crearGiftCard({
       montoInicial: parseFloat(newMonto),
       sucursalId: newSucursalId,
@@ -581,13 +597,19 @@ export default function GiftCardsPage() {
       fechaVencimiento: calcularFechaExpiracion(newVigencia, newExpiracion),
       codigoPersonalizado: newCodigo || null,
       metodoPago: metodoPagoFinal,
+      descripcionTiendaEnLinea: packageName ?? null,
+      confirmadaEnLovable: createFolioStatus === "lovable_valid",
     })
     setIsSubmitting(false)
     if (!res.success) {
       toast.error(`Error al crear: ${res.error}`)
       return
     }
-    toast.success(`Gift card ${res.gc?.codigo}: la venta del saldo quedó registrada en Pagos → Cobros.`)
+    toast.success(
+      createFolioStatus === "lovable_valid"
+        ? `Gift card ${res.gc?.codigo} activada (tienda en línea). Quedó registrada en Pagos → Cobros sin sumar al total del día.`
+        : `Gift card ${res.gc?.codigo}: la venta del saldo quedó registrada en Pagos → Cobros.`,
+    )
     if (res.advertenciaPago) {
       toast.warning(`Gift card guardada, pero hubo un problema al registrar el cobro en caja: ${res.advertenciaPago}`)
     }
@@ -1360,9 +1382,13 @@ export default function GiftCardsPage() {
                 </div>
               )}
               {createFolioStatus === "lovable_valid" && (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
+                <div className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900 space-y-1">
                   <p className="font-semibold flex items-center gap-1">
                     <CheckCircle className="h-3.5 w-3.5" /> Tienda en línea: {createFolioData?.packageName} — {fmtMXN(createFolioData?.amount ?? 0)}
+                  </p>
+                  <p className="text-emerald-800/95 leading-snug">
+                    El cliente ya pagó en luna27.mx. No uses método de pago en mostrador: solo elige sucursal y guarda
+                    para activar el folio (el registro en Pagos no suma al total del día).
                   </p>
                 </div>
               )}
@@ -1411,44 +1437,51 @@ export default function GiftCardsPage() {
                 <p className="text-xs text-muted-foreground">El monto lo fija el folio de la tienda en línea.</p>
               )}
             </div>
-            {/* Método de pago */}
-            <div className="grid gap-2">
-              <Label>Método de Pago *</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { value: "efectivo",     label: "Efectivo" },
-                  { value: "tarjeta",      label: "Tarjeta" },
-                  { value: "cortesia",     label: "Cortesía" },
-                  { value: "otro",         label: "Otro" },
-                ].map((op) => (
-                  <button
-                    key={op.value}
-                    type="button"
-                    onClick={() => { setNewMetodoPago(op.value); if (op.value !== "otro") setNewMetodoPagoOtro("") }}
-                    className={cn(
-                      "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
-                      newMetodoPago === op.value
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:bg-accent"
-                    )}
-                  >
-                    {op.label}
-                  </button>
-                ))}
+            {/* Método de pago — oculto en tienda en línea (Lovable); el sistema asigna el registro interno */}
+            {createFolioStatus !== "lovable_valid" && (
+              <div className="grid gap-2">
+                <Label>Método de Pago *</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: "efectivo", label: "Efectivo" },
+                    { value: "tarjeta", label: "Tarjeta" },
+                    { value: "cortesia", label: "Cortesía" },
+                    { value: "otro", label: "Otro" },
+                  ].map((op) => (
+                    <button
+                      key={op.value}
+                      type="button"
+                      onClick={() => {
+                        setNewMetodoPago(op.value)
+                        if (op.value !== "otro") setNewMetodoPagoOtro("")
+                      }}
+                      className={cn(
+                        "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                        newMetodoPago === op.value
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background hover:bg-accent",
+                      )}
+                    >
+                      {op.label}
+                    </button>
+                  ))}
+                </div>
+                {newMetodoPago === "otro" && (
+                  <Input
+                    placeholder="Especifica el método de pago..."
+                    value={newMetodoPagoOtro}
+                    onChange={(e) => setNewMetodoPagoOtro(e.target.value)}
+                    className="mt-1"
+                    autoFocus
+                  />
+                )}
+                {!newMetodoPago && (
+                  <p className="text-xs text-muted-foreground">
+                    Cómo te pagó el cliente en esta sucursal.
+                  </p>
+                )}
               </div>
-              {newMetodoPago === "otro" && (
-                <Input
-                  placeholder="Especifica el método de pago..."
-                  value={newMetodoPagoOtro}
-                  onChange={(e) => setNewMetodoPagoOtro(e.target.value)}
-                  className="mt-1"
-                  autoFocus
-                />
-              )}
-              {!newMetodoPago && (
-                <p className="text-xs text-muted-foreground">Selecciona cómo se pagó esta gift card</p>
-              )}
-            </div>
+            )}
 
             <div className="grid gap-2">
               <Label>Sucursal *</Label>
@@ -1623,7 +1656,7 @@ export default function GiftCardsPage() {
             <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || !newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()) || createFolioStatus === "checking" || createFolioStatus === "en_agenda"}>
+            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || (createFolioStatus !== "lovable_valid" && (!newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()))) || createFolioStatus === "checking" || createFolioStatus === "en_agenda"}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
             </Button>
           </DialogFooter>

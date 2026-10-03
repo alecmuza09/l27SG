@@ -85,3 +85,19 @@ export function detectarFolioTiendaCompleto(
   const a = analizarFolioTiendaEnLinea(codigo)
   return a.tipo === "valido" ? a : null
 }
+
+/**
+ * Heurística solo para decidir si consultar la API pública de luna27.mx al validar un folio.
+ * No marca origen «en línea» por sí sola — eso requiere respuesta válida de Lovable al registrar.
+ */
+export function esCandidatoCodigoTiendaEnLinea(codigo: string): boolean {
+  const folio = codigo.trim()
+  if (!folio) return false
+  if (intentandoFormatoTiendaEnLinea(folio)) return true
+  return (
+    /^GIFT/i.test(folio) ||
+    /^LUNAc\d/i.test(folio) ||
+    /^LUNAr\d/i.test(folio) ||
+    /^LUNAt/i.test(folio)
+  )
+}

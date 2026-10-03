@@ -1,0 +1,13 @@
+-- Ajuste manual: solo tarjetas que sabes que se validaron en luna27.mx (Lovable).
+-- No uses patrones de código; actualiza por id o codigo concreto.
+--
+-- Ejemplo:
+-- UPDATE gift_cards SET origen = 'en_linea' WHERE codigo = 'LUNATGRXN';
+--
+-- Cobros de activación en sucursal (sin sumar al total del día):
+-- UPDATE pagos p
+-- SET excluir_de_totales = true
+-- FROM gift_cards gc
+-- WHERE p.referencia = 'giftcard_emision:' || gc.id::text
+--   AND gc.origen = 'en_linea'
+--   AND COALESCE(p.excluir_de_totales, false) = false;

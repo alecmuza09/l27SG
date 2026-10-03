@@ -29,15 +29,45 @@ export interface Pago {
   giftCardCodigo?: string
   /** Si es true, el cobro se muestra pero no suma en totales de caja/reportes. */
   excluirDeTotales?: boolean
+  /** Venta de saldo inicial de GC vendida en luna27.mx (Lovable), registrada en sucursal. */
+  ventaSaldoGcEnLinea?: boolean
 }
+
+/** Texto guardado en GC/Pagos al activar un folio ya cobrado en luna27.mx (no es cobro en mostrador). */
+export const METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA = 'Tienda en línea (luna27.mx)' as const
 
 /** Cobros que deben incluirse en totales de ingresos y caja. */
 export function cuentaEnTotales(p: Pick<Pago, 'excluirDeTotales'>): boolean {
   return !p.excluirDeTotales
 }
 
+/** Registro en Cobros de activación de GC vendida en luna27.mx (no es ingreso de caja del día). */
+export function cobroVentaSaldoGcEsTiendaEnLinea(
+  p: Pago,
+  origenGiftCard?: string | null,
+): boolean {
+  if (!esVentaSaldoGiftCard(p)) return false
+  if (p.ventaSaldoGcEnLinea) return true
+  if (origenGiftCard === 'en_linea') return true
+  if (p.excluirDeTotales) return true
+  const svc = (p.servicios ?? []).join(' ')
+  const notas = p.notas ?? ''
+  if (svc.includes('(tienda en línea)')) return true
+  if (/luna27\.mx/i.test(notas)) return true
+  if (/activación gc tienda en línea/i.test(notas)) return true
+  if (/tienda en línea/i.test(notas) && /gift card/i.test(notas)) return true
+  return false
+}
+
+/** Ingresos que suman al resumen del día en Pagos (sidebar). */
+export function pagoIngresaEnTotalResumenDia(p: Pago): boolean {
+  if (p.estado !== 'completado') return false
+  if (cobroVentaSaldoGcEsTiendaEnLinea(p)) return false
+  return cuentaEnTotales(p)
+}
+
 export function pagosCompletadosParaTotales(pagos: Pago[]): Pago[] {
-  return pagos.filter(p => p.estado === 'completado' && cuentaEnTotales(p))
+  return pagos.filter(p => pagoIngresaEnTotalResumenDia(p))
 }
 
 /** Monto por canal para corte de caja y reportes (pago mixto sin duplicar el total). */
@@ -84,6 +114,7 @@ export function distribuirMontoPago(
 
 /** Etiqueta legible para UI (ej. "Efectivo + Tarjeta") según el desglose real del cobro. */
 export function etiquetaMetodosPago(p: Pago): string {
+  if (p.ventaSaldoGcEnLinea) return "Tienda en línea"
   if (p.descuentoTipo === "cortesia") return "Cortesía"
   // VIP Pass con monto $0 (cubrió 100 % del servicio)
   if (p.descuentoTipo === "vip_pass" && (Number(p.monto) || 0) <= 0.009) return "VIP Pass"
@@ -622,11 +653,10 @@ export function extraerGiftCardIdDeReferencia(referencia?: string | null): strin
 }
 
 /**
- * Quita de `pagos` los cobros de venta de saldo inicial de gift card cuya tarjeta
- * se emitió con `origen = 'en_linea'` (misma exclusión que ya aplica el PDF de Reportes:
- * esas ventas no son ingreso de la sucursal física, sino de la tienda en línea).
+ * Cobros de venta de saldo de GC con `origen = en_linea` (confirmadas en Lovable):
+ * se mantienen visibles en Cobros bajo la sucursal que registró, marcados y fuera del total del día.
  */
-export async function excluirVentasSaldoGcOnlineDePagos(pagos: Pago[]): Promise<Pago[]> {
+export async function aplicarReglasVentasSaldoGcEnLineaEnPagos(pagos: Pago[]): Promise<Pago[]> {
   const giftCardIdPorPagoId = new Map<string, string>()
   for (const p of pagos) {
     if (!esVentaSaldoGiftCard(p)) continue
@@ -641,21 +671,44 @@ export async function excluirVentasSaldoGcOnlineDePagos(pagos: Pago[]): Promise<
     .select('id, origen')
     .in('id', giftCardIds)
 
-  // Si falla la consulta, no ocultamos cobros (fail-open) — mejor mostrar de más que de menos.
-  if (error || !data) return pagos
+  const origenPorGcId = new Map<string, string | null>()
+  if (!error && data) {
+    for (const gc of data as { id: string; origen?: string | null }[]) {
+      origenPorGcId.set(gc.id, gc.origen ?? null)
+    }
+  }
 
-  const idsOnline = new Set(
-    (data as { id: string; origen?: string | null }[])
-      .filter(gc => gc.origen === 'en_linea')
-      .map(gc => gc.id),
-  )
-  if (idsOnline.size === 0) return pagos
+  const actualizacionesDb: { id: string; excluir: boolean }[] = []
 
-  return pagos.filter(p => {
+  const mapped = pagos.map(p => {
     const gcId = giftCardIdPorPagoId.get(p.id)
-    return !gcId || !idsOnline.has(gcId)
+    if (!gcId) return p
+    const origen = origenPorGcId.get(gcId)
+    const esLinea = cobroVentaSaldoGcEsTiendaEnLinea(p, origen)
+    if (!esLinea) return p
+    if (!p.excluirDeTotales) {
+      actualizacionesDb.push({ id: p.id, excluir: true })
+    }
+    return {
+      ...p,
+      excluirDeTotales: true,
+      ventaSaldoGcEnLinea: origen === 'en_linea' || p.ventaSaldoGcEnLinea || /luna27\.mx/i.test(p.notas ?? ''),
+    }
   })
+
+  if (actualizacionesDb.length > 0) {
+    void Promise.all(
+      actualizacionesDb.map(({ id }) =>
+        (supabase as any).from('pagos').update({ excluir_de_totales: true }).eq('id', id),
+      ),
+    ).catch(err => console.error('[aplicarReglasVentasSaldoGcEnLinea] persist excluir_de_totales:', err))
+  }
+
+  return mapped
 }
+
+/** @deprecated Usar aplicarReglasVentasSaldoGcEnLineaEnPagos */
+export const excluirVentasSaldoGcOnlineDePagos = aplicarReglasVentasSaldoGcEnLineaEnPagos
 
 /** Quita acentos y pasa a minúsculas (ej. «Cortesía», «EFECTIVO»). */
 export function textoMetodoPagoNormalizado(raw: string | null | undefined): string {
@@ -685,10 +738,15 @@ export async function registrarPagoEmisionGiftCard(params: {
   hora?: string
   /** Servicio asociado (p. ej. folio tienda en línea) para el texto en cobros. */
   descripcionServicio?: string | null
+  /** GC vendida en luna27.mx; el cobro se lista en sucursal pero no suma al total del día. */
+  ventaTiendaEnLinea?: boolean
 }): Promise<{ success: boolean; skipped?: boolean; pagoId?: string; error?: string }> {
   try {
     const monto = Math.round((Number(params.monto) || 0) * 100) / 100
-    const rawNorm = textoMetodoPagoNormalizado(params.metodoPagoRaw)
+    const esLinea = params.ventaTiendaEnLinea === true
+    const rawNorm = esLinea
+      ? textoMetodoPagoNormalizado(METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA)
+      : textoMetodoPagoNormalizado(params.metodoPagoRaw)
     if (rawNorm === 'cortesia' || monto <= 0) {
       return { success: true, skipped: true }
     }
@@ -697,7 +755,9 @@ export async function registrarPagoEmisionGiftCard(params: {
     let montoEfectivo = 0
     let montoTarjeta = 0
 
-    if (rawNorm === 'efectivo') {
+    if (esLinea) {
+      metodoPago = 'otro'
+    } else if (rawNorm === 'efectivo') {
       metodoPago = 'efectivo'
       montoEfectivo = monto
     } else if (rawNorm === 'tarjeta') {
@@ -712,12 +772,17 @@ export async function registrarPagoEmisionGiftCard(params: {
     const hora = params.hora ?? new Date().toTimeString().slice(0, 8)
 
     const lineaServicio = params.descripcionServicio?.trim()
+    const prefijoTitulo = esLinea ? 'Venta saldo gift card (tienda en línea)' : 'Venta saldo gift card'
     const tituloServicio = lineaServicio
-      ? `Venta saldo gift card · ${lineaServicio} · ${params.codigo}`
-      : `Venta saldo gift card · ${params.codigo}`
-    const notasServicio = lineaServicio
-      ? `Venta de saldo inicial gift card (tienda en línea) · ${lineaServicio} · ${params.codigo} · $${monto.toFixed(2)} MXN`
-      : `Venta de saldo inicial gift card · ${params.codigo} · $${monto.toFixed(2)} MXN`
+      ? `${prefijoTitulo} · ${lineaServicio} · ${params.codigo}`
+      : `${prefijoTitulo} · ${params.codigo}`
+    const notasServicio = esLinea
+      ? lineaServicio
+        ? `Registro activación GC tienda en línea (luna27.mx) · ${lineaServicio} · ${params.codigo} · $${monto.toFixed(2)} MXN`
+        : `Registro activación GC tienda en línea (luna27.mx) · ${params.codigo} · $${monto.toFixed(2)} MXN`
+      : lineaServicio
+        ? `Venta de saldo inicial gift card · ${lineaServicio} · ${params.codigo} · $${monto.toFixed(2)} MXN`
+        : `Venta de saldo inicial gift card · ${params.codigo} · $${monto.toFixed(2)} MXN`
 
     const { data: pagoData, error: pagoError } = await (supabase as any)
       .from('pagos')
@@ -739,6 +804,7 @@ export async function registrarPagoEmisionGiftCard(params: {
         propina: 0,
         monto_efectivo: montoEfectivo,
         monto_tarjeta: montoTarjeta,
+        excluir_de_totales: esLinea,
       })
       .select('id')
       .single()
@@ -831,6 +897,7 @@ export async function sincronizarPagosEmisionGiftCardsFaltantes(opts?: {
       metodoPagoRaw: (gc.metodo_pago as string | null | undefined) ?? null,
       fecha: fechaIso,
       hora: '12:00:00',
+      ventaTiendaEnLinea: gc.origen === 'en_linea',
     })
 
     if (pagoRes.skipped) {

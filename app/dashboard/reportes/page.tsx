@@ -447,7 +447,7 @@ function labelMetodoPagoGc(raw?: string | null): string {
 }
 
 const GC_SELECT_PDF = `
-  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, created_at, metodo_pago, sucursal_id,
+  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, created_at, metodo_pago, sucursal_id, origen,
   cliente:clientes(nombre, apellido),
   sucursal:sucursales(nombre)
 `

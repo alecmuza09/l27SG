@@ -442,6 +442,10 @@ export async function crearGiftCard(datos: {
   empleadoEmisorId?: string | null
   codigoPersonalizado?: string | null
   metodoPago?: string | null
+  /** Nombre del paquete/servicio desde tienda en línea (p. ej. API Lovable). */
+  descripcionTiendaEnLinea?: string | null
+  /** True solo si el código fue validado contra la API de luna27.mx (Lovable) al registrar. */
+  confirmadaEnLovable?: boolean
 }): Promise<{ success: boolean; gc?: GiftCard; error?: string; advertenciaPago?: string }> {
   try {
     const customRaw = datos.codigoPersonalizado?.trim() ?? ""
@@ -475,7 +479,9 @@ export async function crearGiftCard(datos: {
 
     const hoy = fechaLocal()
 
-    const esOrigenLinea = servicioTiendaLinea !== null
+    const esOrigenLinea = datos.confirmadaEnLovable === true
+    const lineaServicioTienda =
+      servicioTiendaLinea ?? datos.descripcionTiendaEnLinea?.trim() ?? null
 
     const insertPayload: Record<string, any> = {
       codigo,
@@ -508,31 +514,28 @@ export async function crearGiftCard(datos: {
       return { success: false, error: msg }
     }
 
-    const notasEmision = servicioTiendaLinea
-      ? `Tienda en línea · ${servicioTiendaLinea} · ${gcData.codigo}${datos.metodoPago ? ` · Pago: ${datos.metodoPago}` : ""}`
-      : datos.metodoPago
-        ? `Emisión de gift card · Pago: ${datos.metodoPago}`
-        : "Emisión de gift card"
+    const notasEmision = lineaServicioTienda
+      ? `Tienda en línea · ${lineaServicioTienda} · ${gcData.codigo}${datos.metodoPago ? ` · Pago: ${datos.metodoPago}` : ""}`
+      : esOrigenLinea
+        ? `Tienda en línea · ${gcData.codigo}${datos.metodoPago ? ` · Pago: ${datos.metodoPago}` : ""}`
+        : datos.metodoPago
+          ? `Emisión de gift card · Pago: ${datos.metodoPago}`
+          : "Emisión de gift card"
 
-    // Las GCs de tienda en línea ya fueron cobradas externamente; la sucursal
-    // solo las registra para activarlas, no las vendió. No se genera pago en caja.
-    let pagoRes: Awaited<ReturnType<typeof registrarPagoEmisionGiftCard>> = {
-      success: true,
-      skipped: true,
-    }
-    if (!esOrigenLinea) {
-      pagoRes = await registrarPagoEmisionGiftCard({
-        giftCardId: gcData.id,
-        codigo: gcData.codigo,
-        monto: montoInicialFinal,
-        sucursalId: datos.sucursalId,
-        clienteId: datos.clienteId ?? null,
-        empleadoId: datos.empleadoEmisorId ?? null,
-        metodoPagoRaw: datos.metodoPago ?? null,
-        fecha: hoy,
-        descripcionServicio: servicioTiendaLinea,
-      })
-    }
+    // Tienda en línea (Lovable): el cobro ya ocurrió en luna27.mx; se registra en Cobros
+    // de la sucursal que activa la tarjeta, excluido del total del día.
+    const pagoRes = await registrarPagoEmisionGiftCard({
+      giftCardId: gcData.id,
+      codigo: gcData.codigo,
+      monto: montoInicialFinal,
+      sucursalId: datos.sucursalId,
+      clienteId: datos.clienteId ?? null,
+      empleadoId: datos.empleadoEmisorId ?? null,
+      metodoPagoRaw: datos.metodoPago ?? null,
+      fecha: hoy,
+      descripcionServicio: lineaServicioTienda,
+      ventaTiendaEnLinea: esOrigenLinea,
+    })
 
     if (!pagoRes.success && !pagoRes.skipped) {
       console.error('[crearGiftCard] Cobro no registrado en pagos:', pagoRes.error)
