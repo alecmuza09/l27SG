@@ -6,6 +6,7 @@ import {
   intentandoFormatoTiendaEnLinea,
   MSG_FOLIO_YA_REGISTRADO,
 } from "@/lib/data/gift-card-folios-tienda"
+import { variantesCodigoConsultaLovable } from "@/lib/data/gift-card-lovable-verify"
 
 // Fecha local (no UTC) para evitar desfase después de las 6 PM
 const fechaLocal = () => {
@@ -145,6 +146,15 @@ export async function getGiftCardByCodigoFromDB(codigo: string): Promise<GiftCar
   } catch {
     return null
   }
+}
+
+/** Busca en BD probando variantes del folio (p. ej. con y sin guión). */
+export async function getGiftCardByCodigoFromDBConVariantes(codigo: string): Promise<GiftCard | null> {
+  for (const v of variantesCodigoConsultaLovable(codigo)) {
+    const gc = await getGiftCardByCodigoFromDB(v)
+    if (gc) return gc
+  }
+  return null
 }
 
 // KPIs rápidos: 4 COUNT queries en paralelo (no transfieren filas completas)

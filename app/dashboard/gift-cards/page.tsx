@@ -62,6 +62,7 @@ import {
   getGiftCardsKPIsFromDB,
   getGiftCardByIdFromDB,
   getGiftCardByCodigoFromDB,
+  getGiftCardByCodigoFromDBConVariantes,
   getGiftCardTransaccionesFromDB,
   generarCodigoGiftCard,
   crearGiftCard,
@@ -75,10 +76,15 @@ import {
   analizarFolioTiendaEnLinea,
   detectarFolioTiendaCompleto,
   intentandoFormatoTiendaEnLinea,
-  esCandidatoCodigoTiendaEnLinea,
 } from "@/lib/data/gift-card-folios-tienda"
 import type { GiftCard, GiftCardTransaccion } from "@/lib/types/gift-cards"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import {
+  verificarFolioEnLovable,
+  notificarCanjeEnLovable,
+  variantesCodigoConsultaLovable,
+  type LovableGiftcardPayload,
+} from "@/lib/data/gift-card-lovable-verify"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
 import { METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA } from "@/lib/data/pagos"
@@ -253,18 +259,7 @@ export default function GiftCardsPage() {
   const [isSearching,    setIsSearching]    = useState(false)
   const [lovableResult,  setLovableResult]  = useState<{
     valid: boolean
-    giftcard?: {
-      folio: string
-      type: string
-      package_name: string
-      package_option: number
-      amount: number
-      customer_name: string
-      purchased_at: string
-      redeemed: boolean
-      redeemed_at: string | null
-      redeemed_by: string | null
-    }
+    giftcard?: LovableGiftcardPayload
     errorKind?: "not_found" | "server_error" | "connection_error"
   } | null>(null)
 
@@ -434,8 +429,8 @@ export default function GiftCardsPage() {
   /**
    * Valida el folio en tres pasos:
    * 1. BD local (si existe → bloquea creación)
-   * 2. API Lovable (solo para LUNA/GIFT) → prellenar monto
-   * 3. No encontrado → tarjeta física, monto editable
+   * 2. API Lovable (cualquier folio) → prellenar monto / tienda en línea
+   * 3. No encontrado en Lovable → tarjeta física, monto editable
    */
   const validarFolioCreate = async () => {
     const folio = newCodigo.trim()
@@ -445,14 +440,12 @@ export default function GiftCardsPage() {
       return
     }
 
-    const esCandidatoTienda = esCandidatoCodigoTiendaEnLinea(folio)
-
     setCreateFolioStatus("checking")
     setCreateFolioData(null)
     setNewMonto("")
 
     // ── PASO 1: buscar en BD local ────────────────────────────────────────
-    const dbCard = await getGiftCardByCodigoFromDB(folio)
+    const dbCard = await getGiftCardByCodigoFromDBConVariantes(folio)
     if (dbCard) {
       if (dbCard.clienteId) {
         setCreateFolioStatus("en_agenda")
@@ -481,35 +474,22 @@ export default function GiftCardsPage() {
       }
     }
 
-    // ── PASO 2: consultar API Lovable (solo códigos tienda / GIFT) ────────
-    if (esCandidatoTienda) {
-      try {
-        const res = await fetch(
-          `https://luna27.mx/api/public/verify-code?code=${encodeURIComponent(folio)}`,
-          { headers: { "x-api-key": "luna-cursor-2026" } },
-        )
-        if (res.status === 404) {
-          // No encontrado en Lovable → continúa a PASO 3
-        } else if (!res.ok) {
-          setCreateFolioStatus("lovable_error")
-          return
-        } else {
-          const data = await res.json()
-          if (data.valid && data.giftcard) {
-            const gc = data.giftcard
-            setCreateFolioStatus(gc.redeemed ? "lovable_redeemed" : "lovable_valid")
-            setCreateFolioData({ packageName: gc.package_name, amount: gc.amount, redeemedAt: gc.redeemed_at ?? null })
-            setNewMonto(String(gc.amount))
-            return
-          }
-        }
-      } catch {
-        setCreateFolioStatus("lovable_error")
-        return
-      }
+    // ── PASO 2: consultar API Lovable ─────────────────────────────────────
+    const lovable = await verificarFolioEnLovable(folio)
+    if (lovable.outcome === "found") {
+      const gc = lovable.giftcard
+      setNewCodigo(gc.folio)
+      setCreateFolioStatus(gc.redeemed ? "lovable_redeemed" : "lovable_valid")
+      setCreateFolioData({ packageName: gc.package_name, amount: gc.amount, redeemedAt: gc.redeemed_at ?? null })
+      setNewMonto(String(gc.amount))
+      return
+    }
+    if (lovable.outcome === "fetch_failed") {
+      setCreateFolioStatus("lovable_error")
+      return
     }
 
-    // ── PASO 3: no encontrado en ningún lado → tarjeta física ────────────
+    // ── PASO 3: no encontrado en Lovable → tarjeta física ─────────────────
     setCreateFolioStatus("not_found")
   }
 
@@ -623,11 +603,7 @@ export default function GiftCardsPage() {
     setIsCreateOpen(false)
 
     if (wasLovableValid) {
-      fetch("https://luna27.mx/api/public/verify-code", {
-        method: "POST",
-        headers: { "x-api-key": "luna-cursor-2026", "Content-Type": "application/json" },
-        body: JSON.stringify({ code: folioLovable, redeemed_by: sucursalLovable }),
-      }).catch((err) => console.error("[Lovable] Error al notificar canje al crear:", err))
+      notificarCanjeEnLovable(folioLovable, sucursalLovable)
     }
 
     await reload()
@@ -753,9 +729,11 @@ export default function GiftCardsPage() {
     setLovableResult(null)
 
     // ── PASO 1: buscar en BD local (para todos los códigos) ───────────────
-    const codigo = raw.toUpperCase()
-    const local = giftCards.find((c) => c.codigo.toUpperCase() === codigo)
-    const dbCard = local ?? await getGiftCardByCodigoFromDB(codigo)
+    const variantes = variantesCodigoConsultaLovable(raw)
+    const local = giftCards.find((c) =>
+      variantes.some((v) => c.codigo.toUpperCase() === v.toUpperCase()),
+    )
+    const dbCard = local ?? (await getGiftCardByCodigoFromDBConVariantes(raw))
     if (dbCard) {
       setConsultaCard(dbCard)
       setIsSearching(false)
@@ -763,30 +741,22 @@ export default function GiftCardsPage() {
     }
 
     // ── PASO 2: consultar API de Lovable ──────────────────────────────────
-    try {
-      const res = await fetch(
-        `https://luna27.mx/api/public/verify-code?code=${encodeURIComponent(raw)}`,
-        { headers: { "x-api-key": "luna-cursor-2026" } },
-      )
-      if (res.status === 404) {
-        // No encontrado en Lovable → continúa a PASO 3
-      } else if (!res.ok) {
-        setLovableResult({ valid: false, errorKind: "server_error" })
-        setIsSearching(false)
-        return
-      } else {
-        const data = await res.json()
-        setLovableResult(data)
-        setIsSearching(false)
-        return
-      }
-    } catch {
-      setLovableResult({ valid: false, errorKind: "connection_error" })
+    const lovable = await verificarFolioEnLovable(raw)
+    if (lovable.outcome === "found") {
+      setLovableResult({ valid: true, giftcard: lovable.giftcard })
+      setIsSearching(false)
+      return
+    }
+    if (lovable.outcome === "fetch_failed") {
+      setLovableResult({
+        valid: false,
+        errorKind: lovable.kind === "network" ? "connection_error" : "server_error",
+      })
       setIsSearching(false)
       return
     }
 
-    // ── PASO 3: no encontrado en ningún lado ──────────────────────────────
+    // ── PASO 3: no encontrado en Lovable ───────────────────────────────────
     setLovableResult({ valid: false, errorKind: "not_found" })
     setIsSearching(false)
   }
@@ -796,11 +766,7 @@ export default function GiftCardsPage() {
   const notificarCanjeALovable = (folio: string) => {
     const sucursal = sucursales.find((s) => s.id === giftCardsSucursalScope)
     const redeemedBy = sucursal?.nombre ?? "Luna27"
-    fetch("https://luna27.mx/api/public/verify-code", {
-      method: "POST",
-      headers: { "x-api-key": "luna-cursor-2026", "Content-Type": "application/json" },
-      body: JSON.stringify({ code: folio, redeemed_by: redeemedBy }),
-    }).catch((err) => console.error("[Lovable] Error al notificar canje:", err))
+    notificarCanjeEnLovable(folio, redeemedBy)
   }
 
   const handleVerDetalles = async (card: GiftCard) => {
@@ -885,7 +851,9 @@ export default function GiftCardsPage() {
                     <XCircle className="h-4 w-4 text-muted-foreground" /> Folio no encontrado
                   </p>
                   <p className="text-sm text-muted-foreground -mt-1">
-                    Este código no existe en el sistema ni en la tienda en línea.
+                    No está en la agenda ni la API pública de luna27.mx devolvió este folio (verify-code).
+                    Si lo ves en el admin de la tienda pero aquí no, puede ser venta de prueba o un formato aún no
+                    publicado en verify-code (p. ej. algunos folios LUNAd).
                   </p>
                   <p className="text-xs text-muted-foreground">¿Es una tarjeta física? Puedes registrarla aquí.</p>
                   <Button
