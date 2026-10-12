@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +15,7 @@ import {
   Award,
   Edit,
   Trash2,
+  GitMerge,
   Gift,
   AlertCircle,
   Heart,
@@ -34,8 +35,10 @@ import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
 import { getCurrentUser, isGlobalAdministrator } from "@/lib/auth"
 import { toast } from "sonner"
+import { FusionarClienteDialog } from "@/components/clientes/fusionar-cliente-dialog"
 
 function ClienteDetailContent() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const id = searchParams.get("id") || ""
   const [cliente, setCliente] = useState<Cliente | null>(null)
@@ -46,9 +49,21 @@ function ClienteDetailContent() {
   const [updatingClasificacion, setUpdatingClasificacion] = useState<
     "vetado" | "problematico" | "descuento" | null
   >(null)
+  const [fusionDialogOpen, setFusionDialogOpen] = useState(false)
   const currentUser = getCurrentUser()
   const isManager = currentUser?.role === 'manager'
   const isAdmin = isGlobalAdministrator(currentUser)
+
+  const reloadCliente = async (clienteId: string = id) => {
+    const [clienteData, citasData] = await Promise.all([
+      getClienteById(clienteId),
+      getCitasByClienteIdFromDB(clienteId),
+    ])
+    if (clienteData) {
+      setCliente(clienteData)
+      setHistorialCitas(citasData)
+    }
+  }
 
   const handleToggleEmbajadora = async () => {
     if (!cliente || !isAdmin || isUpdatingEmbajadora) return
@@ -294,7 +309,13 @@ function ClienteDetailContent() {
             )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setFusionDialogOpen(true)}>
+              <GitMerge className="mr-2 h-4 w-4" />
+              Fusionar con otra
+            </Button>
+          )}
           <Button variant="outline">
             <Edit className="mr-2 h-4 w-4" />
             Editar
@@ -305,6 +326,22 @@ function ClienteDetailContent() {
           </Button>
         </div>
       </div>
+
+      {isAdmin && cliente && (
+        <FusionarClienteDialog
+          open={fusionDialogOpen}
+          onOpenChange={setFusionDialogOpen}
+          clienteConservar={cliente}
+          onFusionCompleta={(keepId) => {
+            if (keepId !== id) {
+              router.replace(`/dashboard/clientes/detail?id=${keepId}`)
+              return
+            }
+            void reloadCliente(keepId)
+            router.refresh()
+          }}
+        />
+      )}
 
       <div className="grid gap-6 md:grid-cols-3">
         <Card className="md:col-span-1">

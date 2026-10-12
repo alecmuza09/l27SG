@@ -1682,6 +1682,107 @@ export async function updateClienteDescuento(
   }
 }
 
+export type FusionClientePreviewSide = {
+  id: string
+  nombre: string
+  apellido: string
+  telefono: string
+  email: string | null
+  total_visitas: number
+  total_gastado: number
+}
+
+export type FusionClientePreview = {
+  keep: FusionClientePreviewSide
+  drop: FusionClientePreviewSide
+  mover: { citas: number; pagos: number; gift_cards: number }
+}
+
+function parseFusionPreview(raw: unknown): FusionClientePreview | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const side = (key: 'keep' | 'drop'): FusionClientePreviewSide | null => {
+    const s = o[key]
+    if (!s || typeof s !== 'object') return null
+    const r = s as Record<string, unknown>
+    if (typeof r.id !== 'string') return null
+    return {
+      id: r.id,
+      nombre: String(r.nombre ?? ''),
+      apellido: String(r.apellido ?? ''),
+      telefono: String(r.telefono ?? ''),
+      email: r.email != null ? String(r.email) : null,
+      total_visitas: Number(r.total_visitas) || 0,
+      total_gastado: Number(r.total_gastado) || 0,
+    }
+  }
+  const keep = side('keep')
+  const drop = side('drop')
+  const moverRaw = o.mover
+  if (!keep || !drop || !moverRaw || typeof moverRaw !== 'object') return null
+  const m = moverRaw as Record<string, unknown>
+  return {
+    keep,
+    drop,
+    mover: {
+      citas: Number(m.citas) || 0,
+      pagos: Number(m.pagos) || 0,
+      gift_cards: Number(m.gift_cards) || 0,
+    },
+  }
+}
+
+export async function previewFusionClientes(
+  keepId: string,
+  dropId: string,
+): Promise<{ success: boolean; preview?: FusionClientePreview; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('preview_fusion_clientes', {
+      p_keep: keepId,
+      p_drop: dropId,
+    })
+    if (error) {
+      console.error('Error en preview_fusion_clientes:', error)
+      return { success: false, error: error.message }
+    }
+    const preview = parseFusionPreview(data)
+    if (!preview) {
+      return { success: false, error: 'Respuesta de vista previa inválida' }
+    }
+    return { success: true, preview }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error desconocido'
+    return { success: false, error: message }
+  }
+}
+
+export async function fusionarClientes(
+  keepId: string,
+  dropId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('fusionar_clientes', {
+      p_keep: keepId,
+      p_drop: dropId,
+    })
+    if (error) {
+      console.error('Error en fusionar_clientes:', error)
+      return { success: false, error: error.message }
+    }
+    const ok =
+      data &&
+      typeof data === 'object' &&
+      (data as { success?: boolean }).success === true
+    if (!ok) {
+      return { success: false, error: 'La fusión no se completó correctamente' }
+    }
+    return { success: true }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error desconocido'
+    return { success: false, error: message }
+  }
+}
+
 /** Elimina un cliente (solo admins globales vía RLS). Citas y pagos asociados se eliminan en cascada. */
 export async function deleteCliente(
   clienteId: string,
