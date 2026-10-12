@@ -1743,6 +1743,14 @@ export async function previewFusionClientes(
     })
     if (error) {
       console.error('Error en preview_fusion_clientes:', error)
+      const msg = error.message ?? ''
+      if (msg.includes('preview_fusion_clientes') && msg.includes('schema cache')) {
+        return {
+          success: false,
+          error:
+            'La fusión aún no está activada en Supabase. Ejecuta el archivo supabase/rpc-fusionar-clientes.sql en el SQL Editor del proyecto que usa tu .env.local.',
+        }
+      }
       return { success: false, error: error.message }
     }
     const preview = parseFusionPreview(data)

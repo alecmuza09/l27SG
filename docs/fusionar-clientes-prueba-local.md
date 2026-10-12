@@ -1,11 +1,15 @@
 # Probar fusión de clientes (rama `feature/fusionar-clientes`)
 
-## Activar en Supabase
+## Activar en Supabase (obligatorio)
 
-Antes de usar el botón en la app, ejecuta el SQL del repo en tu proyecto Supabase:
+Si ves *Could not find the function public.preview_fusion_clientes … in the schema cache*, es porque **este SQL no se ha ejecutado** en el mismo proyecto que apunta tu `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`).
 
-- Archivo: [`supabase/rpc-fusionar-clientes.sql`](../supabase/rpc-fusionar-clientes.sql)
-- Supabase Dashboard → SQL Editor → pegar y ejecutar
+1. Abre [Supabase Dashboard](https://supabase.com/dashboard) → tu proyecto Luna27 → **SQL Editor**.
+2. Copia **todo** [`supabase/rpc-fusionar-clientes.sql`](../supabase/rpc-fusionar-clientes.sql) y pulsa **Run**.
+3. Si falla con `user_is_global_admin() does not exist`, ejecuta antes las funciones RLS de [`supabase/restringir-scope-sucursal-rls-y-paseotecnat.sql`](../supabase/restringir-scope-sucursal-rls-y-paseotecnat.sql) (o al menos la parte de `user_is_global_admin`).
+4. Espera unos segundos y recarga la app (PostgREST actualiza el “schema cache”).
+
+El orden `(p_drop, p_drop)` en el mensaje de error es normal: PostgREST ordena los parámetros alfabéticamente; lo importante es que la función exista.
 
 ## Probar en local
 
