@@ -1681,3 +1681,23 @@ export async function updateClienteDescuento(
     return { success: false, error: error.message || 'Error desconocido' }
   }
 }
+
+/** Elimina un cliente (solo admins globales vía RLS). Citas y pagos asociados se eliminan en cascada. */
+export async function deleteCliente(
+  clienteId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('clientes').delete().eq('id', clienteId)
+
+    if (error) {
+      console.error('Error eliminando cliente:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error: unknown) {
+    console.error('Error inesperado eliminando cliente:', error)
+    const message = error instanceof Error ? error.message : 'Error desconocido'
+    return { success: false, error: message }
+  }
+}

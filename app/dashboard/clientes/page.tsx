@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -26,7 +26,8 @@ import {
   getClientesPaginated, searchClientesPaginated, getClientesResumenTarjetas,
   createCliente, updateCliente, updateClienteEmbajadora,
   getClientesByIds, fetchAllClientesListado, fetchAllClientesBusqueda,
-  getClientesNuevosListadoEnPeriodo, type Cliente, type ClienteNuevoPeriodoRow,
+  getClientesNuevosListadoEnPeriodo, deleteCliente,
+  type Cliente, type ClienteNuevoPeriodoRow,
 } from "@/lib/data/clientes"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { toast } from "sonner"
@@ -39,6 +40,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -147,6 +158,8 @@ export default function ClientesPage() {
   const [sucursalFilter, setSucursalFilter] = useState<string>("all")
   const [embajadoraUpdatingId, setEmbajadoraUpdatingId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const [clienteToDelete, setClienteToDelete] = useState<Cliente | null>(null)
+  const [isDeletingCliente, setIsDeletingCliente] = useState(false)
   const isAdmin = isGlobalAdministrator(currentUser)
   const canExportClientes = canExportClientesListado(currentUser)
   const isBranchAdmin = currentUser?.role === "branch-admin"
@@ -601,6 +614,29 @@ export default function ClientesPage() {
       toast.error('Error inesperado al actualizar embajadora')
     } finally {
       setEmbajadoraUpdatingId(null)
+    }
+  }
+
+  const handleConfirmarEliminarCliente = async () => {
+    if (!clienteToDelete || isDeletingCliente) return
+
+    setIsDeletingCliente(true)
+    try {
+      const result = await deleteCliente(clienteToDelete.id)
+      if (result.success) {
+        toast.success(
+          `${clienteToDelete.nombre} ${clienteToDelete.apellido} fue eliminada de la base de clientes`,
+        )
+        setClienteToDelete(null)
+        await Promise.all([loadClientes(), loadStats()])
+      } else {
+        toast.error(result.error ?? "No se pudo eliminar la clienta")
+      }
+    } catch (err) {
+      console.error("Error eliminando cliente:", err)
+      toast.error("Error inesperado al eliminar la clienta")
+    } finally {
+      setIsDeletingCliente(false)
     }
   }
 
@@ -1231,9 +1267,16 @@ export default function ClientesPage() {
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(cliente)}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Eliminar clienta"
+                            onClick={() => setClienteToDelete(cliente)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1338,6 +1381,54 @@ export default function ClientesPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={!!clienteToDelete}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingCliente) setClienteToDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar clienta?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                ¿Estás seguro de que quieres eliminar a{" "}
+                <strong className="text-foreground">
+                  {clienteToDelete?.nombre} {clienteToDelete?.apellido}
+                </strong>
+                ?
+              </span>
+              {(clienteToDelete?.totalVisitas ?? 0) > 0 && (
+                <span className="block text-sm">
+                  Esta clienta tiene {clienteToDelete?.totalVisitas} visita(s) registrada(s). Al eliminarla también se
+                  quitarán sus citas y cobros asociados. Esta acción no se puede deshacer.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingCliente}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeletingCliente}
+              onClick={(e) => {
+                e.preventDefault()
+                void handleConfirmarEliminarCliente()
+              }}
+              className={buttonVariants({ variant: "destructive" })}
+            >
+              {isDeletingCliente ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin inline" />
+                  Eliminando…
+                </>
+              ) : (
+                "Eliminar"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Diálogo de edición de cliente */}
       <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
