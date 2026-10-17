@@ -364,6 +364,8 @@ export default function PagosPage() {
   // hay que restarla para obtener solo servicios
   const totalGeneral    = totalEfectivo + totalTarjeta + totalTransf + totalOtro - totalPropinas
   const totalNeto       = totalGeneral - totalGastos
+  /** Efectivo en caja: cobros en efectivo menos propinas y gastos pagados del día. */
+  const totalEfectivoNeto = totalEfectivo - totalPropinas - totalGastos
 
   // ── helpers de selección ────────────────────────────────────────────────────
   const toggleCita = (id: string) => {
@@ -927,7 +929,7 @@ export default function PagosPage() {
 
           <Separator className="my-2" />
 
-          <StatRow label="Total Efectivo"      value={fmtMXN(totalEfectivo)} highlight />
+          <StatRow label="Total Efectivo"      value={fmtMXN(totalEfectivoNeto)} highlight />
           <StatRow label="Total Tarjeta"      value={fmtMXN(totalTarjeta)} highlight />
           <StatRow label="Total Transferencia" value={fmtMXN(totalTransf)} highlight />
           <StatRow label="Total"              value={fmtMXN(totalNeto)} highlight />
