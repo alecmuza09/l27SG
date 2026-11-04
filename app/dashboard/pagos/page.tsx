@@ -195,6 +195,7 @@ export default function PagosPage() {
     monto: "",
     categoria: "operativo",
     empleadaId: "",
+    empleadaNombreLibre: "",
     capacitacionFechaInicio: "",
     capacitacionFechaFin: "",
   })
@@ -203,6 +204,7 @@ export default function PagosPage() {
   const [editGastoMonto, setEditGastoMonto]     = useState("")
   const [editGastoCategoria, setEditGastoCategoria] = useState("operativo")
   const [editGastoEmpleadaId, setEditGastoEmpleadaId] = useState("")
+  const [editGastoEmpleadaNombreLibre, setEditGastoEmpleadaNombreLibre] = useState("")
   const [editGastoCapacitacionFechaInicio, setEditGastoCapacitacionFechaInicio] = useState("")
   const [editGastoCapacitacionFechaFin, setEditGastoCapacitacionFechaFin] = useState("")
   const [empleadasSucursal, setEmpleadasSucursal] = useState<{ id: string; nombre: string }[]>([])
@@ -744,6 +746,7 @@ export default function PagosPage() {
       categoria: nuevoGasto.categoria,
       hora,
       empleadaId: nuevoGasto.empleadaId || null,
+      empleadaNombreLibre: nuevoGasto.empleadaNombreLibre || null,
       capacitacionFechaInicio: nuevoGasto.capacitacionFechaInicio || null,
       capacitacionFechaFin: nuevoGasto.capacitacionFechaFin || null,
     })
@@ -754,10 +757,18 @@ export default function PagosPage() {
     }
 
     const empleadaNombre = data.empleadaId
-      ? (empleadasSucursal.find(e => e.id === data.empleadaId)?.nombre ?? null)
-      : null
+      ? (empleadasSucursal.find(e => e.id === data.empleadaId)?.nombre ?? data.empleadaNombre ?? null)
+      : (data.empleadaNombreLibre || data.empleadaNombre || null)
     setGastos(prev => [...prev, { ...data, empleadaNombre }])
-    setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", capacitacionFechaInicio: "", capacitacionFechaFin: "" })
+    setNuevoGasto({
+      descripcion: "",
+      monto: "",
+      categoria: "operativo",
+      empleadaId: "",
+      empleadaNombreLibre: "",
+      capacitacionFechaInicio: "",
+      capacitacionFechaFin: "",
+    })
     setGastoDialogOpen(false)
     toast.success("Gasto registrado")
   }
@@ -768,6 +779,7 @@ export default function PagosPage() {
     setEditGastoMonto(String(gasto.monto))
     setEditGastoCategoria(gasto.categoria)
     setEditGastoEmpleadaId(gasto.empleadaId ?? "")
+    setEditGastoEmpleadaNombreLibre(gasto.empleadaId ? "" : (gasto.empleadaNombreLibre || gasto.empleadaNombre || ""))
     setEditGastoCapacitacionFechaInicio(gasto.capacitacionFechaInicio ?? "")
     setEditGastoCapacitacionFechaFin(gasto.capacitacionFechaFin ?? "")
   }
@@ -782,6 +794,7 @@ export default function PagosPage() {
       monto: parseFloat(editGastoMonto) || gastoEditando.monto,
       categoria: editGastoCategoria,
       empleadaId: editGastoEmpleadaId || null,
+      empleadaNombreLibre: editGastoEmpleadaNombreLibre || null,
       capacitacionFechaInicio: editGastoCapacitacionFechaInicio || null,
       capacitacionFechaFin: editGastoCapacitacionFechaFin || null,
     })
@@ -793,8 +806,8 @@ export default function PagosPage() {
     }
 
     const empleadaNombre = data.empleadaId
-      ? (empleadasSucursal.find(e => e.id === data.empleadaId)?.nombre ?? null)
-      : null
+      ? (empleadasSucursal.find(e => e.id === data.empleadaId)?.nombre ?? data.empleadaNombre ?? null)
+      : (data.empleadaNombreLibre || data.empleadaNombre || null)
     setGastos(prev => prev.map(g => g.id === data.id ? { ...data, empleadaNombre } : g))
     setGastoEditando(null)
     toast.success("Gasto actualizado")
@@ -1558,7 +1571,15 @@ export default function PagosPage() {
         onOpenChange={open => {
           setGastoDialogOpen(open)
           if (!open) {
-            setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", capacitacionFechaInicio: "", capacitacionFechaFin: "" })
+            setNuevoGasto({
+              descripcion: "",
+              monto: "",
+              categoria: "operativo",
+              empleadaId: "",
+              empleadaNombreLibre: "",
+              capacitacionFechaInicio: "",
+              capacitacionFechaFin: "",
+            })
           }
         }}
       >
@@ -1606,7 +1627,11 @@ export default function PagosPage() {
               <Label className="text-xs">Empleada</Label>
               <Select
                 value={nuevoGasto.empleadaId || "__none__"}
-                onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
+                onValueChange={v => setNuevoGasto(p => ({
+                  ...p,
+                  empleadaId: v === "__none__" ? "" : v,
+                  empleadaNombreLibre: v === "__none__" ? p.empleadaNombreLibre : "",
+                }))}
               >
                 <SelectTrigger className="h-9 text-sm mt-1">
                   <SelectValue placeholder="Seleccionar empleada…" />
@@ -1618,6 +1643,19 @@ export default function PagosPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <div className="mt-2">
+                <Label className="text-xs text-muted-foreground">Otra persona (no en el sistema)</Label>
+                <Input
+                  placeholder="Escribe el nombre…"
+                  value={nuevoGasto.empleadaNombreLibre}
+                  onChange={e => setNuevoGasto(p => ({
+                    ...p,
+                    empleadaNombreLibre: e.target.value,
+                    empleadaId: e.target.value.trim() ? "" : p.empleadaId,
+                  }))}
+                  className="h-9 text-sm mt-1"
+                />
+              </div>
             </div>
 
             {/* Campos extra según categoría */}
@@ -1702,7 +1740,11 @@ export default function PagosPage() {
               <Label className="text-xs">Empleada</Label>
               <Select
                 value={editGastoEmpleadaId || "__none__"}
-                onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
+                onValueChange={v => {
+                  const id = v === "__none__" ? "" : v
+                  setEditGastoEmpleadaId(id)
+                  if (id) setEditGastoEmpleadaNombreLibre("")
+                }}
               >
                 <SelectTrigger className="h-9 text-sm mt-1">
                   <SelectValue placeholder="Seleccionar empleada…" />
@@ -1714,6 +1756,18 @@ export default function PagosPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <div className="mt-2">
+                <Label className="text-xs text-muted-foreground">Otra persona (no en el sistema)</Label>
+                <Input
+                  placeholder="Escribe el nombre…"
+                  value={editGastoEmpleadaNombreLibre}
+                  onChange={e => {
+                    setEditGastoEmpleadaNombreLibre(e.target.value)
+                    if (e.target.value.trim()) setEditGastoEmpleadaId("")
+                  }}
+                  className="h-9 text-sm mt-1"
+                />
+              </div>
             </div>
 
             {/* Campos extra según categoría */}

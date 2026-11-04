@@ -2215,6 +2215,7 @@ export default function ReportesPage() {
   )
   const [categoriaGastoFilter,   setCategoriaGastoFilter]   = useState<string>("all")
   const [gastosEmpleadaFilter,   setGastosEmpleadaFilter]   = useState<string>("all")
+  const [gastosOtraPersonaFilter, setGastosOtraPersonaFilter] = useState<string>("all")
   const [empleadasGastosFiltro,  setEmpleadasGastosFiltro]  = useState<{ id: string; nombre: string }[]>([])
 
   const [isExportingPdf,       setIsExportingPdf]       = useState(false)
@@ -3049,9 +3050,40 @@ export default function ReportesPage() {
   const nombreSucursalById = (id: string) =>
     sucursales.find(s => s.id === id)?.nombre ?? id
 
+  // Nombres libres del período/sucursal cargados (solo los registrados a mano en esa scope)
+  const otrasPersonasGastosFiltro = (() => {
+    const seen = new Set<string>()
+    const opts: string[] = []
+    for (const g of gastosReporte) {
+      const nombre = g.empleadaNombreLibre?.trim()
+      if (!nombre || g.empleadaId) continue
+      const key = nombre.toLocaleLowerCase("es")
+      if (seen.has(key)) continue
+      seen.add(key)
+      opts.push(nombre)
+    }
+    return opts.sort((a, b) => a.localeCompare(b, "es"))
+  })()
+
+  const otraPersonaEfectiva =
+    gastosOtraPersonaFilter !== "all"
+    && otrasPersonasGastosFiltro.some(
+      n => n.toLocaleLowerCase("es") === gastosOtraPersonaFilter.toLocaleLowerCase("es"),
+    )
+      ? gastosOtraPersonaFilter
+      : "all"
+
   const gastosFiltrados = gastosReporte.filter(g => {
     if (categoriaGastoFilter !== "all" && g.categoria !== categoriaGastoFilter) return false
-    if (gastosEmpleadaFilter !== "all" && g.empleadaId !== gastosEmpleadaFilter) return false
+    if (gastosEmpleadaFilter !== "all") {
+      if (g.empleadaId !== gastosEmpleadaFilter) return false
+    }
+    if (otraPersonaEfectiva !== "all") {
+      const libre = g.empleadaNombreLibre?.trim() ?? ""
+      if (g.empleadaId || libre.toLocaleLowerCase("es") !== otraPersonaEfectiva.toLocaleLowerCase("es")) {
+        return false
+      }
+    }
     return true
   })
 
@@ -4239,7 +4271,13 @@ export default function ReportesPage() {
                   </SelectContent>
                 </Select>
 
-                <Select value={gastosEmpleadaFilter} onValueChange={setGastosEmpleadaFilter}>
+                <Select
+                  value={gastosEmpleadaFilter}
+                  onValueChange={v => {
+                    setGastosEmpleadaFilter(v)
+                    if (v !== "all") setGastosOtraPersonaFilter("all")
+                  }}
+                >
                   <SelectTrigger className="w-52 bg-white">
                     <Users className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
                     <SelectValue placeholder="Empleada" />
@@ -4248,6 +4286,25 @@ export default function ReportesPage() {
                     <SelectItem value="all">Todas las empleadas</SelectItem>
                     {empleadasGastosFiltro.map(e => (
                       <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={otraPersonaEfectiva}
+                  onValueChange={v => {
+                    setGastosOtraPersonaFilter(v)
+                    if (v !== "all") setGastosEmpleadaFilter("all")
+                  }}
+                >
+                  <SelectTrigger className="w-52 bg-white">
+                    <UserPlus className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Otras personas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las otras personas</SelectItem>
+                    {otrasPersonasGastosFiltro.map(nombre => (
+                      <SelectItem key={nombre} value={nombre}>{nombre}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

@@ -21,10 +21,32 @@ export interface Gasto {
   hora: string
   // Nuevos campos opcionales
   empleadaId?: string | null
-  empleadaNombre?: string | null   // join desde empleados
+  /** Nombre para mostrar: join de empleados o nombre libre externo */
+  empleadaNombre?: string | null
+  /** Nombre escrito a mano cuando la persona no está en empleados */
+  empleadaNombreLibre?: string | null
   articulo?: string | null
   capacitacionFechaInicio?: string | null
   capacitacionFechaFin?: string | null
+}
+
+function mapGastoRow(row: any): Gasto {
+  const nombreLibre = row.empleada_nombre_libre ?? null
+  return {
+    id: row.id,
+    sucursalId: row.sucursal_id,
+    fecha: row.fecha,
+    descripcion: row.descripcion,
+    monto: Number(row.monto),
+    categoria: row.categoria,
+    hora: row.hora,
+    empleadaId: row.empleada_id ?? null,
+    empleadaNombre: row.empleado?.nombre ?? nombreLibre ?? null,
+    empleadaNombreLibre: nombreLibre,
+    articulo: row.articulo ?? null,
+    capacitacionFechaInicio: row.capacitacion_fecha_inicio ?? null,
+    capacitacionFechaFin: row.capacitacion_fecha_fin ?? null,
+  }
 }
 
 export async function getGastosFromDB(
@@ -57,20 +79,7 @@ export async function getGastosFromDB(
   }
   if (!data) return []
 
-  return data.map((row: any) => ({
-    id: row.id,
-    sucursalId: row.sucursal_id,
-    fecha: row.fecha,
-    descripcion: row.descripcion,
-    monto: Number(row.monto),
-    categoria: row.categoria,
-    hora: row.hora,
-    empleadaId: row.empleada_id ?? null,
-    empleadaNombre: row.empleado?.nombre ?? null,
-    articulo: row.articulo ?? null,
-    capacitacionFechaInicio: row.capacitacion_fecha_inicio ?? null,
-    capacitacionFechaFin: row.capacitacion_fecha_fin ?? null,
-  }))
+  return data.map(mapGastoRow)
 }
 
 export async function createGastoInDB(gasto: {
@@ -81,10 +90,14 @@ export async function createGastoInDB(gasto: {
   categoria: string
   hora: string
   empleadaId?: string | null
+  empleadaNombreLibre?: string | null
   articulo?: string | null
   capacitacionFechaInicio?: string | null
   capacitacionFechaFin?: string | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
+  const empleadaId = gasto.empleadaId || null
+  const nombreLibre = empleadaId ? null : (gasto.empleadaNombreLibre?.trim() || null)
+
   const { data, error } = await (supabase as any)
     .from("gastos")
     .insert({
@@ -94,7 +107,8 @@ export async function createGastoInDB(gasto: {
       monto: gasto.monto,
       categoria: gasto.categoria,
       hora: gasto.hora,
-      empleada_id: gasto.empleadaId ?? null,
+      empleada_id: empleadaId,
+      empleada_nombre_libre: nombreLibre,
       articulo: gasto.articulo ?? null,
       capacitacion_fecha_inicio: gasto.capacitacionFechaInicio ?? null,
       capacitacion_fecha_fin: gasto.capacitacionFechaFin ?? null,
@@ -107,22 +121,7 @@ export async function createGastoInDB(gasto: {
     return { data: null, error: error?.message ?? "Error creando gasto" }
   }
 
-  return {
-    data: {
-      id: data.id,
-      sucursalId: data.sucursal_id,
-      fecha: data.fecha,
-      descripcion: data.descripcion,
-      monto: Number(data.monto),
-      categoria: data.categoria,
-      hora: data.hora,
-      empleadaId: data.empleada_id ?? null,
-      articulo: data.articulo ?? null,
-      capacitacionFechaInicio: data.capacitacion_fecha_inicio ?? null,
-      capacitacionFechaFin: data.capacitacion_fecha_fin ?? null,
-    },
-    error: null,
-  }
+  return { data: mapGastoRow(data), error: null }
 }
 
 export async function updateGastoInDB(id: string, cambios: {
@@ -130,21 +129,31 @@ export async function updateGastoInDB(id: string, cambios: {
   monto?: number
   categoria?: string
   empleadaId?: string | null
+  empleadaNombreLibre?: string | null
   articulo?: string | null
   capacitacionFechaInicio?: string | null
   capacitacionFechaFin?: string | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
+  const patch: Record<string, unknown> = {
+    ...(cambios.descripcion !== undefined && { descripcion: cambios.descripcion }),
+    ...(cambios.monto !== undefined && { monto: cambios.monto }),
+    ...(cambios.categoria !== undefined && { categoria: cambios.categoria }),
+    ...(cambios.articulo !== undefined && { articulo: cambios.articulo }),
+    ...(cambios.capacitacionFechaInicio !== undefined && { capacitacion_fecha_inicio: cambios.capacitacionFechaInicio }),
+    ...(cambios.capacitacionFechaFin !== undefined && { capacitacion_fecha_fin: cambios.capacitacionFechaFin }),
+  }
+
+  if (cambios.empleadaId !== undefined || cambios.empleadaNombreLibre !== undefined) {
+    const empleadaId = cambios.empleadaId || null
+    patch.empleada_id = empleadaId
+    patch.empleada_nombre_libre = empleadaId
+      ? null
+      : (cambios.empleadaNombreLibre?.trim() || null)
+  }
+
   const { data, error } = await (supabase as any)
     .from("gastos")
-    .update({
-      ...(cambios.descripcion !== undefined && { descripcion: cambios.descripcion }),
-      ...(cambios.monto !== undefined && { monto: cambios.monto }),
-      ...(cambios.categoria !== undefined && { categoria: cambios.categoria }),
-      ...(cambios.empleadaId !== undefined && { empleada_id: cambios.empleadaId }),
-      ...(cambios.articulo !== undefined && { articulo: cambios.articulo }),
-      ...(cambios.capacitacionFechaInicio !== undefined && { capacitacion_fecha_inicio: cambios.capacitacionFechaInicio }),
-      ...(cambios.capacitacionFechaFin !== undefined && { capacitacion_fecha_fin: cambios.capacitacionFechaFin }),
-    })
+    .update(patch)
     .eq("id", id)
     .select("*")
     .single()
@@ -154,22 +163,7 @@ export async function updateGastoInDB(id: string, cambios: {
     return { data: null, error: error?.message ?? "Error actualizando gasto" }
   }
 
-  return {
-    data: {
-      id: data.id,
-      sucursalId: data.sucursal_id,
-      fecha: data.fecha,
-      descripcion: data.descripcion,
-      monto: Number(data.monto),
-      categoria: data.categoria,
-      hora: data.hora,
-      empleadaId: data.empleada_id ?? null,
-      articulo: data.articulo ?? null,
-      capacitacionFechaInicio: data.capacitacion_fecha_inicio ?? null,
-      capacitacionFechaFin: data.capacitacion_fecha_fin ?? null,
-    },
-    error: null,
-  }
+  return { data: mapGastoRow(data), error: null }
 }
 
 export async function deleteGastoFromDB(id: string): Promise<{ error: string | null }> {
