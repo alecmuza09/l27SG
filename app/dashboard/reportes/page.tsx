@@ -4150,7 +4150,7 @@ export default function ReportesPage() {
                             <TableHead>Categoría</TableHead>
                             <TableHead>Descripción / Artículo</TableHead>
                             <TableHead>Empleada</TableHead>
-                            <TableHead className="text-right">Días</TableHead>
+                            <TableHead className="text-right">Periodo</TableHead>
                             <TableHead className="text-right">Monto</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -4185,8 +4185,8 @@ export default function ReportesPage() {
                                 {g.empleadaNombre || "—"}
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
-                                {g.categoria === "capacitacion" && g.diasCapacitacion
-                                  ? g.diasCapacitacion
+                                {g.categoria === "capacitacion" && g.capacitacionFechaInicio && g.capacitacionFechaFin
+                                  ? `${new Date(g.capacitacionFechaInicio + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short" }).replace(/\./g, "")} – ${new Date(g.capacitacionFechaFin + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short" }).replace(/\./g, "")}`
                                   : "—"}
                               </TableCell>
                               <TableCell className="text-right tabular-nums font-semibold text-red-600">

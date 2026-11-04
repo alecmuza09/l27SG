@@ -76,6 +76,16 @@ async function registrarEliminacionEnLog(params: {
 const fmtMXN = (n: number) =>
   new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
 
+const fmtDiaMesCorto = (iso: string) =>
+  new Date(iso + "T12:00:00")
+    .toLocaleDateString("es-MX", { day: "2-digit", month: "short" })
+    .replace(/\./g, "")
+
+const fmtRangoCapacitacion = (inicio?: string | null, fin?: string | null) => {
+  if (!inicio || !fin) return null
+  return `${fmtDiaMesCorto(inicio)} – ${fmtDiaMesCorto(fin)}`
+}
+
 // Cortesía: creada desde el botón de Caja (descuento_codigo = "CORTESIA") o editada
 // manualmente en el formulario (descuento_tipo = "cortesia").
 const esPagoCortesia = (p: Pick<Pago, "descuentoTipo" | "descuentoCodigo">) =>
@@ -185,16 +195,16 @@ export default function PagosPage() {
     monto: "",
     categoria: "operativo",
     empleadaId: "",
-    articulo: "",
-    diasCapacitacion: "",
+    capacitacionFechaInicio: "",
+    capacitacionFechaFin: "",
   })
   const [gastoEditando, setGastoEditando]       = useState<Gasto | null>(null)
   const [editGastoDescripcion, setEditGastoDescripcion] = useState("")
   const [editGastoMonto, setEditGastoMonto]     = useState("")
   const [editGastoCategoria, setEditGastoCategoria] = useState("operativo")
   const [editGastoEmpleadaId, setEditGastoEmpleadaId] = useState("")
-  const [editGastoArticulo, setEditGastoArticulo] = useState("")
-  const [editGastoDiasCapacitacion, setEditGastoDiasCapacitacion] = useState("")
+  const [editGastoCapacitacionFechaInicio, setEditGastoCapacitacionFechaInicio] = useState("")
+  const [editGastoCapacitacionFechaFin, setEditGastoCapacitacionFechaFin] = useState("")
   const [empleadasSucursal, setEmpleadasSucursal] = useState<{ id: string; nombre: string }[]>([])
   const [isSavingGasto, setIsSavingGasto]       = useState(false)
   const [gastoAEliminar, setGastoAEliminar]     = useState<Gasto | null>(null)
@@ -734,8 +744,8 @@ export default function PagosPage() {
       categoria: nuevoGasto.categoria,
       hora,
       empleadaId: nuevoGasto.empleadaId || null,
-      articulo: nuevoGasto.articulo.trim() || null,
-      diasCapacitacion: nuevoGasto.diasCapacitacion ? parseInt(nuevoGasto.diasCapacitacion) : null,
+      capacitacionFechaInicio: nuevoGasto.capacitacionFechaInicio || null,
+      capacitacionFechaFin: nuevoGasto.capacitacionFechaFin || null,
     })
 
     if (error || !data) {
@@ -747,7 +757,7 @@ export default function PagosPage() {
       ? (empleadasSucursal.find(e => e.id === data.empleadaId)?.nombre ?? null)
       : null
     setGastos(prev => [...prev, { ...data, empleadaNombre }])
-    setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", articulo: "", diasCapacitacion: "" })
+    setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", capacitacionFechaInicio: "", capacitacionFechaFin: "" })
     setGastoDialogOpen(false)
     toast.success("Gasto registrado")
   }
@@ -758,8 +768,8 @@ export default function PagosPage() {
     setEditGastoMonto(String(gasto.monto))
     setEditGastoCategoria(gasto.categoria)
     setEditGastoEmpleadaId(gasto.empleadaId ?? "")
-    setEditGastoArticulo(gasto.articulo ?? "")
-    setEditGastoDiasCapacitacion(gasto.diasCapacitacion ? String(gasto.diasCapacitacion) : "")
+    setEditGastoCapacitacionFechaInicio(gasto.capacitacionFechaInicio ?? "")
+    setEditGastoCapacitacionFechaFin(gasto.capacitacionFechaFin ?? "")
   }
 
   const handleGuardarGasto = async () => {
@@ -772,8 +782,8 @@ export default function PagosPage() {
       monto: parseFloat(editGastoMonto) || gastoEditando.monto,
       categoria: editGastoCategoria,
       empleadaId: editGastoEmpleadaId || null,
-      articulo: editGastoArticulo.trim() || null,
-      diasCapacitacion: editGastoDiasCapacitacion ? parseInt(editGastoDiasCapacitacion) : null,
+      capacitacionFechaInicio: editGastoCapacitacionFechaInicio || null,
+      capacitacionFechaFin: editGastoCapacitacionFechaFin || null,
     })
 
     setIsSavingGasto(false)
@@ -1504,8 +1514,10 @@ export default function PagosPage() {
                             {g.articulo && (
                               <span className="text-[11px] text-muted-foreground italic">{g.articulo}</span>
                             )}
-                            {g.diasCapacitacion && (
-                              <span className="text-[11px] text-muted-foreground">{g.diasCapacitacion} día(s)</span>
+                            {g.capacitacionFechaInicio && g.capacitacionFechaFin && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {fmtRangoCapacitacion(g.capacitacionFechaInicio, g.capacitacionFechaFin)}
+                              </span>
                             )}
                           </div>
                         </TableCell>
@@ -1546,7 +1558,7 @@ export default function PagosPage() {
         onOpenChange={open => {
           setGastoDialogOpen(open)
           if (!open) {
-            setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", articulo: "", diasCapacitacion: "" })
+            setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", capacitacionFechaInicio: "", capacitacionFechaFin: "" })
           }
         }}
       >
@@ -1584,9 +1596,6 @@ export default function PagosPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="operativo">Operativo</SelectItem>
-                  <SelectItem value="insumos">Insumos</SelectItem>
-                  <SelectItem value="nomina">Nómina</SelectItem>
-                  <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
                   <SelectItem value="compras">Compras</SelectItem>
                   <SelectItem value="gasolina">Gasolina</SelectItem>
                   <SelectItem value="capacitacion">Capacitación</SelectItem>
@@ -1595,94 +1604,46 @@ export default function PagosPage() {
               </Select>
             </div>
 
+            <div>
+              <Label className="text-xs">Empleada</Label>
+              <Select
+                value={nuevoGasto.empleadaId || "__none__"}
+                onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm mt-1">
+                  <SelectValue placeholder="Seleccionar empleada…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin asignar</SelectItem>
+                  {empleadasSucursal.map(e => (
+                    <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Campos extra según categoría */}
-
-            {/* Compras: artículo + empleada (monto no vinculado) */}
-            {nuevoGasto.categoria === "compras" && (
-              <>
-                <div>
-                  <Label className="text-xs">Artículo comprado</Label>
-                  <Input
-                    placeholder="Ej: Shampoo, tintura, acetona…"
-                    value={nuevoGasto.articulo}
-                    onChange={e => setNuevoGasto(p => ({ ...p, articulo: e.target.value }))}
-                    className="h-9 text-sm mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Empleada que realizó la compra</Label>
-                  <Select
-                    value={nuevoGasto.empleadaId || "__none__"}
-                    onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
-                  >
-                    <SelectTrigger className="h-9 text-sm mt-1">
-                      <SelectValue placeholder="Seleccionar empleada…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Sin asignar</SelectItem>
-                      {empleadasSucursal.map(e => (
-                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-
-            {/* Gasolina: solo empleada */}
-            {nuevoGasto.categoria === "gasolina" && (
-              <div>
-                <Label className="text-xs">Empleada que recibe el dinero</Label>
-                <Select
-                  value={nuevoGasto.empleadaId || "__none__"}
-                  onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
-                >
-                  <SelectTrigger className="h-9 text-sm mt-1">
-                    <SelectValue placeholder="Seleccionar empleada…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Sin asignar</SelectItem>
-                    {empleadasSucursal.map(e => (
-                      <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Capacitación: días + empleada */}
             {nuevoGasto.categoria === "capacitacion" && (
-              <>
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label className="text-xs">Días de capacitación</Label>
+                  <Label className="text-xs">Fecha inicio</Label>
                   <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="1"
-                    value={nuevoGasto.diasCapacitacion}
-                    onChange={e => setNuevoGasto(p => ({ ...p, diasCapacitacion: e.target.value }))}
+                    type="date"
+                    value={nuevoGasto.capacitacionFechaInicio}
+                    onChange={e => setNuevoGasto(p => ({ ...p, capacitacionFechaInicio: e.target.value }))}
                     className="h-9 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Empleada que toma la capacitación</Label>
-                  <Select
-                    value={nuevoGasto.empleadaId || "__none__"}
-                    onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
-                  >
-                    <SelectTrigger className="h-9 text-sm mt-1">
-                      <SelectValue placeholder="Seleccionar empleada…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Sin asignar</SelectItem>
-                      {empleadasSucursal.map(e => (
-                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs">Fecha fin</Label>
+                  <Input
+                    type="date"
+                    value={nuevoGasto.capacitacionFechaFin}
+                    onChange={e => setNuevoGasto(p => ({ ...p, capacitacionFechaFin: e.target.value }))}
+                    className="h-9 text-sm mt-1"
+                  />
                 </div>
-              </>
+              </div>
             )}
 
             <div className="flex gap-2 pt-2">
@@ -1733,9 +1694,6 @@ export default function PagosPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="operativo">Operativo</SelectItem>
-                  <SelectItem value="insumos">Insumos</SelectItem>
-                  <SelectItem value="nomina">Nómina</SelectItem>
-                  <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
                   <SelectItem value="compras">Compras</SelectItem>
                   <SelectItem value="gasolina">Gasolina</SelectItem>
                   <SelectItem value="capacitacion">Capacitación</SelectItem>
@@ -1744,91 +1702,46 @@ export default function PagosPage() {
               </Select>
             </div>
 
+            <div>
+              <Label className="text-xs">Empleada</Label>
+              <Select
+                value={editGastoEmpleadaId || "__none__"}
+                onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
+              >
+                <SelectTrigger className="h-9 text-sm mt-1">
+                  <SelectValue placeholder="Seleccionar empleada…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin asignar</SelectItem>
+                  {empleadasSucursal.map(e => (
+                    <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Campos extra según categoría */}
-
-            {editGastoCategoria === "compras" && (
-              <>
-                <div>
-                  <Label className="text-xs">Artículo comprado</Label>
-                  <Input
-                    placeholder="Ej: Shampoo, tintura, acetona…"
-                    value={editGastoArticulo}
-                    onChange={e => setEditGastoArticulo(e.target.value)}
-                    className="h-9 text-sm mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Empleada que realizó la compra</Label>
-                  <Select
-                    value={editGastoEmpleadaId || "__none__"}
-                    onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
-                  >
-                    <SelectTrigger className="h-9 text-sm mt-1">
-                      <SelectValue placeholder="Seleccionar empleada…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Sin asignar</SelectItem>
-                      {empleadasSucursal.map(e => (
-                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-
-            {editGastoCategoria === "gasolina" && (
-              <div>
-                <Label className="text-xs">Empleada que recibe el dinero</Label>
-                <Select
-                  value={editGastoEmpleadaId || "__none__"}
-                  onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
-                >
-                  <SelectTrigger className="h-9 text-sm mt-1">
-                    <SelectValue placeholder="Seleccionar empleada…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Sin asignar</SelectItem>
-                    {empleadasSucursal.map(e => (
-                      <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
             {editGastoCategoria === "capacitacion" && (
-              <>
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label className="text-xs">Días de capacitación</Label>
+                  <Label className="text-xs">Fecha inicio</Label>
                   <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="1"
-                    value={editGastoDiasCapacitacion}
-                    onChange={e => setEditGastoDiasCapacitacion(e.target.value)}
+                    type="date"
+                    value={editGastoCapacitacionFechaInicio}
+                    onChange={e => setEditGastoCapacitacionFechaInicio(e.target.value)}
                     className="h-9 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Empleada que toma la capacitación</Label>
-                  <Select
-                    value={editGastoEmpleadaId || "__none__"}
-                    onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
-                  >
-                    <SelectTrigger className="h-9 text-sm mt-1">
-                      <SelectValue placeholder="Seleccionar empleada…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Sin asignar</SelectItem>
-                      {empleadasSucursal.map(e => (
-                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs">Fecha fin</Label>
+                  <Input
+                    type="date"
+                    value={editGastoCapacitacionFechaFin}
+                    onChange={e => setEditGastoCapacitacionFechaFin(e.target.value)}
+                    className="h-9 text-sm mt-1"
+                  />
                 </div>
-              </>
+              </div>
             )}
 
             <div className="flex gap-2 pt-2">

@@ -12,7 +12,8 @@ export interface Gasto {
   empleadaId?: string | null
   empleadaNombre?: string | null   // join desde empleados
   articulo?: string | null
-  diasCapacitacion?: number | null
+  capacitacionFechaInicio?: string | null
+  capacitacionFechaFin?: string | null
 }
 
 export async function getGastosFromDB(
@@ -56,7 +57,8 @@ export async function getGastosFromDB(
     empleadaId: row.empleada_id ?? null,
     empleadaNombre: row.empleado?.nombre ?? null,
     articulo: row.articulo ?? null,
-    diasCapacitacion: row.dias_capacitacion ?? null,
+    capacitacionFechaInicio: row.capacitacion_fecha_inicio ?? null,
+    capacitacionFechaFin: row.capacitacion_fecha_fin ?? null,
   }))
 }
 
@@ -69,7 +71,8 @@ export async function createGastoInDB(gasto: {
   hora: string
   empleadaId?: string | null
   articulo?: string | null
-  diasCapacitacion?: number | null
+  capacitacionFechaInicio?: string | null
+  capacitacionFechaFin?: string | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
   const { data, error } = await (supabase as any)
     .from("gastos")
@@ -82,7 +85,8 @@ export async function createGastoInDB(gasto: {
       hora: gasto.hora,
       empleada_id: gasto.empleadaId ?? null,
       articulo: gasto.articulo ?? null,
-      dias_capacitacion: gasto.diasCapacitacion ?? null,
+      capacitacion_fecha_inicio: gasto.capacitacionFechaInicio ?? null,
+      capacitacion_fecha_fin: gasto.capacitacionFechaFin ?? null,
     })
     .select("*")
     .single()
@@ -103,7 +107,8 @@ export async function createGastoInDB(gasto: {
       hora: data.hora,
       empleadaId: data.empleada_id ?? null,
       articulo: data.articulo ?? null,
-      diasCapacitacion: data.dias_capacitacion ?? null,
+      capacitacionFechaInicio: data.capacitacion_fecha_inicio ?? null,
+      capacitacionFechaFin: data.capacitacion_fecha_fin ?? null,
     },
     error: null,
   }
@@ -115,7 +120,8 @@ export async function updateGastoInDB(id: string, cambios: {
   categoria?: string
   empleadaId?: string | null
   articulo?: string | null
-  diasCapacitacion?: number | null
+  capacitacionFechaInicio?: string | null
+  capacitacionFechaFin?: string | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
   const { data, error } = await (supabase as any)
     .from("gastos")
@@ -125,7 +131,8 @@ export async function updateGastoInDB(id: string, cambios: {
       ...(cambios.categoria !== undefined && { categoria: cambios.categoria }),
       ...(cambios.empleadaId !== undefined && { empleada_id: cambios.empleadaId }),
       ...(cambios.articulo !== undefined && { articulo: cambios.articulo }),
-      ...(cambios.diasCapacitacion !== undefined && { dias_capacitacion: cambios.diasCapacitacion }),
+      ...(cambios.capacitacionFechaInicio !== undefined && { capacitacion_fecha_inicio: cambios.capacitacionFechaInicio }),
+      ...(cambios.capacitacionFechaFin !== undefined && { capacitacion_fecha_fin: cambios.capacitacionFechaFin }),
     })
     .eq("id", id)
     .select("*")
@@ -147,7 +154,8 @@ export async function updateGastoInDB(id: string, cambios: {
       hora: data.hora,
       empleadaId: data.empleada_id ?? null,
       articulo: data.articulo ?? null,
-      diasCapacitacion: data.dias_capacitacion ?? null,
+      capacitacionFechaInicio: data.capacitacion_fecha_inicio ?? null,
+      capacitacionFechaFin: data.capacitacion_fecha_fin ?? null,
     },
     error: null,
   }
