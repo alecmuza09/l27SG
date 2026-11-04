@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/dialog"
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
 import { getGastosFromDB, CATEGORIAS_GASTO, type Gasto } from "@/lib/data/gastos"
+import { getEmpleadosFromDB } from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
@@ -2196,7 +2197,6 @@ export default function ReportesPage() {
   const [isLoadingGastosTab, setIsLoadingGastosTab] = useState(false)
   const [isLoadingNuevosDetalle, setIsLoadingNuevosDetalle] = useState(false)
   const [gastosReporte, setGastosReporte] = useState<Gasto[]>([])
-  const [categoriaGastoFilter, setCategoriaGastoFilter] = useState<string>("all")
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(() => new Set())
   const [reporteFiltrosKey, setReporteFiltrosKey] = useState("")
 
@@ -2205,6 +2205,18 @@ export default function ReportesPage() {
   const [embajadorasFechaCustomDesde, setEmbajadorasFechaCustomDesde] = useState<string>("")
   const [embajadorasFechaCustomHasta, setEmbajadorasFechaCustomHasta] = useState<string>("")
   const [embajadorasSucursalFilter,   setEmbajadorasSucursalFilter]   = useState<string>("all")
+
+  // ── Filtros LOCALES del tab Gastos (independientes de los filtros globales) ──
+  const [gastosPeriodo,          setGastosPeriodo]          = useState<Periodo>("mes")
+  const [gastosFechaCustomDesde, setGastosFechaCustomDesde] = useState<string>("")
+  const [gastosFechaCustomHasta, setGastosFechaCustomHasta] = useState<string>("")
+  const [gastosSucursalFilter,   setGastosSucursalFilter]   = useState<string>(() =>
+    isAdmin ? "all" : (branchIds[0] ?? "all"),
+  )
+  const [categoriaGastoFilter,   setCategoriaGastoFilter]   = useState<string>("all")
+  const [gastosEmpleadaFilter,   setGastosEmpleadaFilter]   = useState<string>("all")
+  const [empleadasGastosFiltro,  setEmpleadasGastosFiltro]  = useState<{ id: string; nombre: string }[]>([])
+
   const [isExportingPdf,       setIsExportingPdf]       = useState(false)
   const [isExportingGcPdf,     setIsExportingGcPdf]     = useState(false)
   const [isExportingNomina, setIsExportingNomina] = useState(false)
@@ -2282,7 +2294,6 @@ export default function ReportesPage() {
     setTodasEmpleadasNomina([])
     setTopClientes([])
     setMetricasSucursales([])
-    setGastosReporte([])
     try {
       const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, nuevosScope, filtrosKey } =
         resolverContextoReporte()
@@ -2499,37 +2510,6 @@ export default function ReportesPage() {
     }
   }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, isAdmin, sucursalFilter])
 
-  const cargarTabGastos = useCallback(async () => {
-    if (loadedTabs.has("gastos") || reporteFiltrosKey === "") return
-    const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, filtrosKey } = resolverContextoReporte()
-    if (filtrosKey !== reporteFiltrosKey) return
-
-    setIsLoadingGastosTab(true)
-    try {
-      const rango = { fechaInicio: fechaDesde, fechaFin: fechaHasta }
-      let lista: Gasto[]
-      if (esMultiBranchAll) {
-        const porSuc = await Promise.all(
-          branchIds.map(id => getGastosFromDB(fechaDesde, id, rango)),
-        )
-        lista = porSuc.flat()
-      } else {
-        lista = await getGastosFromDB(fechaDesde, sucId, rango)
-      }
-      lista.sort((a, b) => {
-        const byFecha = a.fecha.localeCompare(b.fecha)
-        if (byFecha !== 0) return byFecha
-        return (a.hora || "").localeCompare(b.hora || "")
-      })
-      setGastosReporte(lista)
-      setLoadedTabs(prev => new Set(prev).add("gastos"))
-    } catch (err) {
-      console.error("Error cargando tab gastos:", err)
-    } finally {
-      setIsLoadingGastosTab(false)
-    }
-  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, branchIds.join(",")])
-
   /** Donut activos/inactivos: consultas pesadas solo al abrir el tab Clientes. */
   const cargarClientesTab = useCallback(async () => {
     if (loadedTabs.has("clientes") || reporteFiltrosKey === "") return
@@ -2655,16 +2635,97 @@ export default function ReportesPage() {
   }, [activeTab, cargarTabSucursales, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
 
   useEffect(() => {
-    if (activeTab !== "gastos") return
-    if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
-    cargarTabGastos()
-  }, [activeTab, cargarTabGastos, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
-
-  useEffect(() => {
     if (!nuevosClientesDialogOpen) return
     if (clientesStats.nuevos <= 0) return
     void cargarDetalleNuevosClientes()
   }, [nuevosClientesDialogOpen, clientesStats.nuevos, cargarDetalleNuevosClientes])
+
+  // ── Carga de datos del tab Gastos (usa filtros LOCALES, no los globales) ──
+  const resolverSucursalGastos = useCallback((): string | undefined => {
+    if (isAdmin) {
+      return gastosSucursalFilter === "all" ? undefined : gastosSucursalFilter
+    }
+    if (multiBranch) {
+      if (gastosSucursalFilter !== "all" && branchIds.includes(gastosSucursalFilter)) {
+        return gastosSucursalFilter
+      }
+      return branchIds[0]
+    }
+    return sucursalFija ?? branchIds[0]
+  }, [isAdmin, multiBranch, gastosSucursalFilter, sucursalFija, branchIds.join(",")])
+
+  const cargarGastos = useCallback(async () => {
+    setIsLoadingGastosTab(true)
+    try {
+      const { fechaDesde, fechaHasta } = calcularPeriodo(
+        gastosPeriodo, gastosFechaCustomDesde, gastosFechaCustomHasta,
+      )
+      const sucId = resolverSucursalGastos()
+      const rango = { fechaInicio: fechaDesde, fechaFin: fechaHasta }
+      const lista = await getGastosFromDB(fechaDesde, sucId, rango)
+      lista.sort((a, b) => {
+        const byFecha = a.fecha.localeCompare(b.fecha)
+        if (byFecha !== 0) return byFecha
+        return (a.hora || "").localeCompare(b.hora || "")
+      })
+      setGastosReporte(lista)
+    } catch (err) {
+      console.error("Error cargando tab gastos:", err)
+    } finally {
+      setIsLoadingGastosTab(false)
+    }
+  }, [gastosPeriodo, gastosFechaCustomDesde, gastosFechaCustomHasta, resolverSucursalGastos])
+
+  useEffect(() => {
+    if (activeTab !== "gastos") return
+    if (gastosPeriodo === "personalizado" && (!gastosFechaCustomDesde || !gastosFechaCustomHasta)) return
+    void cargarGastos()
+  }, [activeTab, cargarGastos, gastosPeriodo, gastosFechaCustomDesde, gastosFechaCustomHasta])
+
+  // Si el usuario multi-sucursal aún no tenía branchIds al montar, fijar main como default
+  useEffect(() => {
+    if (isAdmin || !multiBranch || branchIds.length === 0) return
+    if (gastosSucursalFilter === "all" || !branchIds.includes(gastosSucursalFilter)) {
+      setGastosSucursalFilter(branchIds[0])
+    }
+  }, [isAdmin, multiBranch, branchIds.join(",")])
+
+  useEffect(() => {
+    if (activeTab !== "gastos") return
+    const sucId = resolverSucursalGastos()
+    let cancelled = false
+    ;(async () => {
+      try {
+        let lista: Awaited<ReturnType<typeof getEmpleadosFromDB>>
+        if (sucId) {
+          lista = await getEmpleadosFromDB(sucId)
+        } else if (isAdmin) {
+          lista = await getEmpleadosFromDB()
+        } else if (multiBranch && branchIds.length > 0) {
+          lista = (await Promise.all(branchIds.map(id => getEmpleadosFromDB(id)))).flat()
+        } else {
+          lista = []
+        }
+        if (cancelled) return
+        const seen = new Set<string>()
+        const opts = lista
+          .filter(e => {
+            if (seen.has(e.id)) return false
+            seen.add(e.id)
+            return true
+          })
+          .map(e => ({ id: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim() }))
+          .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+        setEmpleadasGastosFiltro(opts)
+        setGastosEmpleadaFilter(prev =>
+          prev === "all" || opts.some(e => e.id === prev) ? prev : "all",
+        )
+      } catch {
+        if (!cancelled) setEmpleadasGastosFiltro([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [activeTab, resolverSucursalGastos, isAdmin, multiBranch, branchIds.join(",")])
 
   // ── Carga de datos del tab Embajadoras (usa filtros LOCALES, no los globales) ──
   const cargarEmbajadoras = useCallback(async () => {
@@ -2904,6 +2965,15 @@ export default function ReportesPage() {
     ? (multiBranch ? "Todas mis sucursales" : "Todas las sucursales")
     : (sucursales.find(s => s.id === embajadorasSucursalFilter)?.nombre ?? "")
 
+  const { label: gastosPeriodoLabel } = calcularPeriodo(
+    gastosPeriodo, gastosFechaCustomDesde, gastosFechaCustomHasta,
+  )
+  const gastosSucIdActiva = resolverSucursalGastos()
+  const gastosSucNombreActiva = !gastosSucIdActiva
+    ? "Todas las sucursales"
+    : (sucursales.find(s => s.id === gastosSucIdActiva)?.nombre
+      ?? (multiBranch || !isAdmin ? "Mi sucursal" : gastosSucIdActiva))
+
   // Las tarjetas resumen deben calcularse sobre el MISMO dataset filtrado que renderiza
   // la tabla, para que ambos permanezcan siempre sincronizados.
   const embajadorasFiltradas = embajadoraFilter === "all"
@@ -2979,9 +3049,11 @@ export default function ReportesPage() {
   const nombreSucursalById = (id: string) =>
     sucursales.find(s => s.id === id)?.nombre ?? id
 
-  const gastosFiltrados = categoriaGastoFilter === "all"
-    ? gastosReporte
-    : gastosReporte.filter(g => g.categoria === categoriaGastoFilter)
+  const gastosFiltrados = gastosReporte.filter(g => {
+    if (categoriaGastoFilter !== "all" && g.categoria !== categoriaGastoFilter) return false
+    if (gastosEmpleadaFilter !== "all" && g.empleadaId !== gastosEmpleadaFilter) return false
+    return true
+  })
 
   const totalesGastosPorCategoria = (() => {
     const map: Record<string, number> = {}
@@ -4098,18 +4170,67 @@ export default function ReportesPage() {
 
           {/* ══════════════ GASTOS ══════════════ */}
           <TabsContent value="gastos" className="space-y-4">
-            <Card>
-              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between space-y-0">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5" />
-                    Gastos
-                  </CardTitle>
-                  <CardDescription>{periodoLabel}</CardDescription>
+            {/* Filtros LOCALES del tab (independientes de los filtros globales de la página) */}
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-3 no-print">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mr-1 shrink-0">
+                  Filtros de Gastos
+                </span>
+
+                {(isAdmin || multiBranch) && sucursales.length > 0 && (
+                  <Select value={gastosSucursalFilter} onValueChange={setGastosSucursalFilter}>
+                    <SelectTrigger className="w-52 bg-white">
+                      <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                      <SelectValue placeholder="Sucursal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {isAdmin && (
+                        <SelectItem value="all">Todas las sucursales</SelectItem>
+                      )}
+                      {sucursales.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                <div className="flex items-center gap-1.5">
+                  <Select value={gastosPeriodo} onValueChange={(v) => setGastosPeriodo(v as Periodo)}>
+                    <SelectTrigger className="h-9 w-44 text-sm bg-white">
+                      <Calendar className="h-4 w-4 mr-1.5 text-muted-foreground" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="semana">Esta Semana</SelectItem>
+                      <SelectItem value="mes">Este Mes</SelectItem>
+                      <SelectItem value="trimestre">Trimestre</SelectItem>
+                      <SelectItem value="año">Este Año</SelectItem>
+                      <SelectItem value="personalizado">Personalizado…</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {gastosPeriodo === "personalizado" && (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={gastosFechaCustomDesde}
+                        onChange={e => setGastosFechaCustomDesde(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-white px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <span className="text-muted-foreground text-sm">—</span>
+                      <input
+                        type="date"
+                        value={gastosFechaCustomHasta}
+                        onChange={e => setGastosFechaCustomHasta(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-white px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                  )}
                 </div>
+
                 <Select value={categoriaGastoFilter} onValueChange={setCategoriaGastoFilter}>
-                  <SelectTrigger className="w-48 h-9 text-sm">
-                    <SelectValue placeholder="Categoría" />
+                  <SelectTrigger className="w-44 bg-white">
+                    <SelectValue placeholder="Tipo de gasto" />
                   </SelectTrigger>
                   <SelectContent>
                     {FILTRO_CATEGORIAS_GASTO.map(c => (
@@ -4117,6 +4238,36 @@ export default function ReportesPage() {
                     ))}
                   </SelectContent>
                 </Select>
+
+                <Select value={gastosEmpleadaFilter} onValueChange={setGastosEmpleadaFilter}>
+                  <SelectTrigger className="w-52 bg-white">
+                    <Users className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Empleada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las empleadas</SelectItem>
+                    {empleadasGastosFiltro.map(e => (
+                      <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button variant="outline" size="icon" className="bg-white" onClick={() => void cargarGastos()} title="Actualizar gastos">
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Gastos
+                </CardTitle>
+                <CardDescription>
+                  {gastosPeriodoLabel}
+                  {gastosSucNombreActiva ? ` · ${gastosSucNombreActiva}` : ""}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingGastosTab ? (
