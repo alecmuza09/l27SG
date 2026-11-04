@@ -46,7 +46,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
-import { getGastosFromDB, CATEGORIAS_GASTO, type Gasto } from "@/lib/data/gastos"
+import { getGastosFromDB, normalizarNombre, CATEGORIAS_GASTO, type Gasto } from "@/lib/data/gastos"
 import { getEmpleadosFromDB } from "@/lib/data/empleados"
 import { type Periodo, calcularPeriodo, localFmt } from "@/lib/periodos"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -3004,28 +3004,41 @@ export default function ReportesPage() {
   const nombreSucursalById = (id: string) =>
     sucursales.find(s => s.id === id)?.nombre ?? id
 
-  // Nombres libres del período/sucursal cargados (solo los registrados a mano en esa scope)
+  // Nombres libres del período/sucursal: una opción por clave normalizada
   const otrasPersonasGastosFiltro = (() => {
-    const seen = new Set<string>()
-    const opts: string[] = []
+    const groups = new Map<string, Map<string, number>>()
     for (const g of gastosReporte) {
       const nombre = g.empleadaNombreLibre?.trim()
       if (!nombre || g.empleadaId) continue
-      const key = nombre.toLocaleLowerCase("es")
-      if (seen.has(key)) continue
-      seen.add(key)
-      opts.push(nombre)
+      const key = normalizarNombre(nombre)
+      if (!key) continue
+      let spellings = groups.get(key)
+      if (!spellings) {
+        spellings = new Map()
+        groups.set(key, spellings)
+      }
+      spellings.set(nombre, (spellings.get(nombre) ?? 0) + 1)
+    }
+    const opts: string[] = []
+    for (const spellings of groups.values()) {
+      let best = ""
+      let bestCount = -1
+      for (const [spelling, count] of spellings) {
+        if (count > bestCount || (count === bestCount && spelling.length > best.length)) {
+          best = spelling
+          bestCount = count
+        }
+      }
+      if (best) opts.push(best)
     }
     return opts.sort((a, b) => a.localeCompare(b, "es"))
   })()
 
-  const otraPersonaEfectiva =
-    gastosOtraPersonaFilter !== "all"
-    && otrasPersonasGastosFiltro.some(
-      n => n.toLocaleLowerCase("es") === gastosOtraPersonaFilter.toLocaleLowerCase("es"),
-    )
-      ? gastosOtraPersonaFilter
-      : "all"
+  const otraPersonaEfectiva = (() => {
+    if (gastosOtraPersonaFilter === "all") return "all"
+    const key = normalizarNombre(gastosOtraPersonaFilter)
+    return otrasPersonasGastosFiltro.find(n => normalizarNombre(n) === key) ?? "all"
+  })()
 
   const gastosFiltrados = gastosReporte.filter(g => {
     if (categoriaGastoFilter !== "all" && g.categoria !== categoriaGastoFilter) return false
@@ -3034,7 +3047,7 @@ export default function ReportesPage() {
     }
     if (otraPersonaEfectiva !== "all") {
       const libre = g.empleadaNombreLibre?.trim() ?? ""
-      if (g.empleadaId || libre.toLocaleLowerCase("es") !== otraPersonaEfectiva.toLocaleLowerCase("es")) {
+      if (g.empleadaId || normalizarNombre(libre) !== normalizarNombre(otraPersonaEfectiva)) {
         return false
       }
     }
@@ -4338,9 +4351,11 @@ export default function ReportesPage() {
                                 {g.empleadaNombre || "—"}
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
-                                {g.categoria === "capacitacion" && g.capacitacionFechaInicio && g.capacitacionFechaFin
-                                  ? `${new Date(g.capacitacionFechaInicio + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short" }).replace(/\./g, "")} – ${new Date(g.capacitacionFechaFin + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short" }).replace(/\./g, "")}`
-                                  : "—"}
+                                {g.categoria === "capacitacion" && g.diasCapacitacion != null && g.diasCapacitacion > 0
+                                  ? (g.diasCapacitacion === 1 ? "1 día" : `${g.diasCapacitacion} días`)
+                                  : g.categoria === "capacitacion" && g.capacitacionFechaInicio && g.capacitacionFechaFin
+                                    ? `${new Date(g.capacitacionFechaInicio + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short" }).replace(/\./g, "")} – ${new Date(g.capacitacionFechaFin + "T12:00:00").toLocaleDateString("es-MX", { day: "2-digit", month: "short" }).replace(/\./g, "")}`
+                                    : "—"}
                               </TableCell>
                               <TableCell className="text-right tabular-nums font-semibold text-red-600">
                                 {fmtMXN(g.monto)}

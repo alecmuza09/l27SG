@@ -26,12 +26,16 @@ export interface Gasto {
   /** Nombre escrito a mano cuando la persona no está en empleados */
   empleadaNombreLibre?: string | null
   articulo?: string | null
+  /** Legacy: rango de fechas (solo lectura / gastos viejos) */
   capacitacionFechaInicio?: string | null
   capacitacionFechaFin?: string | null
+  /** Días de capacitación (1–10); reemplaza el rango de fechas */
+  diasCapacitacion?: number | null
 }
 
 function mapGastoRow(row: any): Gasto {
   const nombreLibre = row.empleada_nombre_libre ?? null
+  const diasRaw = row.dias_capacitacion
   return {
     id: row.id,
     sucursalId: row.sucursal_id,
@@ -46,6 +50,7 @@ function mapGastoRow(row: any): Gasto {
     articulo: row.articulo ?? null,
     capacitacionFechaInicio: row.capacitacion_fecha_inicio ?? null,
     capacitacionFechaFin: row.capacitacion_fecha_fin ?? null,
+    diasCapacitacion: diasRaw == null || diasRaw === "" ? null : Number(diasRaw),
   }
 }
 
@@ -103,8 +108,7 @@ export async function createGastoInDB(gasto: {
   empleadaId?: string | null
   empleadaNombreLibre?: string | null
   articulo?: string | null
-  capacitacionFechaInicio?: string | null
-  capacitacionFechaFin?: string | null
+  diasCapacitacion?: number | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
   const empleadaId = gasto.empleadaId || null
   const nombreLibre = empleadaId ? null : (gasto.empleadaNombreLibre?.trim() || null)
@@ -121,8 +125,10 @@ export async function createGastoInDB(gasto: {
       empleada_id: empleadaId,
       empleada_nombre_libre: nombreLibre,
       articulo: gasto.articulo ?? null,
-      capacitacion_fecha_inicio: gasto.capacitacionFechaInicio ?? null,
-      capacitacion_fecha_fin: gasto.capacitacionFechaFin ?? null,
+      // Nuevos gastos ya no usan rango de fechas
+      capacitacion_fecha_inicio: null,
+      capacitacion_fecha_fin: null,
+      dias_capacitacion: gasto.diasCapacitacion ?? null,
     })
     .select("*")
     .single()
@@ -142,16 +148,14 @@ export async function updateGastoInDB(id: string, cambios: {
   empleadaId?: string | null
   empleadaNombreLibre?: string | null
   articulo?: string | null
-  capacitacionFechaInicio?: string | null
-  capacitacionFechaFin?: string | null
+  diasCapacitacion?: number | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
   const patch: Record<string, unknown> = {
     ...(cambios.descripcion !== undefined && { descripcion: cambios.descripcion }),
     ...(cambios.monto !== undefined && { monto: cambios.monto }),
     ...(cambios.categoria !== undefined && { categoria: cambios.categoria }),
     ...(cambios.articulo !== undefined && { articulo: cambios.articulo }),
-    ...(cambios.capacitacionFechaInicio !== undefined && { capacitacion_fecha_inicio: cambios.capacitacionFechaInicio }),
-    ...(cambios.capacitacionFechaFin !== undefined && { capacitacion_fecha_fin: cambios.capacitacionFechaFin }),
+    ...(cambios.diasCapacitacion !== undefined && { dias_capacitacion: cambios.diasCapacitacion }),
   }
 
   if (cambios.empleadaId !== undefined || cambios.empleadaNombreLibre !== undefined) {
@@ -181,4 +185,69 @@ export async function deleteGastoFromDB(id: string): Promise<{ error: string | n
   const { error } = await supabase.from("gastos").delete().eq("id", id)
   if (error) console.error("[deleteGastoFromDB]", error.message)
   return { error: error?.message ?? null }
+}
+
+/** Clave comparable: minúsculas, sin acentos, trim y espacios colapsados. */
+export function normalizarNombre(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ")
+}
+
+/**
+ * Escrituras canónicas de `empleada_nombre_libre` (todas las sucursales).
+ * Agrupa por clave normalizada y elige la más frecuente (empate → la más larga).
+ */
+export async function getNombresLibresGastos(): Promise<string[]> {
+  const PAGE = 1000
+  const groups = new Map<string, Map<string, number>>()
+
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await (supabase as any)
+      .from("gastos")
+      .select("empleada_nombre_libre")
+      .not("empleada_nombre_libre", "is", null)
+      .neq("empleada_nombre_libre", "")
+      .range(offset, offset + PAGE - 1)
+
+    if (error) {
+      console.error("[getNombresLibresGastos]", error.message)
+      return []
+    }
+
+    for (const row of data ?? []) {
+      const raw = typeof row.empleada_nombre_libre === "string"
+        ? row.empleada_nombre_libre.trim()
+        : ""
+      if (!raw) continue
+      const key = normalizarNombre(raw)
+      if (!key) continue
+      let spellings = groups.get(key)
+      if (!spellings) {
+        spellings = new Map()
+        groups.set(key, spellings)
+      }
+      spellings.set(raw, (spellings.get(raw) ?? 0) + 1)
+    }
+
+    if (!data || data.length < PAGE) break
+  }
+
+  const nombres: string[] = []
+  for (const spellings of groups.values()) {
+    let best = ""
+    let bestCount = -1
+    for (const [spelling, count] of spellings) {
+      if (count > bestCount || (count === bestCount && spelling.length > best.length)) {
+        best = spelling
+        bestCount = count
+      }
+    }
+    if (best) nombres.push(best)
+  }
+
+  return nombres.sort((a, b) => a.localeCompare(b, "es"))
 }
