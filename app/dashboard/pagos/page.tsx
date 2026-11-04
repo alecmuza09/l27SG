@@ -46,7 +46,7 @@ import { CajaDialog } from "@/components/punto-venta/caja-dialog"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
-import { getGastosFromDB, createGastoInDB, updateGastoInDB, deleteGastoFromDB, type Gasto } from "@/lib/data/gastos"
+import { getGastosFromDB, createGastoInDB, updateGastoInDB, deleteGastoFromDB, CATEGORIAS_GASTO, type Gasto } from "@/lib/data/gastos"
 import { getEmpleadosFromDB } from "@/lib/data/empleados"
 import { supabase } from "@/lib/supabase/client"
 import { toast } from "sonner"
@@ -1595,11 +1595,9 @@ export default function PagosPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="operativo">Operativo</SelectItem>
-                  <SelectItem value="compras">Compras</SelectItem>
-                  <SelectItem value="gasolina">Gasolina</SelectItem>
-                  <SelectItem value="capacitacion">Capacitación</SelectItem>
-                  <SelectItem value="otro">Otro</SelectItem>
+                  {CATEGORIAS_GASTO.map(c => (
+                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1693,11 +1691,9 @@ export default function PagosPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="operativo">Operativo</SelectItem>
-                  <SelectItem value="compras">Compras</SelectItem>
-                  <SelectItem value="gasolina">Gasolina</SelectItem>
-                  <SelectItem value="capacitacion">Capacitación</SelectItem>
-                  <SelectItem value="otro">Otro</SelectItem>
+                  {CATEGORIAS_GASTO.map(c => (
+                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

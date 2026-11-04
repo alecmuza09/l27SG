@@ -46,7 +46,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
-import { getGastosFromDB, type Gasto } from "@/lib/data/gastos"
+import { getGastosFromDB, CATEGORIAS_GASTO, type Gasto } from "@/lib/data/gastos"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
@@ -85,20 +85,13 @@ interface CitasResumen    { completadas: number; canceladas: number; pendientes:
 
 type Periodo = "semana" | "mes" | "trimestre" | "año" | "personalizado"
 
-const CATEGORIAS_GASTO = [
+const FILTRO_CATEGORIAS_GASTO = [
   { value: "all", label: "Todas" },
-  { value: "operativo", label: "Operativo" },
-  { value: "insumos", label: "Insumos" },
-  { value: "nomina", label: "Nómina" },
-  { value: "mantenimiento", label: "Mantenimiento" },
-  { value: "compras", label: "Compras" },
-  { value: "gasolina", label: "Gasolina" },
-  { value: "capacitacion", label: "Capacitación" },
-  { value: "otro", label: "Otro" },
+  ...CATEGORIAS_GASTO,
 ] as const
 
 const CATEGORIA_GASTO_LABEL: Record<string, string> = Object.fromEntries(
-  CATEGORIAS_GASTO.filter(c => c.value !== "all").map(c => [c.value, c.label]),
+  CATEGORIAS_GASTO.map(c => [c.value, c.label]),
 )
 
 // ─── Helpers de fecha ─────────────────────────────────────────────────────────
@@ -2999,9 +2992,7 @@ export default function ReportesPage() {
   })()
   const totalGastosFiltrados = gastosFiltrados.reduce((s, g) => s + g.monto, 0)
 
-  const RESUMEN_CATEGORIAS_GASTO = [
-    "operativo", "insumos", "nomina", "compras", "gasolina", "capacitacion",
-  ] as const
+  const RESUMEN_CATEGORIAS_GASTO = CATEGORIAS_GASTO.map(c => c.value)
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -4121,7 +4112,7 @@ export default function ReportesPage() {
                     <SelectValue placeholder="Categoría" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIAS_GASTO.map(c => (
+                    {FILTRO_CATEGORIAS_GASTO.map(c => (
                       <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                     ))}
                   </SelectContent>

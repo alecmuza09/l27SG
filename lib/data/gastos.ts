@@ -1,5 +1,16 @@
 import { supabase } from "@/lib/supabase/client"
 
+export const CATEGORIAS_GASTO = [
+  { value: "operativo",     label: "Operativo" },
+  { value: "mantenimiento", label: "Mantenimiento" },
+  { value: "compras",       label: "Compras" },
+  { value: "gasolina",      label: "Gasolina" },
+  { value: "capacitacion",  label: "Capacitación" },
+  { value: "otro",          label: "Otro" },
+] as const
+
+export type CategoriaGasto = typeof CATEGORIAS_GASTO[number]["value"]
+
 export interface Gasto {
   id: string
   sucursalId: string
