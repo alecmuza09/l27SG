@@ -79,6 +79,7 @@ import {
   type TipoAusencia,
   type EstatusAusencia,
 } from "@/lib/data/ausencias"
+import { type Periodo, calcularPeriodo, formatearRangoPeriodo } from "@/lib/periodos"
 
 // ─── Iconos por tipo ──────────────────────────────────────────────────────────
 const TIPO_ICONS: Record<TipoAusencia, React.ReactNode> = {
@@ -99,7 +100,11 @@ export default function AusenciasPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   const [tab, setTab] = useState("registros")
-  const [resumenAnio, setResumenAnio] = useState(new Date().getFullYear())
+  const [resumenPeriodo, setResumenPeriodo] = useState<Periodo>("año")
+  const [resumenDesde, setResumenDesde] = useState("")
+  const [resumenHasta, setResumenHasta] = useState("")
+  const [resumenFilterSucursal, setResumenFilterSucursal] = useState("todos")
+  const [resumenFilterEmpleada, setResumenFilterEmpleada] = useState("todos")
 
   // Filtros
   const [filterEmpleado, setFilterEmpleado] = useState("todos")
@@ -146,6 +151,7 @@ export default function AusenciasPage() {
   const [detalleAusencia, setDetalleAusencia] = useState<Ausencia | null>(null)
 
   const isAdmin: boolean = isGlobalAdministrator(currentUser)
+  const branchIds = collectEffectiveSucursalIds(currentUser)
 
   // ─── Carga inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -204,6 +210,15 @@ export default function AusenciasPage() {
       setAusencias(ausenciasData)
       setEmpleados(empleadosData)
       setSucursales(sucursalesLista)
+
+      if (isGlobalAdministrator(u)) {
+        setResumenFilterSucursal("todos")
+      } else if (ids.length > 1) {
+        setResumenFilterSucursal(effectivePrimarySucursalId(u) ?? ids[0] ?? "todos")
+      } else {
+        const primary = effectivePrimarySucursalId(u)
+        setResumenFilterSucursal(primary ?? "todos")
+      }
     } catch (err) {
       toast.error("Error al cargar datos")
     } finally {
@@ -211,22 +226,51 @@ export default function AusenciasPage() {
     }
   }
 
-  // ─── Resumen por empleada (año seleccionado) ────────────────────────────────
+  // ─── Resumen por empleada (periodo seleccionado) ────────────────────────────
+  const resumenRango = useMemo(() => {
+    if (resumenPeriodo === "personalizado" && (!resumenDesde || !resumenHasta)) return null
+    return calcularPeriodo(resumenPeriodo, resumenDesde, resumenHasta)
+  }, [resumenPeriodo, resumenDesde, resumenHasta])
+
+  const resumenEmpleadasOptions = useMemo(() => {
+    return empleados
+      .filter((e) => resumenFilterSucursal === "todos" || e.sucursalId === resumenFilterSucursal)
+      .map((e) => ({ id: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim() }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+  }, [empleados, resumenFilterSucursal])
+
+  useEffect(() => {
+    if (resumenFilterEmpleada === "todos") return
+    if (!resumenEmpleadasOptions.some((e) => e.id === resumenFilterEmpleada)) {
+      setResumenFilterEmpleada("todos")
+    }
+  }, [resumenFilterSucursal, resumenEmpleadasOptions, resumenFilterEmpleada])
+
   const resumenPorEmpleada = useMemo(() => {
     const tipos = Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]
-    const rows = empleados.map((e) => {
+    const fechaDesde = resumenRango?.fechaDesde
+    const fechaHasta = resumenRango?.fechaHasta
+    const empleadosScope = empleados.filter((e) => {
+      if (resumenFilterSucursal !== "todos" && e.sucursalId !== resumenFilterSucursal) return false
+      if (resumenFilterEmpleada !== "todos" && e.id !== resumenFilterEmpleada) return false
+      return true
+    })
+    const rows = empleadosScope.map((e) => {
       const conteos = Object.fromEntries(tipos.map((t) => [t, 0])) as Record<TipoAusencia, number>
       let pendientes = 0
-      for (const a of ausencias) {
-        if (a.empleadoId !== e.id) continue
-        if (a.fechaInicio.slice(0, 4) !== String(resumenAnio)) continue
-        if (a.estatus === "aprobada") conteos[a.tipo] += 1
-        else if (a.estatus === "pendiente") pendientes += 1
+      if (fechaDesde && fechaHasta) {
+        for (const a of ausencias) {
+          if (a.empleadoId !== e.id) continue
+          const fi = a.fechaInicio.slice(0, 10)
+          if (fi < fechaDesde || fi > fechaHasta) continue
+          if (a.estatus === "aprobada") conteos[a.tipo] += 1
+          else if (a.estatus === "pendiente") pendientes += 1
+        }
       }
       return { empleadoId: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim(), conteos, pendientes }
     })
     return rows.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-  }, [empleados, ausencias, resumenAnio])
+  }, [empleados, ausencias, resumenRango, resumenFilterSucursal, resumenFilterEmpleada])
 
   // ─── Filtros derivados ──────────────────────────────────────────────────────
   const ausenciasFiltradas = useMemo(() => {
@@ -700,21 +744,86 @@ export default function AusenciasPage() {
               <div>
                 <CardTitle className="text-base">Resumen por empleada</CardTitle>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Cuenta registros aprobados del año. Retardos y salidas se documentan aparte y no se suman a las faltas.
+                  Cuenta registros aprobados del periodo. Retardos y salidas se documentan aparte y no se suman a las faltas.
                   Haz clic en una empleada para ver su historial.
                 </p>
+                {resumenRango && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatearRangoPeriodo(resumenRango.fechaDesde, resumenRango.fechaHasta)}
+                  </p>
+                )}
               </div>
-              <Select value={String(resumenAnio)} onValueChange={(v) => setResumenAnio(Number(v))}>
-                <SelectTrigger className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[0, 1, 2, 3].map((i) => {
-                    const y = new Date().getFullYear() - i
-                    return <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                  })}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                {(isAdmin || branchIds.length > 1) && (
+                  <Select
+                    value={resumenFilterSucursal}
+                    onValueChange={setResumenFilterSucursal}
+                  >
+                    <SelectTrigger className="h-9 w-[160px] text-sm">
+                      <SelectValue placeholder="Sucursal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {isAdmin && (
+                        <SelectItem value="todos">Todas las sucursales</SelectItem>
+                      )}
+                      {sucursales.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Select
+                  value={resumenFilterEmpleada}
+                  onValueChange={setResumenFilterEmpleada}
+                >
+                  <SelectTrigger className="h-9 w-[180px] text-sm">
+                    <SelectValue placeholder="Empleada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todas las empleadas</SelectItem>
+                    {resumenEmpleadasOptions.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={resumenPeriodo}
+                  onValueChange={(v) => setResumenPeriodo(v as Periodo)}
+                >
+                  <SelectTrigger className="h-9 w-44 text-sm">
+                    <Calendar className="h-4 w-4 mr-1.5 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="semana">Esta Semana</SelectItem>
+                    <SelectItem value="mes">Este Mes</SelectItem>
+                    <SelectItem value="trimestre">Trimestre</SelectItem>
+                    <SelectItem value="año">Este Año</SelectItem>
+                    <SelectItem value="personalizado">Personalizado…</SelectItem>
+                  </SelectContent>
+                </Select>
+                {resumenPeriodo === "personalizado" && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={resumenDesde}
+                      onChange={(e) => setResumenDesde(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <span className="text-muted-foreground text-sm">—</span>
+                    <input
+                      type="date"
+                      value={resumenHasta}
+                      onChange={(e) => setResumenHasta(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">

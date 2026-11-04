@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,8 +24,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns"
 import { es } from "date-fns/locale"
-import { Plus, CalendarIcon, CheckCircle, XCircle, Clock, Users, AlertCircle, Edit, Trash2, Loader2 } from "lucide-react"
+import { Plus, CalendarIcon, CheckCircle, Users, AlertCircle, Edit, Trash2, Loader2 } from "lucide-react"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
+import { type Periodo, calcularPeriodo, formatearRangoPeriodo } from "@/lib/periodos"
 import {
   refreshSession,
   effectivePrimarySucursalId,
@@ -35,16 +36,13 @@ import {
 import { getSucursalesByIdsFromDB, getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
 import {
   getVacacionesFromDB,
-  getSaldosVacaciones,
   calcularDias,
   verificarConflictoVacaciones,
   createVacacionInDB,
   updateVacacionInDB,
   deleteVacacionInDB,
-  aprobarVacacionInDB,
-  rechazarVacacionInDB,
 } from "@/lib/data/vacaciones"
-import type { Vacacion, SaldoVacaciones } from "@/lib/types/vacaciones"
+import type { Vacacion } from "@/lib/types/vacaciones"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
 
 function formatDateTimeMx(iso: string): string {
@@ -68,23 +66,26 @@ export default function VacacionesPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [vacaciones, setVacaciones] = useState<Vacacion[]>([])
-  const [saldos, setSaldos] = useState<SaldoVacaciones[]>([])
 
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [filterSucursal, setFilterSucursal] = useState<string>("todos")
   const [filterEstado, setFilterEstado] = useState<string>("todos")
+  const [filterEmpleada, setFilterEmpleada] = useState<string>("")
+  const [activeTab, setActiveTab] = useState("solicitudes")
+  const [resumenPeriodo, setResumenPeriodo] = useState<Periodo>("año")
+  const [resumenDesde, setResumenDesde] = useState("")
+  const [resumenHasta, setResumenHasta] = useState("")
+  const [resumenFilterSucursal, setResumenFilterSucursal] = useState<string>("todos")
+  const [resumenFilterEmpleada, setResumenFilterEmpleada] = useState<string>("todos")
   const [isLoading, setIsLoading] = useState(true)
 
   // Dialog states
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false)
-  const [isEditSaldoDialogOpen, setIsEditSaldoDialogOpen] = useState(false)
   const [isEditVacacionDialogOpen, setIsEditVacacionDialogOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
 
   const [selectedVacacion, setSelectedVacacion] = useState<Vacacion | null>(null)
-  const [selectedSaldo, setSelectedSaldo] = useState<SaldoVacaciones | null>(null)
 
   // Form states
   const [formSucursal, setFormSucursal] = useState("")
@@ -92,9 +93,6 @@ export default function VacacionesPage() {
   const [formFechaInicio, setFormFechaInicio] = useState<Date>()
   const [formFechaFin, setFormFechaFin] = useState<Date>()
   const [formNotas, setFormNotas] = useState("")
-  const [rejectMotivo, setRejectMotivo] = useState("")
-  const [editDiasCorrespondientes, setEditDiasCorrespondientes] = useState("")
-  const [editDiasTomados, setEditDiasTomados] = useState("")
   const [error, setError] = useState("")
 
   // Edit vacation form states
@@ -119,9 +117,8 @@ export default function VacacionesPage() {
     const adm = u.role === "admin" || u.role === "superadmin"
     const ids = collectEffectiveSucursalIds(u)
     const sc = adm ? undefined : ids.length > 1 ? undefined : effectivePrimarySucursalId(u)
-    const [v, s] = await Promise.all([getVacacionesFromDB(sc), getSaldosVacaciones(sc)])
+    const v = await getVacacionesFromDB(sc)
     setVacaciones(v)
-    setSaldos(s)
   }, [currentUser])
 
   useEffect(() => {
@@ -151,11 +148,20 @@ export default function VacacionesPage() {
         setFilterSucursal("todos")
       }
 
+      if (isAdm) {
+        setResumenFilterSucursal("todos")
+      } else if (ids.length > 1) {
+        setResumenFilterSucursal(primary ?? ids[0] ?? "todos")
+      } else if (primary) {
+        setResumenFilterSucursal(primary)
+      } else {
+        setResumenFilterSucursal("todos")
+      }
+
       try {
-        const [vacacionesData, saldosData, empleadosData, sucursalesAll, sucursalesPorId] =
+        const [vacacionesData, empleadosData, sucursalesAll, sucursalesPorId] =
           await Promise.all([
           getVacacionesFromDB(scope),
-          getSaldosVacaciones(scope),
           getEmpleadosFromDB(scope),
           getSucursalesActivasFromDB(),
           !isAdm && ids.length > 0 ? getSucursalesByIdsFromDB(ids) : Promise.resolve([] as Sucursal[]),
@@ -163,7 +169,6 @@ export default function VacacionesPage() {
         const sucursalesData = isAdm ? sucursalesAll : sucursalesPorId
         if (cancelled) return
         setVacaciones(vacacionesData)
-        setSaldos(saldosData)
         setEmpleados(empleadosData)
         setSucursales(sucursalesData)
       } catch (err) {
@@ -181,11 +186,72 @@ export default function VacacionesPage() {
   const filteredVacaciones = vacaciones.filter((vac) => {
     const matchesSucursal = filterSucursal === "todos" || vac.sucursalId === filterSucursal
     const matchesEstado = filterEstado === "todos" || vac.estado === filterEstado
-    return matchesSucursal && matchesEstado
+    const nombre = vac.empleadoNombre.toLowerCase()
+    const matchesEmpleada =
+      !filterEmpleada.trim() || nombre.includes(filterEmpleada.trim().toLowerCase())
+    return matchesSucursal && matchesEstado && matchesEmpleada
   })
 
+  const resumenRango = useMemo(() => {
+    if (resumenPeriodo === "personalizado" && (!resumenDesde || !resumenHasta)) return null
+    return calcularPeriodo(resumenPeriodo, resumenDesde, resumenHasta)
+  }, [resumenPeriodo, resumenDesde, resumenHasta])
+
+  const resumenEmpleadasOptions = useMemo(() => {
+    return empleados
+      .filter((e) => resumenFilterSucursal === "todos" || e.sucursalId === resumenFilterSucursal)
+      .map((e) => ({ id: e.id, nombre: `${e.nombre} ${e.apellido}`.trim() }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+  }, [empleados, resumenFilterSucursal])
+
+  useEffect(() => {
+    if (resumenFilterEmpleada === "todos") return
+    if (!resumenEmpleadasOptions.some((e) => e.id === resumenFilterEmpleada)) {
+      setResumenFilterEmpleada("todos")
+    }
+  }, [resumenFilterSucursal, resumenEmpleadasOptions, resumenFilterEmpleada])
+
+  const resumenPorEmpleada = useMemo(() => {
+    const empleadosScope = empleados.filter((e) => {
+      if (resumenFilterSucursal !== "todos" && e.sucursalId !== resumenFilterSucursal) return false
+      if (resumenFilterEmpleada !== "todos" && e.id !== resumenFilterEmpleada) return false
+      return true
+    })
+    const sucursalNombreById = new Map(sucursales.map((s) => [s.id, s.nombre]))
+    const fechaDesde = resumenRango?.fechaDesde
+    const fechaHasta = resumenRango?.fechaHasta
+
+    return empleadosScope
+      .map((emp) => {
+        const nombreCompleto = `${emp.nombre} ${emp.apellido}`.trim()
+        const delPeriodo =
+          fechaDesde && fechaHasta
+            ? vacaciones.filter((v) => {
+                if (v.empleadoId !== emp.id) return false
+                const fi = v.fechaInicio.split("T")[0]
+                return fi >= fechaDesde && fi <= fechaHasta
+              })
+            : []
+        const aprobadasPeriodo = delPeriodo.filter((v) => v.estado === "aprobada")
+        const ultima = [...aprobadasPeriodo].sort((a, b) =>
+          b.fechaInicio.localeCompare(a.fechaInicio),
+        )[0]
+
+        return {
+          empleadoId: emp.id,
+          nombre: nombreCompleto,
+          sucursal: sucursalNombreById.get(emp.sucursalId) ?? "—",
+          veces: aprobadasPeriodo.length,
+          diasTomados: aprobadasPeriodo.reduce((sum, v) => sum + v.diasSolicitados, 0),
+          ultimaVacacion: ultima
+            ? { inicio: ultima.fechaInicio, fin: ultima.fechaFin }
+            : null,
+        }
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+  }, [empleados, vacaciones, sucursales, resumenFilterSucursal, resumenFilterEmpleada, resumenRango])
+
   // Estadísticas
-  const pendientes = vacaciones.filter((v) => v.estado === "pendiente").length
   const aprobadas = vacaciones.filter((v) => v.estado === "aprobada").length
   const empleadosConVacaciones = new Set(vacaciones.filter((v) => v.estado === "aprobada").map((v) => v.empleadoId))
     .size
@@ -355,41 +421,6 @@ export default function VacacionesPage() {
     setSelectedVacacion(null)
   }
 
-  const handleAprobarVacacion = async (vac: Vacacion) => {
-    const ok = await aprobarVacacionInDB(vac.id, {
-      id: currentUser?.id ?? null,
-      nombre: currentUser?.name || currentUser?.email || null,
-    })
-    if (!ok) setError("No se pudo aprobar la solicitud. Intenta de nuevo.")
-    await reloadVacacionesData()
-  }
-
-  const handleRechazarVacacion = async () => {
-    if (!selectedVacacion || !rejectMotivo) return
-
-    const ok = await rechazarVacacionInDB(selectedVacacion.id, rejectMotivo, {
-      id: currentUser?.id ?? null,
-      nombre: currentUser?.name || currentUser?.email || null,
-    })
-    if (!ok) setError("No se pudo rechazar la solicitud. Intenta de nuevo.")
-    await reloadVacacionesData()
-
-    setRejectMotivo("")
-    setSelectedVacacion(null)
-    setIsRejectDialogOpen(false)
-  }
-
-  const handleEditSaldo = async () => {
-    if (!selectedSaldo) return
-
-    // TODO: Implementar actualización de saldo en Supabase
-    // Por ahora recargamos desde BD
-    await reloadVacacionesData()
-
-    setIsEditSaldoDialogOpen(false)
-    setSelectedSaldo(null)
-  }
-
   // Generar días del mes para el calendario visual
   const getDaysInMonth = () => {
     const year = calendarMonth.getFullYear()
@@ -452,16 +483,6 @@ export default function VacacionesPage() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
-            <Clock className="h-4 w-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{pendientes}</div>
-            <p className="text-xs text-muted-foreground">por aprobar</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Aprobadas</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
@@ -482,18 +503,11 @@ export default function VacacionesPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="solicitudes" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="solicitudes">
-            Solicitudes
-            {pendientes > 0 && (
-              <Badge variant="destructive" className="ml-2">
-                {pendientes}
-              </Badge>
-            )}
-          </TabsTrigger>
+          <TabsTrigger value="solicitudes">Solicitudes</TabsTrigger>
           <TabsTrigger value="calendario">Calendario</TabsTrigger>
-          <TabsTrigger value="saldos">Saldos</TabsTrigger>
+          <TabsTrigger value="resumen">Resumen por empleada</TabsTrigger>
         </TabsList>
 
         {/* Tab: Solicitudes */}
@@ -506,6 +520,12 @@ export default function VacacionesPage() {
                   <CardDescription>Gestiona las solicitudes del personal</CardDescription>
                 </div>
                 <div className="flex gap-2">
+                  <Input
+                    className="w-[180px]"
+                    placeholder="Empleada"
+                    value={filterEmpleada}
+                    onChange={(e) => setFilterEmpleada(e.target.value)}
+                  />
                   <Select
                     value={filterSucursal}
                     onValueChange={setFilterSucursal}
@@ -531,9 +551,8 @@ export default function VacacionesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="pendiente">Pendiente</SelectItem>
                       <SelectItem value="aprobada">Aprobada</SelectItem>
-                      <SelectItem value="rechazada">Rechazada</SelectItem>
+                      <SelectItem value="cancelada">Cancelada</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -586,29 +605,6 @@ export default function VacacionesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2 flex-wrap">
-                          {vac.estado === "pendiente" && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-green-600 bg-transparent"
-                                onClick={() => handleAprobarVacacion(vac)}
-                              >
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-red-600 bg-transparent"
-                                onClick={() => {
-                                  setSelectedVacacion(vac)
-                                  setIsRejectDialogOpen(true)
-                                }}
-                              >
-                                <XCircle className="h-4 w-4" />
-                              </Button>
-                            </>
-                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -619,7 +615,6 @@ export default function VacacionesPage() {
                             <Edit className="h-4 w-4" />
                           </Button>
                         </div>
-                        {vac.motivoRechazo && <p className="text-xs text-red-600 mt-1">{vac.motivoRechazo}</p>}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -692,58 +687,124 @@ export default function VacacionesPage() {
           </Card>
         </TabsContent>
 
-        {/* Tab: Saldos */}
-        <TabsContent value="saldos">
+        {/* Tab: Resumen por empleada */}
+        <TabsContent value="resumen">
           <Card>
             <CardHeader>
-              <CardTitle>Saldo de Vacaciones por Empleado</CardTitle>
-              <CardDescription>Días asignados y disponibles (configuración manual)</CardDescription>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <CardTitle>Resumen por empleada</CardTitle>
+                  <CardDescription>
+                    Vacaciones tomadas del periodo seleccionado
+                  </CardDescription>
+                  {resumenRango && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {formatearRangoPeriodo(resumenRango.fechaDesde, resumenRango.fechaHasta)}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  {(isAdmin || branchIds.length > 1) && (
+                    <Select
+                      value={resumenFilterSucursal}
+                      onValueChange={setResumenFilterSucursal}
+                    >
+                      <SelectTrigger className="h-9 w-[160px] text-sm">
+                        <SelectValue placeholder="Sucursal" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {isAdmin && (
+                          <SelectItem value="todos">Todas las sucursales</SelectItem>
+                        )}
+                        {sucursales.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select
+                    value={resumenFilterEmpleada}
+                    onValueChange={setResumenFilterEmpleada}
+                  >
+                    <SelectTrigger className="h-9 w-[180px] text-sm">
+                      <SelectValue placeholder="Empleada" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todas las empleadas</SelectItem>
+                      {resumenEmpleadasOptions.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={resumenPeriodo}
+                    onValueChange={(v) => setResumenPeriodo(v as Periodo)}
+                  >
+                    <SelectTrigger className="h-9 w-44 text-sm">
+                      <CalendarIcon className="h-4 w-4 mr-1.5 text-muted-foreground" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="semana">Esta Semana</SelectItem>
+                      <SelectItem value="mes">Este Mes</SelectItem>
+                      <SelectItem value="trimestre">Trimestre</SelectItem>
+                      <SelectItem value="año">Este Año</SelectItem>
+                      <SelectItem value="personalizado">Personalizado…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {resumenPeriodo === "personalizado" && (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={resumenDesde}
+                        onChange={(e) => setResumenDesde(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <span className="text-muted-foreground text-sm">—</span>
+                      <input
+                        type="date"
+                        value={resumenHasta}
+                        onChange={(e) => setResumenHasta(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-x-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Empleado</TableHead>
-                    <TableHead>Año</TableHead>
-                    <TableHead>Días Correspondientes</TableHead>
-                    <TableHead>Días Tomados</TableHead>
-                    <TableHead>Días Disponibles</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
+                    <TableHead>Empleada</TableHead>
+                    <TableHead>Sucursal</TableHead>
+                    <TableHead>Veces</TableHead>
+                    <TableHead>Días tomados</TableHead>
+                    <TableHead>Última vacación</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {saldos.map((saldo) => (
-                    <TableRow key={saldo.id}>
-                      <TableCell className="font-medium">{saldo.empleadoNombre}</TableCell>
-                      <TableCell>{saldo.anio}</TableCell>
-                      <TableCell>{saldo.diasCorrespondientes}</TableCell>
-                      <TableCell>{saldo.diasTomados}</TableCell>
-                      <TableCell>
-                        <Badge
-                          className={cn(
-                            saldo.diasDisponibles > 5
-                              ? "bg-green-100 text-green-800"
-                              : saldo.diasDisponibles > 0
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800",
-                          )}
-                        >
-                          {saldo.diasDisponibles}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedSaldo(saldo)
-                            setEditDiasCorrespondientes(saldo.diasCorrespondientes.toString())
-                            setEditDiasTomados(saldo.diasTomados.toString())
-                            setIsEditSaldoDialogOpen(true)
-                          }}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                  {resumenPorEmpleada.map((row) => (
+                    <TableRow
+                      key={row.empleadoId}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        setFilterEmpleada(row.nombre)
+                        setActiveTab("solicitudes")
+                      }}
+                    >
+                      <TableCell className="py-2 font-medium">{row.nombre}</TableCell>
+                      <TableCell className="py-2">{row.sucursal || "—"}</TableCell>
+                      <TableCell className="py-2">{row.veces}</TableCell>
+                      <TableCell className="py-2">{row.diasTomados}</TableCell>
+                      <TableCell className="py-2">
+                        {row.ultimaVacacion
+                          ? `${formatDate(row.ultimaVacacion.inicio)} – ${formatDate(row.ultimaVacacion.fin)}`
+                          : "—"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -865,68 +926,6 @@ export default function VacacionesPage() {
               Cancelar
             </Button>
             <Button onClick={handleCreateVacacion}>Crear Solicitud</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog: Rechazar */}
-      <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rechazar Solicitud</DialogTitle>
-            <DialogDescription>Indica el motivo del rechazo para {selectedVacacion?.empleadoNombre}</DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Label>Motivo del Rechazo *</Label>
-            <Textarea
-              value={rejectMotivo}
-              onChange={(e) => setRejectMotivo(e.target.value)}
-              placeholder="Ej: Coincide con periodo de alta demanda..."
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRejectDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={handleRechazarVacacion} disabled={!rejectMotivo}>
-              Rechazar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog: Editar Saldo */}
-      <Dialog open={isEditSaldoDialogOpen} onOpenChange={setIsEditSaldoDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar Saldo de Vacaciones</DialogTitle>
-            <DialogDescription>{selectedSaldo?.empleadoNombre}</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Días Correspondientes</Label>
-              <Input
-                type="number"
-                value={editDiasCorrespondientes}
-                onChange={(e) => setEditDiasCorrespondientes(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Días Tomados</Label>
-              <Input type="number" value={editDiasTomados} onChange={(e) => setEditDiasTomados(e.target.value)} />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Días Disponibles:{" "}
-              <strong>
-                {(Number.parseInt(editDiasCorrespondientes) || 0) - (Number.parseInt(editDiasTomados) || 0)}
-              </strong>
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditSaldoDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleEditSaldo}>Guardar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

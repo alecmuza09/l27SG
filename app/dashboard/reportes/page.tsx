@@ -48,6 +48,7 @@ import {
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
 import { getGastosFromDB, CATEGORIAS_GASTO, type Gasto } from "@/lib/data/gastos"
 import { getEmpleadosFromDB } from "@/lib/data/empleados"
+import { type Periodo, calcularPeriodo, localFmt } from "@/lib/periodos"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
@@ -84,8 +85,6 @@ interface ClienteTopRow   { clienteId: string; nombre: string; visitas: number; 
 interface KpiStats        { ingresosTotales: number; totalServicios: number; ticketPromedio: number }
 interface CitasResumen    { completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }
 
-type Periodo = "semana" | "mes" | "trimestre" | "año" | "personalizado"
-
 const FILTRO_CATEGORIAS_GASTO = [
   { value: "all", label: "Todas" },
   ...CATEGORIAS_GASTO,
@@ -94,51 +93,6 @@ const FILTRO_CATEGORIAS_GASTO = [
 const CATEGORIA_GASTO_LABEL: Record<string, string> = Object.fromEntries(
   CATEGORIAS_GASTO.map(c => [c.value, c.label]),
 )
-
-// ─── Helpers de fecha ─────────────────────────────────────────────────────────
-
-function localFmt(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
-
-function calcularPeriodo(periodo: Periodo, customDesde?: string, customHasta?: string): { fechaDesde: string; fechaHasta: string; label: string } {
-  const hoy    = new Date()
-  const hoyStr = localFmt(hoy)
-  switch (periodo) {
-    case "semana": {
-      const i = new Date(hoy)
-      const diaSemana = hoy.getDay() // 0=domingo, 1=lunes, ..., 6=sábado
-      const diasDesdeElLunes = diaSemana === 0 ? 6 : diaSemana - 1
-      i.setDate(hoy.getDate() - diasDesdeElLunes)
-      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Esta Semana" }
-    }
-    case "mes": {
-      const i = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
-      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Este Mes" }
-    }
-    case "trimestre": {
-      const i = new Date(hoy); i.setMonth(hoy.getMonth() - 3)
-      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Últimos 3 Meses" }
-    }
-    case "año": {
-      const i = new Date(hoy.getFullYear(), 0, 1)
-      return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Este Año" }
-    }
-    case "personalizado": {
-      if (!customDesde || !customHasta) {
-        const hoy = new Date()
-        const ini = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
-        return { fechaDesde: localFmt(ini), fechaHasta: localFmt(hoy), label: "Personalizado" }
-      }
-      const desde = customDesde < customHasta ? customDesde : customHasta
-      const hasta  = customDesde < customHasta ? customHasta : customDesde
-      const d = new Date(desde + "T12:00:00")
-      const h = new Date(hasta + "T12:00:00")
-      const label = `${d.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} – ${h.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}`
-      return { fechaDesde: desde, fechaHasta: hasta, label }
-    }
-  }
-}
 
 function calcularPropinasPorEmpleada(pagos: Pago[]): PropinaEmpleadaRow[] {
   const map = new Map<string, { nombre: string; totalPropinas: number; cobros: number }>()
