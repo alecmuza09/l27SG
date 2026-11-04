@@ -246,8 +246,12 @@ export async function createVacacionInDB(data: {
   fechaFin: string
   diasSolicitados: number
   notas?: string
+  /** Usuario que captura el registro (queda como "Registró" y "Aprobó", ya que se crea aprobada) */
+  registradoPorId?: string | null
+  registradoPorNombre?: string | null
 }): Promise<Vacacion | null> {
   try {
+    const ahora = new Date().toISOString()
     const { data: rawRow, error } = await (supabase as any)
       .from('vacaciones')
       .insert({
@@ -257,7 +261,13 @@ export async function createVacacionInDB(data: {
         dias_solicitados: data.diasSolicitados,
         estado: 'aprobada',
         notas: data.notas || null,
-        fecha_solicitud: new Date().toISOString(),
+        fecha_solicitud: ahora,
+        registrado_por_id: data.registradoPorId ?? null,
+        registrado_por_nombre: data.registradoPorNombre ?? null,
+        aprobado_por_id: data.registradoPorId ?? null,
+        aprobado_por_nombre: data.registradoPorNombre ?? null,
+        fecha_resolucion: ahora.slice(0, 10),
+        resuelto_en: ahora,
       })
       .select(`
         *,
@@ -282,15 +292,78 @@ export async function createVacacionInDB(data: {
       diasSolicitados: row.dias_solicitados || 0,
       estado: row.estado,
       motivoRechazo: null,
-      aprobadoPorId: null,
-      aprobadoPorNombre: null,
+      aprobadoPorId: row.aprobado_por_id ?? null,
+      aprobadoPorNombre: row.aprobado_por_nombre ?? null,
+      registradoPorId: row.registrado_por_id ?? null,
+      registradoPorNombre: row.registrado_por_nombre ?? null,
+      resueltoEn: row.resuelto_en ?? null,
+      creadoEn: row.created_at ?? null,
       fechaSolicitud: row.fecha_solicitud || row.created_at,
-      fechaResolucion: null,
+      fechaResolucion: row.fecha_resolucion ?? null,
       notas: row.notas || null,
     }
   } catch (error) {
     console.error('Error inesperado creando vacación:', error)
     return null
+  }
+}
+
+// Aprobar una solicitud pendiente (guarda quién y cuándo)
+export async function aprobarVacacionInDB(
+  id: string,
+  actor: { id?: string | null; nombre?: string | null },
+): Promise<boolean> {
+  try {
+    const ahora = new Date().toISOString()
+    const { error } = await (supabase as any)
+      .from('vacaciones')
+      .update({
+        estado: 'aprobada',
+        motivo_rechazo: null,
+        aprobado_por_id: actor.id ?? null,
+        aprobado_por_nombre: actor.nombre ?? null,
+        fecha_resolucion: ahora.slice(0, 10),
+        resuelto_en: ahora,
+      })
+      .eq('id', id)
+    if (error) {
+      console.error('Error aprobando vacación:', error)
+      return false
+    }
+    return true
+  } catch (error) {
+    console.error('Error inesperado aprobando vacación:', error)
+    return false
+  }
+}
+
+// Rechazar una solicitud (guarda quién, cuándo y el motivo)
+export async function rechazarVacacionInDB(
+  id: string,
+  motivo: string,
+  actor: { id?: string | null; nombre?: string | null },
+): Promise<boolean> {
+  try {
+    const ahora = new Date().toISOString()
+    const { error } = await (supabase as any)
+      .from('vacaciones')
+      .update({
+        estado: 'rechazada',
+        motivo_rechazo: motivo,
+        aprobado_por_id: actor.id ?? null,
+        aprobado_por_nombre: actor.nombre ?? null,
+        fecha_resolucion: ahora.slice(0, 10),
+        resuelto_en: ahora,
+      })
+      .eq('id', id)
+    if (error) {
+      console.error('Error rechazando vacación:', error)
+      return false
+    }
+    return true
+  } catch (error) {
+    console.error('Error inesperado rechazando vacación:', error)
+    return false
   }
 }
 
@@ -343,24 +416,31 @@ export async function deleteVacacionInDB(id: string): Promise<boolean> {
 // Obtener vacaciones desde Supabase
 export async function getVacacionesFromDB(sucursalScope?: string | string[]): Promise<Vacacion[]> {
   try {
-    let query = supabase
-      .from('vacaciones')
-      .select(`
-        *,
-        empleado:empleados(nombre, apellido, sucursal:sucursales(id, nombre)),
-        aprobador:usuarios!vacaciones_aprobado_por_id_fkey(nombre)
-      `)
-      .order('fecha_solicitud', { ascending: false })
-    
-    const { data, error } = await query
-    
-    if (error) {
-      console.error('Error obteniendo vacaciones:', error)
-      return []
+    // PostgREST devuelve máximo ~1000 filas por request: se pagina para no truncar el historial.
+    const PAGE = 1000
+    const data: any[] = []
+    for (let offset = 0; ; offset += PAGE) {
+      const { data: page, error } = await supabase
+        .from('vacaciones')
+        .select(`
+          *,
+          empleado:empleados(nombre, apellido, sucursal:sucursales(id, nombre)),
+          aprobador:usuarios!vacaciones_aprobado_por_id_fkey(nombre)
+        `)
+        .order('fecha_solicitud', { ascending: false })
+        .order('id', { ascending: true })
+        .range(offset, offset + PAGE - 1)
+
+      if (error) {
+        console.error('Error obteniendo vacaciones:', error)
+        return []
+      }
+      data.push(...(page ?? []))
+      if (!page || page.length < PAGE) break
     }
-    
-    if (!data) return []
-    
+
+    if (data.length === 0) return []
+
     let vacacionesFiltradas = data
     if (sucursalScope !== undefined) {
       const allow = Array.isArray(sucursalScope)
@@ -385,7 +465,11 @@ export async function getVacacionesFromDB(sucursalScope?: string | string[]): Pr
       estado: v.estado,
       motivoRechazo: v.motivo_rechazo || null,
       aprobadoPorId: v.aprobado_por_id || null,
-      aprobadoPorNombre: v.aprobador?.nombre || null,
+      aprobadoPorNombre: v.aprobado_por_nombre || v.aprobador?.nombre || null,
+      registradoPorId: v.registrado_por_id || null,
+      registradoPorNombre: v.registrado_por_nombre || null,
+      resueltoEn: v.resuelto_en || null,
+      creadoEn: v.created_at || null,
       fechaSolicitud: v.fecha_solicitud || v.created_at,
       fechaResolucion: v.fecha_resolucion || null,
       notas: v.notas || null,

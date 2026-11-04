@@ -11,6 +11,12 @@ export interface Vacacion {
   motivoRechazo: string | null
   aprobadoPorId: string | null
   aprobadoPorNombre: string | null
+  registradoPorId?: string | null
+  registradoPorNombre?: string | null
+  /** Momento exacto (fecha y hora) en que se aprobó/rechazó */
+  resueltoEn?: string | null
+  /** Momento exacto en que se registró la solicitud */
+  creadoEn?: string | null
   fechaSolicitud: string
   fechaResolucion: string | null
   notas: string | null

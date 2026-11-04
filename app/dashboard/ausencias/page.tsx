@@ -91,6 +91,9 @@ export default function AusenciasPage() {
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
+  const [tab, setTab] = useState("registros")
+  const [resumenAnio, setResumenAnio] = useState(new Date().getFullYear())
+
   // Filtros
   const [filterEmpleado, setFilterEmpleado] = useState("todos")
   const [filterEstatus, setFilterEstatus] = useState<EstatusAusencia | "todos">("pendiente")
@@ -201,6 +204,23 @@ export default function AusenciasPage() {
     }
   }
 
+  // ─── Resumen por empleada (año seleccionado) ────────────────────────────────
+  const resumenPorEmpleada = useMemo(() => {
+    const tipos = Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]
+    const rows = empleados.map((e) => {
+      const conteos = Object.fromEntries(tipos.map((t) => [t, 0])) as Record<TipoAusencia, number>
+      let pendientes = 0
+      for (const a of ausencias) {
+        if (a.empleadoId !== e.id) continue
+        if (a.fechaInicio.slice(0, 4) !== String(resumenAnio)) continue
+        if (a.estatus === "aprobada") conteos[a.tipo] += 1
+        else if (a.estatus === "pendiente") pendientes += 1
+      }
+      return { empleadoId: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim(), conteos, pendientes }
+    })
+    return rows.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+  }, [empleados, ausencias, resumenAnio])
+
   // ─── Filtros derivados ──────────────────────────────────────────────────────
   const ausenciasFiltradas = useMemo(() => {
     return ausencias.filter((a) => {
@@ -237,6 +257,8 @@ export default function AusenciasPage() {
         fechaFin:      formFechaFin,
         duracionHoras: formDuracionHoras ? Number(formDuracionHoras) : undefined,
         notas:         formNotas || undefined,
+        registradoPorId:     currentUser?.id ?? null,
+        registradoPorNombre: currentUser?.name || currentUser?.email || null,
       })
       if (result.success) {
         toast.success("Ausencia registrada correctamente")
@@ -440,7 +462,14 @@ export default function AusenciasPage() {
         </Card>
       </div>
 
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="registros">Registros</TabsTrigger>
+          <TabsTrigger value="resumen">Resumen por empleada</TabsTrigger>
+        </TabsList>
+
       {/* Filtros + tabla */}
+      <TabsContent value="registros">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col md:flex-row gap-3">
@@ -521,7 +550,8 @@ export default function AusenciasPage() {
                   <TableHead>Duración</TableHead>
                   <TableHead>Motivo</TableHead>
                   <TableHead>Estatus</TableHead>
-                  <TableHead>Responsable</TableHead>
+                  <TableHead>Registró</TableHead>
+                  <TableHead>Aprobó</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -552,6 +582,10 @@ export default function AusenciasPage() {
                       <Badge className={cn("text-xs border", ESTATUS_AUSENCIA_COLORS[a.estatus])}>
                         {ESTATUS_AUSENCIA_LABELS[a.estatus]}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {a.registradoPorNombre ?? "—"}
+                      <span className="block text-[11px]">{formatDateTime(a.createdAt)}</span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {a.aprobadoPor ?? "—"}
@@ -632,6 +666,78 @@ export default function AusenciasPage() {
           )}
         </CardContent>
       </Card>
+      </TabsContent>
+
+      {/* ─── Resumen por empleada ─────────────────────────────────────────────── */}
+      <TabsContent value="resumen">
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <CardTitle className="text-base">Resumen por empleada</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Cuenta registros aprobados del año. Retardos y salidas se documentan aparte y no se suman a las faltas.
+                  Haz clic en una empleada para ver su historial.
+                </p>
+              </div>
+              <Select value={String(resumenAnio)} onValueChange={(v) => setResumenAnio(Number(v))}>
+                <SelectTrigger className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[0, 1, 2, 3].map((i) => {
+                    const y = new Date().getFullYear() - i
+                    return <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Empleada</TableHead>
+                    {(Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]).map((t) => (
+                      <TableHead key={t} className="text-center">{TIPO_AUSENCIA_LABELS[t]}</TableHead>
+                    ))}
+                    <TableHead className="text-center">Pendientes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {resumenPorEmpleada.map((r) => (
+                    <TableRow
+                      key={r.empleadoId}
+                      className="cursor-pointer hover:bg-muted/30"
+                      onClick={() => {
+                        setFilterEmpleado(r.empleadoId)
+                        setFilterEstatus("todos")
+                        setTab("registros")
+                      }}
+                    >
+                      <TableCell className="font-medium text-sm">{r.nombre}</TableCell>
+                      {(Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]).map((t) => (
+                        <TableCell key={t} className="text-center text-sm">
+                          {r.conteos[t] > 0 ? r.conteos[t] : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-center text-sm">
+                        {r.pendientes > 0 ? r.pendientes : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+      </Tabs>
 
       {/* ─── Dialog Crear ──────────────────────────────────────────────────────── */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -1100,7 +1206,12 @@ export default function AusenciasPage() {
                   <div className="flex items-start gap-2">
                     <div className="h-2 w-2 rounded-full bg-blue-400 mt-1.5 shrink-0" />
                     <div>
-                      <p className="text-xs font-medium">Solicitud registrada</p>
+                      <p className="text-xs font-medium">
+                        Solicitud registrada
+                        {detalleAusencia.registradoPorNombre && (
+                          <> por <span className="text-foreground">{detalleAusencia.registradoPorNombre}</span></>
+                        )}
+                      </p>
                       <p className="text-xs text-muted-foreground">{formatDateTime(detalleAusencia.createdAt)}</p>
                     </div>
                   </div>

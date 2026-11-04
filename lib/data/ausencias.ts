@@ -32,6 +32,8 @@ export interface Ausencia {
   fechaAprobacion: string | null
   motivoRechazo: string | null
   notas: string | null
+  registradoPorId?: string | null
+  registradoPorNombre?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -46,6 +48,8 @@ export interface CreateAusenciaInput {
   horaFin?: string     // "HH:MM" — omitir para día completo
   duracionHoras?: number
   notas?: string
+  registradoPorId?: string | null
+  registradoPorNombre?: string | null
 }
 
 // ─── Labels legibles ──────────────────────────────────────────────────────────
@@ -101,6 +105,8 @@ function mapRow(row: any, empleadoNombre?: string): Ausencia {
     fechaAprobacion: row.fecha_aprobacion ?? null,
     motivoRechazo:   row.motivo_rechazo ?? null,
     notas:           row.notas ?? null,
+    registradoPorId:     row.registrado_por_id ?? null,
+    registradoPorNombre: row.registrado_por_nombre ?? null,
     createdAt:       row.created_at,
     updatedAt:       row.updated_at,
   }
@@ -115,31 +121,42 @@ export async function getAusenciasFromDB(filters?: {
   fechaDesde?: string
   fechaHasta?: string
 }): Promise<Ausencia[]> {
-  let query = supabase
-    .from("ausencias")
-    .select(`
-      *,
-      empleados (
-        nombre,
-        apellido
-      )
-    `)
-    .order("fecha_inicio", { ascending: false })
+  // PostgREST devuelve máximo ~1000 filas por request: se pagina para no truncar el historial.
+  const PAGE = 1000
+  const rows: any[] = []
 
-  if (filters?.empleadoId) query = query.eq("empleado_id", filters.empleadoId)
-  if (filters?.estatus)    query = query.eq("estatus", filters.estatus)
-  if (filters?.tipo)       query = query.eq("tipo", filters.tipo)
-  if (filters?.fechaDesde) query = query.gte("fecha_inicio", filters.fechaDesde)
-  if (filters?.fechaHasta) query = query.lte("fecha_fin", filters.fechaHasta)
+  for (let offset = 0; ; offset += PAGE) {
+    let query = supabase
+      .from("ausencias")
+      .select(`
+        *,
+        empleados (
+          nombre,
+          apellido
+        )
+      `)
+      .order("fecha_inicio", { ascending: false })
+      .order("id", { ascending: true }) // desempate estable entre páginas
+      .range(offset, offset + PAGE - 1)
 
-  const { data, error } = await query
+    if (filters?.empleadoId) query = query.eq("empleado_id", filters.empleadoId)
+    if (filters?.estatus)    query = query.eq("estatus", filters.estatus)
+    if (filters?.tipo)       query = query.eq("tipo", filters.tipo)
+    if (filters?.fechaDesde) query = query.gte("fecha_inicio", filters.fechaDesde)
+    if (filters?.fechaHasta) query = query.lte("fecha_fin", filters.fechaHasta)
 
-  if (error) {
-    console.error("Error cargando ausencias:", error)
-    return []
+    const { data, error } = await query
+
+    if (error) {
+      console.error("Error cargando ausencias:", error)
+      return []
+    }
+
+    rows.push(...(data ?? []))
+    if (!data || data.length < PAGE) break
   }
 
-  return (data ?? []).map((row) => {
+  return rows.map((row) => {
     const nombre = row.empleados
       ? `${row.empleados.nombre} ${row.empleados.apellido}`
       : undefined
@@ -150,7 +167,7 @@ export async function getAusenciasFromDB(filters?: {
 export async function createAusencia(
   input: CreateAusenciaInput
 ): Promise<{ success: boolean; ausencia?: Ausencia; error?: string }> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("ausencias")
     .insert({
       empleado_id:    input.empleadoId,
@@ -162,6 +179,8 @@ export async function createAusencia(
       hora_fin:       input.horaFin    ?? null,
       duracion_horas: input.duracionHoras ?? null,
       notas:          input.notas ?? null,
+      registrado_por_id:     input.registradoPorId ?? null,
+      registrado_por_nombre: input.registradoPorNombre ?? null,
     })
     .select()
     .single()
@@ -178,7 +197,7 @@ export async function aprobarAusencia(
   id: string,
   aprobadoPor: string
 ): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("ausencias")
     .update({
       estatus:          "aprobada",
@@ -200,7 +219,7 @@ export async function rechazarAusencia(
   aprobadoPor: string,
   motivoRechazo: string
 ): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("ausencias")
     .update({
       estatus:          "rechazada",
@@ -220,7 +239,7 @@ export async function rechazarAusencia(
 export async function cancelarAusencia(
   id: string
 ): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("ausencias")
     .update({ estatus: "cancelada" })
     .eq("id", id)
@@ -252,7 +271,7 @@ export async function updateAusencia(
   id: string,
   input: UpdateAusenciaInput
 ): Promise<{ success: boolean; error?: string }> {
-  const { data: prev, error: fetchErr } = await supabase
+  const { data: prev, error: fetchErr } = await (supabase as any)
     .from("ausencias")
     .select("*")
     .eq("id", id)
@@ -307,7 +326,7 @@ export async function updateAusencia(
     payload.notas = input.notas
   }
 
-  const { error } = await supabase.from("ausencias").update(payload).eq("id", id)
+  const { error } = await (supabase as any).from("ausencias").update(payload).eq("id", id)
 
   if (error) {
     console.error("Error actualizando ausencia:", error)

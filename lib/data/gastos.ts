@@ -54,32 +54,43 @@ export async function getGastosFromDB(
   sucursalId?: string,
   opciones?: { fechaInicio?: string; fechaFin?: string }
 ): Promise<Gasto[]> {
-  let query = (supabase as any)
-    .from("gastos")
-    .select(`
-      *,
-      empleado:empleados(id, nombre)
-    `)
+  // PostgREST devuelve máximo ~1000 filas por request: se pagina para no truncar rangos largos.
+  const PAGE = 1000
+  const rows: any[] = []
 
-  if (opciones?.fechaInicio && opciones?.fechaFin) {
-    query = query.gte("fecha", opciones.fechaInicio).lte("fecha", opciones.fechaFin)
-  } else {
-    query = query.eq("fecha", fecha)
+  for (let offset = 0; ; offset += PAGE) {
+    let query = (supabase as any)
+      .from("gastos")
+      .select(`
+        *,
+        empleado:empleados(id, nombre)
+      `)
+
+    if (opciones?.fechaInicio && opciones?.fechaFin) {
+      query = query.gte("fecha", opciones.fechaInicio).lte("fecha", opciones.fechaFin)
+    } else {
+      query = query.eq("fecha", fecha)
+    }
+
+    query = query
+      .order("fecha", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE - 1)
+
+    if (sucursalId) query = query.eq("sucursal_id", sucursalId)
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error("[getGastosFromDB]", error.message)
+      return []
+    }
+    rows.push(...(data ?? []))
+    if (!data || data.length < PAGE) break
   }
 
-  query = query.order("fecha", { ascending: true }).order("created_at", { ascending: true })
-
-  if (sucursalId) query = query.eq("sucursal_id", sucursalId)
-
-  const { data, error } = await query
-
-  if (error) {
-    console.error("[getGastosFromDB]", error.message)
-    return []
-  }
-  if (!data) return []
-
-  return data.map(mapGastoRow)
+  return rows.map(mapGastoRow)
 }
 
 export async function createGastoInDB(gasto: {

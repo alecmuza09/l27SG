@@ -41,9 +41,21 @@ import {
   createVacacionInDB,
   updateVacacionInDB,
   deleteVacacionInDB,
+  aprobarVacacionInDB,
+  rechazarVacacionInDB,
 } from "@/lib/data/vacaciones"
 import type { Vacacion, SaldoVacaciones } from "@/lib/types/vacaciones"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
+
+function formatDateTimeMx(iso: string): string {
+  return new Date(iso).toLocaleString("es-MX", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
 
 const estadoColors: Record<Vacacion["estado"], string> = {
   pendiente: "bg-yellow-100 text-yellow-800",
@@ -256,6 +268,8 @@ export default function VacacionesPage() {
       fechaFin: fechaFinStr,
       diasSolicitados: calcularDias(fechaInicioStr, fechaFinStr),
       notas: formNotas || undefined,
+      registradoPorId: currentUser?.id ?? null,
+      registradoPorNombre: currentUser?.name || currentUser?.email || null,
     })
 
     if (!nuevaVacacion) {
@@ -342,16 +356,22 @@ export default function VacacionesPage() {
   }
 
   const handleAprobarVacacion = async (vac: Vacacion) => {
-    // TODO: Implementar aprobación de vacación en Supabase
-    // Por ahora recargamos desde BD
+    const ok = await aprobarVacacionInDB(vac.id, {
+      id: currentUser?.id ?? null,
+      nombre: currentUser?.name || currentUser?.email || null,
+    })
+    if (!ok) setError("No se pudo aprobar la solicitud. Intenta de nuevo.")
     await reloadVacacionesData()
   }
 
   const handleRechazarVacacion = async () => {
     if (!selectedVacacion || !rejectMotivo) return
 
-    // TODO: Implementar rechazo de vacación en Supabase
-    // Por ahora recargamos desde BD
+    const ok = await rechazarVacacionInDB(selectedVacacion.id, rejectMotivo, {
+      id: currentUser?.id ?? null,
+      nombre: currentUser?.name || currentUser?.email || null,
+    })
+    if (!ok) setError("No se pudo rechazar la solicitud. Intenta de nuevo.")
     await reloadVacacionesData()
 
     setRejectMotivo("")
@@ -529,6 +549,8 @@ export default function VacacionesPage() {
                     <TableHead>Días</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Solicitud</TableHead>
+                    <TableHead>Registró</TableHead>
+                    <TableHead>Aprobó</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -550,6 +572,18 @@ export default function VacacionesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>{formatDate(vac.fechaSolicitud)}</TableCell>
+                      <TableCell className="text-xs">
+                        {vac.registradoPorNombre ?? "—"}
+                        {vac.creadoEn && (
+                          <span className="block text-muted-foreground">{formatDateTimeMx(vac.creadoEn)}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {vac.aprobadoPorNombre ?? "—"}
+                        {vac.resueltoEn && (
+                          <span className="block text-muted-foreground">{formatDateTimeMx(vac.resueltoEn)}</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2 flex-wrap">
                           {vac.estado === "pendiente" && (
