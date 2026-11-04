@@ -297,6 +297,15 @@ export default function PagosPage() {
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 
+  // Leer ?fecha= y ?sucursal= de la URL al montar
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const f = params.get("fecha")
+    const s = params.get("sucursal")
+    if (f) setFecha(f)
+    if (s) setSucursalId(s)
+  }, [])
+
   useEffect(() => {
     sessionStorage.setItem(PAGOS_FECHA_KEY, fecha)
   }, [fecha])

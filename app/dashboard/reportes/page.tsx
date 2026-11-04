@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, Fragment, type ReactNode, type ComponentType } from "react"
+import { useRouter } from "next/navigation"
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card"
@@ -2137,6 +2138,7 @@ function DonutDistribucionClientes({
 // ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function ReportesPage() {
+  const router = useRouter()
   const [viewer, setViewer] = useState<User | null>(null)
   useEffect(() => {
     void refreshSession().then(setViewer)
@@ -4154,7 +4156,11 @@ export default function ReportesPage() {
                         </TableHeader>
                         <TableBody>
                           {gastosFiltrados.map(g => (
-                            <TableRow key={g.id}>
+                            <TableRow
+                              key={g.id}
+                              className="cursor-pointer hover:bg-muted/40"
+                              onClick={() => router.push(`/dashboard/pagos?fecha=${g.fecha}&sucursal=${g.sucursalId}`)}
+                            >
                               <TableCell className="tabular-nums whitespace-nowrap text-sm">{g.fecha}</TableCell>
                               <TableCell className="tabular-nums text-muted-foreground text-sm">{g.hora || "—"}</TableCell>
                               {isAdmin && (
