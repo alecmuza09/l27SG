@@ -45,6 +45,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
+import { getGastosFromDB, type Gasto } from "@/lib/data/gastos"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
@@ -82,6 +83,22 @@ interface KpiStats        { ingresosTotales: number; totalServicios: number; tic
 interface CitasResumen    { completadas: number; canceladas: number; pendientes: number; noShow: number; total: number; tasaCancelacion: number }
 
 type Periodo = "semana" | "mes" | "trimestre" | "año" | "personalizado"
+
+const CATEGORIAS_GASTO = [
+  { value: "all", label: "Todas" },
+  { value: "operativo", label: "Operativo" },
+  { value: "insumos", label: "Insumos" },
+  { value: "nomina", label: "Nómina" },
+  { value: "mantenimiento", label: "Mantenimiento" },
+  { value: "compras", label: "Compras" },
+  { value: "gasolina", label: "Gasolina" },
+  { value: "capacitacion", label: "Capacitación" },
+  { value: "otro", label: "Otro" },
+] as const
+
+const CATEGORIA_GASTO_LABEL: Record<string, string> = Object.fromEntries(
+  CATEGORIAS_GASTO.filter(c => c.value !== "all").map(c => [c.value, c.label]),
+)
 
 // ─── Helpers de fecha ─────────────────────────────────────────────────────────
 
@@ -2181,7 +2198,10 @@ export default function ReportesPage() {
   const [isLoadingEmpleadosTab, setIsLoadingEmpleadosTab] = useState(false)
   const [isLoadingNominaTab, setIsLoadingNominaTab] = useState(false)
   const [isLoadingSucursalesTab, setIsLoadingSucursalesTab] = useState(false)
+  const [isLoadingGastosTab, setIsLoadingGastosTab] = useState(false)
   const [isLoadingNuevosDetalle, setIsLoadingNuevosDetalle] = useState(false)
+  const [gastosReporte, setGastosReporte] = useState<Gasto[]>([])
+  const [categoriaGastoFilter, setCategoriaGastoFilter] = useState<string>("all")
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(() => new Set())
   const [reporteFiltrosKey, setReporteFiltrosKey] = useState("")
 
@@ -2267,6 +2287,7 @@ export default function ReportesPage() {
     setTodasEmpleadasNomina([])
     setTopClientes([])
     setMetricasSucursales([])
+    setGastosReporte([])
     try {
       const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, nuevosScope, filtrosKey } =
         resolverContextoReporte()
@@ -2483,6 +2504,37 @@ export default function ReportesPage() {
     }
   }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, isAdmin, sucursalFilter])
 
+  const cargarTabGastos = useCallback(async () => {
+    if (loadedTabs.has("gastos") || reporteFiltrosKey === "") return
+    const { fechaDesde, fechaHasta, sucId, esMultiBranchAll, filtrosKey } = resolverContextoReporte()
+    if (filtrosKey !== reporteFiltrosKey) return
+
+    setIsLoadingGastosTab(true)
+    try {
+      const rango = { fechaInicio: fechaDesde, fechaFin: fechaHasta }
+      let lista: Gasto[]
+      if (esMultiBranchAll) {
+        const porSuc = await Promise.all(
+          branchIds.map(id => getGastosFromDB(fechaDesde, id, rango)),
+        )
+        lista = porSuc.flat()
+      } else {
+        lista = await getGastosFromDB(fechaDesde, sucId, rango)
+      }
+      lista.sort((a, b) => {
+        const byFecha = a.fecha.localeCompare(b.fecha)
+        if (byFecha !== 0) return byFecha
+        return (a.hora || "").localeCompare(b.hora || "")
+      })
+      setGastosReporte(lista)
+      setLoadedTabs(prev => new Set(prev).add("gastos"))
+    } catch (err) {
+      console.error("Error cargando tab gastos:", err)
+    } finally {
+      setIsLoadingGastosTab(false)
+    }
+  }, [loadedTabs, reporteFiltrosKey, resolverContextoReporte, branchIds.join(",")])
+
   /** Donut activos/inactivos: consultas pesadas solo al abrir el tab Clientes. */
   const cargarClientesTab = useCallback(async () => {
     if (loadedTabs.has("clientes") || reporteFiltrosKey === "") return
@@ -2606,6 +2658,12 @@ export default function ReportesPage() {
     if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
     cargarTabSucursales()
   }, [activeTab, cargarTabSucursales, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
+
+  useEffect(() => {
+    if (activeTab !== "gastos") return
+    if (periodo === "personalizado" && (!fechaCustomDesde || !fechaCustomHasta)) return
+    cargarTabGastos()
+  }, [activeTab, cargarTabGastos, periodo, fechaCustomDesde, fechaCustomHasta, reporteFiltrosKey])
 
   useEffect(() => {
     if (!nuevosClientesDialogOpen) return
@@ -2922,6 +2980,26 @@ export default function ReportesPage() {
   const mostrarSucursalEnNuevosClientes = sucursalFilter === "all"
   const nuevosClientesPorSucursal =
     !isAdmin || sucursalFilter !== "all"
+
+  const nombreSucursalById = (id: string) =>
+    sucursales.find(s => s.id === id)?.nombre ?? id
+
+  const gastosFiltrados = categoriaGastoFilter === "all"
+    ? gastosReporte
+    : gastosReporte.filter(g => g.categoria === categoriaGastoFilter)
+
+  const totalesGastosPorCategoria = (() => {
+    const map: Record<string, number> = {}
+    for (const g of gastosFiltrados) {
+      map[g.categoria] = (map[g.categoria] ?? 0) + g.monto
+    }
+    return map
+  })()
+  const totalGastosFiltrados = gastosFiltrados.reduce((s, g) => s + g.monto, 0)
+
+  const RESUMEN_CATEGORIAS_GASTO = [
+    "operativo", "insumos", "nomina", "compras", "gasolina", "capacitacion",
+  ] as const
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -3299,6 +3377,7 @@ export default function ReportesPage() {
             {!isManager && <TabsTrigger value="nomina">Nómina</TabsTrigger>}
             <TabsTrigger value="clientes">Clientes</TabsTrigger>
             <TabsTrigger value="embajadoras">Embajadoras</TabsTrigger>
+            <TabsTrigger value="gastos">Gastos</TabsTrigger>
             {isAdmin && <TabsTrigger value="sucursales">Sucursales</TabsTrigger>}
           </TabsList>
 
@@ -4019,6 +4098,119 @@ export default function ReportesPage() {
                       </TableBody>
                     </Table>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ══════════════ GASTOS ══════════════ */}
+          <TabsContent value="gastos" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between space-y-0">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <DollarSign className="h-5 w-5" />
+                    Gastos
+                  </CardTitle>
+                  <CardDescription>{periodoLabel}</CardDescription>
+                </div>
+                <Select value={categoriaGastoFilter} onValueChange={setCategoriaGastoFilter}>
+                  <SelectTrigger className="w-48 h-9 text-sm">
+                    <SelectValue placeholder="Categoría" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIAS_GASTO.map(c => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardHeader>
+              <CardContent>
+                {isLoadingGastosTab ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                    ))}
+                  </div>
+                ) : gastosFiltrados.length === 0 ? (
+                  <p className="text-center py-8 text-sm text-muted-foreground">
+                    Sin gastos en este período
+                  </p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Fecha</TableHead>
+                            <TableHead>Hora</TableHead>
+                            {isAdmin && <TableHead>Sucursal</TableHead>}
+                            <TableHead>Categoría</TableHead>
+                            <TableHead>Descripción / Artículo</TableHead>
+                            <TableHead>Empleada</TableHead>
+                            <TableHead className="text-right">Días</TableHead>
+                            <TableHead className="text-right">Monto</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {gastosFiltrados.map(g => (
+                            <TableRow key={g.id}>
+                              <TableCell className="tabular-nums whitespace-nowrap text-sm">{g.fecha}</TableCell>
+                              <TableCell className="tabular-nums text-muted-foreground text-sm">{g.hora || "—"}</TableCell>
+                              {isAdmin && (
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {nombreSucursalById(g.sucursalId)}
+                                </TableCell>
+                              )}
+                              <TableCell>
+                                <span className="text-xs border rounded px-1.5 py-0.5 capitalize text-muted-foreground">
+                                  {CATEGORIA_GASTO_LABEL[g.categoria] ?? g.categoria}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                <div className="flex flex-col gap-0.5">
+                                  <span>{g.descripcion}</span>
+                                  {g.articulo && (
+                                    <span className="text-[11px] text-muted-foreground italic">{g.articulo}</span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {g.empleadaNombre || "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
+                                {g.categoria === "capacitacion" && g.diasCapacitacion
+                                  ? g.diasCapacitacion
+                                  : "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums font-semibold text-red-600">
+                                {fmtMXN(g.monto)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground border-t pt-3">
+                      {RESUMEN_CATEGORIAS_GASTO.map((cat, i) => (
+                        <span key={cat} className="inline-flex items-center gap-1">
+                          {i > 0 && <span className="text-border mr-1 hidden sm:inline">|</span>}
+                          <span>{CATEGORIA_GASTO_LABEL[cat]}:</span>
+                          <span className="font-semibold text-foreground tabular-nums">
+                            {fmtMXN(totalesGastosPorCategoria[cat] ?? 0)}
+                          </span>
+                        </span>
+                      ))}
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-border mr-1 hidden sm:inline">|</span>
+                        <span>Total:</span>
+                        <span className="font-bold text-red-600 tabular-nums">
+                          {fmtMXN(totalGastosFiltrados)}
+                        </span>
+                      </span>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>

@@ -8,14 +8,32 @@ export interface Gasto {
   monto: number
   categoria: string
   hora: string
+  // Nuevos campos opcionales
+  empleadaId?: string | null
+  empleadaNombre?: string | null   // join desde empleados
+  articulo?: string | null
+  diasCapacitacion?: number | null
 }
 
-export async function getGastosFromDB(fecha: string, sucursalId?: string): Promise<Gasto[]> {
+export async function getGastosFromDB(
+  fecha: string,
+  sucursalId?: string,
+  opciones?: { fechaInicio?: string; fechaFin?: string }
+): Promise<Gasto[]> {
   let query = (supabase as any)
     .from("gastos")
-    .select("*")
-    .eq("fecha", fecha)
-    .order("created_at", { ascending: true })
+    .select(`
+      *,
+      empleado:empleados(id, nombre)
+    `)
+
+  if (opciones?.fechaInicio && opciones?.fechaFin) {
+    query = query.gte("fecha", opciones.fechaInicio).lte("fecha", opciones.fechaFin)
+  } else {
+    query = query.eq("fecha", fecha)
+  }
+
+  query = query.order("fecha", { ascending: true }).order("created_at", { ascending: true })
 
   if (sucursalId) query = query.eq("sucursal_id", sucursalId)
 
@@ -27,14 +45,18 @@ export async function getGastosFromDB(fecha: string, sucursalId?: string): Promi
   }
   if (!data) return []
 
-  return data.map(g => ({
-    id: g.id,
-    sucursalId: g.sucursal_id,
-    fecha: g.fecha,
-    descripcion: g.descripcion,
-    monto: Number(g.monto),
-    categoria: g.categoria,
-    hora: g.hora,
+  return data.map((row: any) => ({
+    id: row.id,
+    sucursalId: row.sucursal_id,
+    fecha: row.fecha,
+    descripcion: row.descripcion,
+    monto: Number(row.monto),
+    categoria: row.categoria,
+    hora: row.hora,
+    empleadaId: row.empleada_id ?? null,
+    empleadaNombre: row.empleado?.nombre ?? null,
+    articulo: row.articulo ?? null,
+    diasCapacitacion: row.dias_capacitacion ?? null,
   }))
 }
 
@@ -45,6 +67,9 @@ export async function createGastoInDB(gasto: {
   monto: number
   categoria: string
   hora: string
+  empleadaId?: string | null
+  articulo?: string | null
+  diasCapacitacion?: number | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
   const { data, error } = await (supabase as any)
     .from("gastos")
@@ -55,6 +80,9 @@ export async function createGastoInDB(gasto: {
       monto: gasto.monto,
       categoria: gasto.categoria,
       hora: gasto.hora,
+      empleada_id: gasto.empleadaId ?? null,
+      articulo: gasto.articulo ?? null,
+      dias_capacitacion: gasto.diasCapacitacion ?? null,
     })
     .select("*")
     .single()
@@ -73,22 +101,31 @@ export async function createGastoInDB(gasto: {
       monto: Number(data.monto),
       categoria: data.categoria,
       hora: data.hora,
+      empleadaId: data.empleada_id ?? null,
+      articulo: data.articulo ?? null,
+      diasCapacitacion: data.dias_capacitacion ?? null,
     },
     error: null,
   }
 }
 
 export async function updateGastoInDB(id: string, cambios: {
-  descripcion: string
-  monto: number
-  categoria: string
+  descripcion?: string
+  monto?: number
+  categoria?: string
+  empleadaId?: string | null
+  articulo?: string | null
+  diasCapacitacion?: number | null
 }): Promise<{ data: Gasto | null; error: string | null }> {
   const { data, error } = await (supabase as any)
     .from("gastos")
     .update({
-      descripcion: cambios.descripcion,
-      monto: cambios.monto,
-      categoria: cambios.categoria,
+      ...(cambios.descripcion !== undefined && { descripcion: cambios.descripcion }),
+      ...(cambios.monto !== undefined && { monto: cambios.monto }),
+      ...(cambios.categoria !== undefined && { categoria: cambios.categoria }),
+      ...(cambios.empleadaId !== undefined && { empleada_id: cambios.empleadaId }),
+      ...(cambios.articulo !== undefined && { articulo: cambios.articulo }),
+      ...(cambios.diasCapacitacion !== undefined && { dias_capacitacion: cambios.diasCapacitacion }),
     })
     .eq("id", id)
     .select("*")
@@ -108,6 +145,9 @@ export async function updateGastoInDB(id: string, cambios: {
       monto: Number(data.monto),
       categoria: data.categoria,
       hora: data.hora,
+      empleadaId: data.empleada_id ?? null,
+      articulo: data.articulo ?? null,
+      diasCapacitacion: data.dias_capacitacion ?? null,
     },
     error: null,
   }

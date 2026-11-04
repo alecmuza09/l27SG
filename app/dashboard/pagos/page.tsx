@@ -47,6 +47,7 @@ import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { getCurrentUser, collectEffectiveSucursalIds, effectivePrimarySucursalId, isGlobalAdministrator } from "@/lib/auth"
 import { getGastosFromDB, createGastoInDB, updateGastoInDB, deleteGastoFromDB, type Gasto } from "@/lib/data/gastos"
+import { getEmpleadosFromDB } from "@/lib/data/empleados"
 import { supabase } from "@/lib/supabase/client"
 import { toast } from "sonner"
 
@@ -179,11 +180,22 @@ export default function PagosPage() {
   const [cajaOpen, setCajaOpen]                 = useState(false)
   const [citasSeleccionadas, setCitasSeleccionadas] = useState<Set<string>>(new Set())
   const [gastoDialogOpen, setGastoDialogOpen]   = useState(false)
-  const [nuevoGasto, setNuevoGasto]             = useState({ descripcion: "", monto: "", categoria: "operativo" })
+  const [nuevoGasto, setNuevoGasto]             = useState({
+    descripcion: "",
+    monto: "",
+    categoria: "operativo",
+    empleadaId: "",
+    articulo: "",
+    diasCapacitacion: "",
+  })
   const [gastoEditando, setGastoEditando]       = useState<Gasto | null>(null)
   const [editGastoDescripcion, setEditGastoDescripcion] = useState("")
   const [editGastoMonto, setEditGastoMonto]     = useState("")
   const [editGastoCategoria, setEditGastoCategoria] = useState("operativo")
+  const [editGastoEmpleadaId, setEditGastoEmpleadaId] = useState("")
+  const [editGastoArticulo, setEditGastoArticulo] = useState("")
+  const [editGastoDiasCapacitacion, setEditGastoDiasCapacitacion] = useState("")
+  const [empleadasSucursal, setEmpleadasSucursal] = useState<{ id: string; nombre: string }[]>([])
   const [isSavingGasto, setIsSavingGasto]       = useState(false)
   const [gastoAEliminar, setGastoAEliminar]     = useState<Gasto | null>(null)
   const [isDeleteGastoConfirmOpen, setIsDeleteGastoConfirmOpen] = useState(false)
@@ -291,6 +303,16 @@ export default function PagosPage() {
 
   useEffect(() => {
     if (sucursalId) sessionStorage.setItem(PAGOS_SUCURSAL_KEY, sucursalId)
+  }, [sucursalId])
+
+  useEffect(() => {
+    if (!sucursalId || sucursalId === "todas") {
+      setEmpleadasSucursal([])
+      return
+    }
+    getEmpleadosFromDB(sucursalId).then(lista =>
+      setEmpleadasSucursal(lista.map(e => ({ id: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim() })))
+    )
   }, [sucursalId])
 
   // ── estado derivado ─────────────────────────────────────────────────────────
@@ -702,6 +724,9 @@ export default function PagosPage() {
       monto: parseFloat(nuevoGasto.monto),
       categoria: nuevoGasto.categoria,
       hora,
+      empleadaId: nuevoGasto.empleadaId || null,
+      articulo: nuevoGasto.articulo.trim() || null,
+      diasCapacitacion: nuevoGasto.diasCapacitacion ? parseInt(nuevoGasto.diasCapacitacion) : null,
     })
 
     if (error || !data) {
@@ -709,8 +734,11 @@ export default function PagosPage() {
       return
     }
 
-    setGastos(prev => [...prev, data])
-    setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo" })
+    const empleadaNombre = data.empleadaId
+      ? (empleadasSucursal.find(e => e.id === data.empleadaId)?.nombre ?? null)
+      : null
+    setGastos(prev => [...prev, { ...data, empleadaNombre }])
+    setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", articulo: "", diasCapacitacion: "" })
     setGastoDialogOpen(false)
     toast.success("Gasto registrado")
   }
@@ -720,6 +748,9 @@ export default function PagosPage() {
     setEditGastoDescripcion(gasto.descripcion)
     setEditGastoMonto(String(gasto.monto))
     setEditGastoCategoria(gasto.categoria)
+    setEditGastoEmpleadaId(gasto.empleadaId ?? "")
+    setEditGastoArticulo(gasto.articulo ?? "")
+    setEditGastoDiasCapacitacion(gasto.diasCapacitacion ? String(gasto.diasCapacitacion) : "")
   }
 
   const handleGuardarGasto = async () => {
@@ -731,6 +762,9 @@ export default function PagosPage() {
       descripcion: editGastoDescripcion.trim(),
       monto: parseFloat(editGastoMonto) || gastoEditando.monto,
       categoria: editGastoCategoria,
+      empleadaId: editGastoEmpleadaId || null,
+      articulo: editGastoArticulo.trim() || null,
+      diasCapacitacion: editGastoDiasCapacitacion ? parseInt(editGastoDiasCapacitacion) : null,
     })
 
     setIsSavingGasto(false)
@@ -739,7 +773,10 @@ export default function PagosPage() {
       return
     }
 
-    setGastos(prev => prev.map(g => g.id === data.id ? data : g))
+    const empleadaNombre = data.empleadaId
+      ? (empleadasSucursal.find(e => e.id === data.empleadaId)?.nombre ?? null)
+      : null
+    setGastos(prev => prev.map(g => g.id === data.id ? { ...data, empleadaNombre } : g))
     setGastoEditando(null)
     toast.success("Gasto actualizado")
   }
@@ -1448,9 +1485,20 @@ export default function PagosPage() {
                         <TableCell className="text-xs tabular-nums text-muted-foreground">{g.hora}</TableCell>
                         <TableCell className="text-sm">{g.descripcion}</TableCell>
                         <TableCell>
-                          <span className="text-xs border rounded px-1.5 py-0.5 capitalize text-muted-foreground">
-                            {g.categoria}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs border rounded px-1.5 py-0.5 capitalize text-muted-foreground w-fit">
+                              {g.categoria}
+                            </span>
+                            {g.empleadaNombre && (
+                              <span className="text-[11px] text-muted-foreground">{g.empleadaNombre}</span>
+                            )}
+                            {g.articulo && (
+                              <span className="text-[11px] text-muted-foreground italic">{g.articulo}</span>
+                            )}
+                            {g.diasCapacitacion && (
+                              <span className="text-[11px] text-muted-foreground">{g.diasCapacitacion} día(s)</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right font-semibold text-red-600">{fmtMXN(g.monto)}</TableCell>
                         {(isAdmin || isSuperAdmin) && (
@@ -1484,7 +1532,15 @@ export default function PagosPage() {
       </main>
 
       {/* ════ DIALOG: Nuevo gasto ═════════════════════════════════════════════ */}
-      <Dialog open={gastoDialogOpen} onOpenChange={setGastoDialogOpen}>
+      <Dialog
+        open={gastoDialogOpen}
+        onOpenChange={open => {
+          setGastoDialogOpen(open)
+          if (!open) {
+            setNuevoGasto({ descripcion: "", monto: "", categoria: "operativo", empleadaId: "", articulo: "", diasCapacitacion: "" })
+          }
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Registrar gasto</DialogTitle>
@@ -1522,10 +1578,104 @@ export default function PagosPage() {
                   <SelectItem value="insumos">Insumos</SelectItem>
                   <SelectItem value="nomina">Nómina</SelectItem>
                   <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
+                  <SelectItem value="compras">Compras</SelectItem>
+                  <SelectItem value="gasolina">Gasolina</SelectItem>
+                  <SelectItem value="capacitacion">Capacitación</SelectItem>
                   <SelectItem value="otro">Otro</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Campos extra según categoría */}
+
+            {/* Compras: artículo + empleada (monto no vinculado) */}
+            {nuevoGasto.categoria === "compras" && (
+              <>
+                <div>
+                  <Label className="text-xs">Artículo comprado</Label>
+                  <Input
+                    placeholder="Ej: Shampoo, tintura, acetona…"
+                    value={nuevoGasto.articulo}
+                    onChange={e => setNuevoGasto(p => ({ ...p, articulo: e.target.value }))}
+                    className="h-9 text-sm mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Empleada que realizó la compra</Label>
+                  <Select
+                    value={nuevoGasto.empleadaId || "__none__"}
+                    onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
+                  >
+                    <SelectTrigger className="h-9 text-sm mt-1">
+                      <SelectValue placeholder="Seleccionar empleada…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sin asignar</SelectItem>
+                      {empleadasSucursal.map(e => (
+                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {/* Gasolina: solo empleada */}
+            {nuevoGasto.categoria === "gasolina" && (
+              <div>
+                <Label className="text-xs">Empleada que recibe el dinero</Label>
+                <Select
+                  value={nuevoGasto.empleadaId || "__none__"}
+                  onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
+                >
+                  <SelectTrigger className="h-9 text-sm mt-1">
+                    <SelectValue placeholder="Seleccionar empleada…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin asignar</SelectItem>
+                    {empleadasSucursal.map(e => (
+                      <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Capacitación: días + empleada */}
+            {nuevoGasto.categoria === "capacitacion" && (
+              <>
+                <div>
+                  <Label className="text-xs">Días de capacitación</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="1"
+                    value={nuevoGasto.diasCapacitacion}
+                    onChange={e => setNuevoGasto(p => ({ ...p, diasCapacitacion: e.target.value }))}
+                    className="h-9 text-sm mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Empleada que toma la capacitación</Label>
+                  <Select
+                    value={nuevoGasto.empleadaId || "__none__"}
+                    onValueChange={v => setNuevoGasto(p => ({ ...p, empleadaId: v === "__none__" ? "" : v }))}
+                  >
+                    <SelectTrigger className="h-9 text-sm mt-1">
+                      <SelectValue placeholder="Seleccionar empleada…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sin asignar</SelectItem>
+                      {empleadasSucursal.map(e => (
+                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
             <div className="flex gap-2 pt-2">
               <Button variant="outline" className="flex-1 h-9 text-sm" onClick={() => setGastoDialogOpen(false)}>
                 Cancelar
@@ -1577,10 +1727,101 @@ export default function PagosPage() {
                   <SelectItem value="insumos">Insumos</SelectItem>
                   <SelectItem value="nomina">Nómina</SelectItem>
                   <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
+                  <SelectItem value="compras">Compras</SelectItem>
+                  <SelectItem value="gasolina">Gasolina</SelectItem>
+                  <SelectItem value="capacitacion">Capacitación</SelectItem>
                   <SelectItem value="otro">Otro</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Campos extra según categoría */}
+
+            {editGastoCategoria === "compras" && (
+              <>
+                <div>
+                  <Label className="text-xs">Artículo comprado</Label>
+                  <Input
+                    placeholder="Ej: Shampoo, tintura, acetona…"
+                    value={editGastoArticulo}
+                    onChange={e => setEditGastoArticulo(e.target.value)}
+                    className="h-9 text-sm mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Empleada que realizó la compra</Label>
+                  <Select
+                    value={editGastoEmpleadaId || "__none__"}
+                    onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-9 text-sm mt-1">
+                      <SelectValue placeholder="Seleccionar empleada…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sin asignar</SelectItem>
+                      {empleadasSucursal.map(e => (
+                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {editGastoCategoria === "gasolina" && (
+              <div>
+                <Label className="text-xs">Empleada que recibe el dinero</Label>
+                <Select
+                  value={editGastoEmpleadaId || "__none__"}
+                  onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
+                >
+                  <SelectTrigger className="h-9 text-sm mt-1">
+                    <SelectValue placeholder="Seleccionar empleada…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin asignar</SelectItem>
+                    {empleadasSucursal.map(e => (
+                      <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {editGastoCategoria === "capacitacion" && (
+              <>
+                <div>
+                  <Label className="text-xs">Días de capacitación</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="1"
+                    value={editGastoDiasCapacitacion}
+                    onChange={e => setEditGastoDiasCapacitacion(e.target.value)}
+                    className="h-9 text-sm mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Empleada que toma la capacitación</Label>
+                  <Select
+                    value={editGastoEmpleadaId || "__none__"}
+                    onValueChange={v => setEditGastoEmpleadaId(v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-9 text-sm mt-1">
+                      <SelectValue placeholder="Seleccionar empleada…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sin asignar</SelectItem>
+                      {empleadasSucursal.map(e => (
+                        <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
             <div className="flex gap-2 pt-2">
               <Button variant="outline" className="flex-1 h-9 text-sm" onClick={() => setGastoEditando(null)} disabled={isSavingGasto}>
                 Cancelar
