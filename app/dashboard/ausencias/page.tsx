@@ -548,132 +548,145 @@ export default function AusenciasPage() {
               <p className="text-sm">No hay registros con los filtros actuales</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
+              <Table className="table-fixed w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Empleado</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Fechas</TableHead>
-                    <TableHead>Duración</TableHead>
-                    <TableHead>Motivo</TableHead>
-                    <TableHead>Estatus</TableHead>
-                    <TableHead>Registró</TableHead>
-                    <TableHead>Aprobó</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
+                    <TableHead className="px-2 w-[16%]">Empleado</TableHead>
+                    <TableHead className="px-2 w-[15%]">Tipo</TableHead>
+                    <TableHead className="px-2 w-[14%]">Fechas</TableHead>
+                    <TableHead className="px-2 w-[180px]">Motivo</TableHead>
+                    <TableHead className="px-2 w-[10%]">Estatus</TableHead>
+                    <TableHead className="px-2">Registro / Aprobación</TableHead>
+                    <TableHead className="px-2 w-[108px] text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ausenciasFiltradas.map((a) => (
                     <TableRow key={a.id} className="cursor-pointer hover:bg-muted/30" onClick={() => { setDetalleAusencia(a); setIsDetalleOpen(true) }}>
-                      <TableCell className="py-2">
-                        <p className="font-medium text-sm">{a.empleadoNombre ?? a.empleadoId}</p>
+                      <TableCell className="px-2 py-2">
+                        <p className="font-medium text-sm truncate" title={a.empleadoNombre ?? a.empleadoId}>
+                          {a.empleadoNombre ?? a.empleadoId}
+                        </p>
                       </TableCell>
-                      <TableCell className="py-2">
+                      <TableCell className="px-2 py-2">
                         <span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium", TIPO_AUSENCIA_COLORS[a.tipo])}>
                           {TIPO_ICONS[a.tipo]}
                           {TIPO_AUSENCIA_LABELS[a.tipo]}
                         </span>
+                        {a.duracionHoras != null && (
+                          <span className="block text-[11px] text-muted-foreground mt-0.5">{a.duracionHoras}h</span>
+                        )}
                       </TableCell>
-                      <TableCell className="py-2 text-sm whitespace-nowrap">
+                      <TableCell className="px-2 py-2 text-sm">
                         {a.fechaInicio === a.fechaFin
                           ? formatDate(a.fechaInicio)
                           : `${formatDate(a.fechaInicio)} – ${formatDate(a.fechaFin)}`}
                       </TableCell>
-                      <TableCell className="py-2 text-sm text-muted-foreground whitespace-nowrap">
-                        {a.duracionHoras != null ? `${a.duracionHoras}h` : "—"}
-                      </TableCell>
-                      <TableCell className="py-2 text-sm max-w-[160px] truncate text-muted-foreground" title={a.motivo ?? ""}>
+                      <TableCell className="px-2 py-2 text-sm text-muted-foreground max-w-[180px] truncate" title={a.motivo ?? ""}>
                         {a.motivo ?? "—"}
                       </TableCell>
-                      <TableCell className="py-2 whitespace-nowrap">
+                      <TableCell className="px-2 py-2">
                         <Badge className={cn("text-xs border", ESTATUS_AUSENCIA_COLORS[a.estatus])}>
                           {ESTATUS_AUSENCIA_LABELS[a.estatus]}
                         </Badge>
                       </TableCell>
-                      <TableCell className="py-2 text-xs text-muted-foreground whitespace-nowrap">
-                        <span className="block leading-tight">{a.registradoPorNombre ?? "—"}</span>
-                        <span className="block text-[11px] leading-tight">{formatDateTime(a.createdAt)}</span>
-                      </TableCell>
-                      <TableCell className="py-2 text-xs text-muted-foreground whitespace-nowrap">
-                        <span className="block leading-tight">{a.aprobadoPor ?? "—"}</span>
-                        {a.fechaAprobacion && (
-                          <span className="block text-[11px] leading-tight">{formatDateTime(a.fechaAprobacion)}</span>
+                      <TableCell className="px-2 py-2 text-[11px] text-muted-foreground leading-snug">
+                        <span className="block">
+                          Registró: {a.registradoPorNombre ?? "—"} · {formatDateTimeShort(a.createdAt)}
+                        </span>
+                        {(a.aprobadoPor || a.fechaAprobacion) && (
+                          <span className="block">
+                            Aprobó: {a.aprobadoPor ?? "—"}
+                            {a.fechaAprobacion ? ` · ${formatDateTimeShort(a.fechaAprobacion)}` : ""}
+                          </span>
                         )}
                       </TableCell>
-                      <TableCell className="py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground"
-                              aria-label="Acciones"
-                              disabled={isActuando}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenuItem
-                              className="text-xs cursor-pointer"
-                              disabled={isActuando}
-                              onClick={() => setAusenciaParaEditar(a)}
-                            >
-                              <Edit className="h-3.5 w-3.5 mr-2" />
-                              Editar
-                            </DropdownMenuItem>
-                            {a.estatus === "pendiente" && isAdmin && (
-                              <>
-                                <DropdownMenuItem
-                                  className="text-xs cursor-pointer"
-                                  disabled={isActuando}
-                                  onClick={() => handleAprobar(a)}
-                                >
-                                  <CheckCircle className="h-3.5 w-3.5 mr-2" />
-                                  Aprobar
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-xs cursor-pointer"
-                                  disabled={isActuando}
-                                  onClick={() => {
-                                    setSelectedAusencia(a)
-                                    setMotivoRechazo("")
-                                    setIsRechazarOpen(true)
-                                  }}
-                                >
-                                  <XCircle className="h-3.5 w-3.5 mr-2" />
-                                  Rechazar
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {(a.estatus === "pendiente" || a.estatus === "aprobada") && (
+                      <TableCell className="px-2 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="inline-flex items-center justify-end gap-1 flex-nowrap whitespace-nowrap">
+                          {a.estatus === "pendiente" && isAdmin && (
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                title="Aprobar"
+                                aria-label="Aprobar"
+                                disabled={isActuando}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleAprobar(a)
+                                }}
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                title="Rechazar"
+                                aria-label="Rechazar"
+                                disabled={isActuando}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedAusencia(a)
+                                  setMotivoRechazo("")
+                                  setIsRechazarOpen(true)
+                                }}
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground"
+                                aria-label="Acciones"
+                                disabled={isActuando}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44" onClick={(e) => e.stopPropagation()}>
                               <DropdownMenuItem
                                 className="text-xs cursor-pointer"
                                 disabled={isActuando}
-                                onClick={() => handleCancelar(a)}
+                                onClick={() => setAusenciaParaEditar(a)}
                               >
-                                Cancelar
+                                <Edit className="h-3.5 w-3.5 mr-2" />
+                                Editar
                               </DropdownMenuItem>
-                            )}
-                            {isAdmin && (
-                              <DropdownMenuItem
-                                className="text-xs cursor-pointer text-destructive focus:text-destructive"
-                                onClick={() => handleEliminar(a)}
-                              >
-                                Eliminar
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              {(a.estatus === "pendiente" || a.estatus === "aprobada") && (
+                                <DropdownMenuItem
+                                  className="text-xs cursor-pointer"
+                                  disabled={isActuando}
+                                  onClick={() => handleCancelar(a)}
+                                >
+                                  Cancelar
+                                </DropdownMenuItem>
+                              )}
+                              {isAdmin && (
+                                <DropdownMenuItem
+                                  className="text-xs cursor-pointer text-destructive focus:text-destructive"
+                                  onClick={() => handleEliminar(a)}
+                                >
+                                  Eliminar
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </div>
           )}
         </CardContent>
       </Card>
@@ -1279,6 +1292,16 @@ function formatDateTime(isoStr: string): string {
     month: "short",
     year: "numeric",
     hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function formatDateTimeShort(isoStr: string): string {
+  return new Date(isoStr).toLocaleString("es-MX", {
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
   })
 }
