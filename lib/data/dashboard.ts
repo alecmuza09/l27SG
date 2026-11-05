@@ -228,6 +228,7 @@ export async function getDashboardStats(
       .from('empleados')
       .select('id')
       .eq('activo', true)
+      .or('area.is.null,area.neq.oficina')
     empleadosQuery = withSucursalScope(empleadosQuery, sucursalId, sucursalIds)
     const { data: empleados } = await empleadosQuery
     
@@ -598,6 +599,7 @@ export async function getProductividadSucursalesFromDB(
           .select('id')
           .eq('sucursal_id', sucursal.id)
           .eq('activo', true)
+          .or('area.is.null,area.neq.oficina')
         
         const numEmpleados = empleados?.length || 1
         const capacidadMensual = numEmpleados * 8 * 30 // 8 horas/día * 30 días

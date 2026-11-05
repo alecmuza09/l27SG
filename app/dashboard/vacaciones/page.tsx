@@ -25,12 +25,19 @@ import { cn } from "@/lib/utils"
 import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns"
 import { es } from "date-fns/locale"
 import { Plus, CalendarIcon, CheckCircle, Users, AlertCircle, Edit, Trash2, Loader2 } from "lucide-react"
-import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
+import {
+  getEmpleadosFromDB,
+  empleadoMatchesSucursalFilter,
+  isEmpleadoOficina,
+  OFICINA_FILTER_VALUE,
+  type Empleado,
+} from "@/lib/data/empleados"
 import { type Periodo, calcularPeriodo, formatearRangoPeriodo, OPCIONES_PERIODO } from "@/lib/periodos"
 import {
   refreshSession,
   effectivePrimarySucursalId,
   collectEffectiveSucursalIds,
+  canVerOficina,
   type User,
 } from "@/lib/auth"
 import { getSucursalesByIdsFromDB, getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
@@ -106,10 +113,12 @@ export default function VacacionesPage() {
   const [calendarMonth, setCalendarMonth] = useState(new Date())
 
   const isAdmin = Boolean(currentUser?.role === "admin" || currentUser?.role === "superadmin")
+  const verOficina = canVerOficina(currentUser)
   const branchIds = collectEffectiveSucursalIds(currentUser)
   const primarySucursalScope = effectivePrimarySucursalId(currentUser)
   /** Una sede: filtra datos a esa sede. Varias o admin: sin filtro extra (RLS + filtros en UI). */
   const vacacionesScope = isAdmin ? undefined : branchIds.length > 1 ? undefined : primarySucursalScope
+  const puedeCambiarSucursal = isAdmin || branchIds.length > 1 || verOficina
 
   const reloadVacacionesData = useCallback(async () => {
     const u = currentUser
@@ -117,7 +126,7 @@ export default function VacacionesPage() {
     const adm = u.role === "admin" || u.role === "superadmin"
     const ids = collectEffectiveSucursalIds(u)
     const sc = adm ? undefined : ids.length > 1 ? undefined : effectivePrimarySucursalId(u)
-    const v = await getVacacionesFromDB(sc)
+    const v = await getVacacionesFromDB(sc, { incluirOficina: canVerOficina(u) })
     setVacaciones(v)
   }, [currentUser])
 
@@ -159,10 +168,11 @@ export default function VacacionesPage() {
       }
 
       try {
+        const incluirOficina = canVerOficina(user)
         const [vacacionesData, empleadosData, sucursalesAll, sucursalesPorId] =
           await Promise.all([
-          getVacacionesFromDB(scope),
-          getEmpleadosFromDB(scope),
+          getVacacionesFromDB(scope, { incluirOficina }),
+          getEmpleadosFromDB(scope, { incluirOficina }),
           getSucursalesActivasFromDB(),
           !isAdm && ids.length > 0 ? getSucursalesByIdsFromDB(ids) : Promise.resolve([] as Sucursal[]),
         ])
@@ -184,7 +194,10 @@ export default function VacacionesPage() {
   }, [router])
 
   const filteredVacaciones = vacaciones.filter((vac) => {
-    const matchesSucursal = filterSucursal === "todos" || vac.sucursalId === filterSucursal
+    const matchesSucursal =
+      filterSucursal === "todos"
+        ? verOficina || vac.sucursalId !== OFICINA_FILTER_VALUE
+        : vac.sucursalId === filterSucursal
     const matchesEstado = filterEstado === "todos" || vac.estado === filterEstado
     const nombre = vac.empleadoNombre.toLowerCase()
     const matchesEmpleada =
@@ -199,10 +212,15 @@ export default function VacacionesPage() {
 
   const resumenEmpleadasOptions = useMemo(() => {
     return empleados
-      .filter((e) => resumenFilterSucursal === "todos" || e.sucursalId === resumenFilterSucursal)
-      .map((e) => ({ id: e.id, nombre: `${e.nombre} ${e.apellido}`.trim() }))
+      .filter((e) => empleadoMatchesSucursalFilter(e, resumenFilterSucursal, verOficina))
+      .map((e) => ({
+        id: e.id,
+        nombre: isEmpleadoOficina(e) && e.puesto
+          ? `${e.nombre} ${e.apellido}`.trim() + ` — ${e.puesto}`
+          : `${e.nombre} ${e.apellido}`.trim(),
+      }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-  }, [empleados, resumenFilterSucursal])
+  }, [empleados, resumenFilterSucursal, verOficina])
 
   useEffect(() => {
     if (resumenFilterEmpleada === "todos") return
@@ -213,7 +231,7 @@ export default function VacacionesPage() {
 
   const resumenPorEmpleada = useMemo(() => {
     const empleadosScope = empleados.filter((e) => {
-      if (resumenFilterSucursal !== "todos" && e.sucursalId !== resumenFilterSucursal) return false
+      if (!empleadoMatchesSucursalFilter(e, resumenFilterSucursal, verOficina)) return false
       if (resumenFilterEmpleada !== "todos" && e.id !== resumenFilterEmpleada) return false
       return true
     })
@@ -240,7 +258,10 @@ export default function VacacionesPage() {
         return {
           empleadoId: emp.id,
           nombre: nombreCompleto,
-          sucursal: sucursalNombreById.get(emp.sucursalId) ?? "—",
+          puesto: isEmpleadoOficina(emp) ? (emp.puesto ?? null) : null,
+          sucursal: isEmpleadoOficina(emp)
+            ? "Oficina"
+            : (sucursalNombreById.get(emp.sucursalId) ?? "—"),
           veces: aprobadasPeriodo.length,
           diasTomados: aprobadasPeriodo.reduce((sum, v) => sum + v.diasSolicitados, 0),
           ultimaVacacion: ultima
@@ -249,7 +270,7 @@ export default function VacacionesPage() {
         }
       })
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-  }, [empleados, vacaciones, sucursales, resumenFilterSucursal, resumenFilterEmpleada, resumenRango])
+  }, [empleados, vacaciones, sucursales, resumenFilterSucursal, resumenFilterEmpleada, resumenRango, verOficina])
 
   // Estadísticas
   const aprobadas = vacaciones.filter((v) => v.estado === "aprobada").length
@@ -275,8 +296,12 @@ export default function VacacionesPage() {
   }
 
   const empleadosFiltradosPorSucursal = formSucursal
-    ? empleados.filter((e) => e.sucursalId === formSucursal)
-    : empleados
+    ? empleados.filter((e) =>
+        formSucursal === OFICINA_FILTER_VALUE
+          ? isEmpleadoOficina(e)
+          : !isEmpleadoOficina(e) && e.sucursalId === formSucursal,
+      )
+    : empleados.filter((e) => !isEmpleadoOficina(e) || verOficina)
 
   const resetForm = () => {
     const adm = currentUser?.role === "admin" || currentUser?.role === "superadmin"
@@ -529,7 +554,7 @@ export default function VacacionesPage() {
                   <Select
                     value={filterSucursal}
                     onValueChange={setFilterSucursal}
-                    disabled={!isAdmin && branchIds.length <= 1}
+                    disabled={!puedeCambiarSucursal}
                   >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue placeholder="Sucursal" />
@@ -543,6 +568,9 @@ export default function VacacionesPage() {
                           {s.nombre}
                         </SelectItem>
                       ))}
+                      {verOficina && (
+                        <SelectItem value={OFICINA_FILTER_VALUE}>Oficina</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                   <Select value={filterEstado} onValueChange={setFilterEstado}>
@@ -576,7 +604,14 @@ export default function VacacionesPage() {
                 <TableBody>
                   {filteredVacaciones.map((vac) => (
                     <TableRow key={vac.id}>
-                      <TableCell className="font-medium">{vac.empleadoNombre}</TableCell>
+                      <TableCell className="font-medium">
+                        <span>{vac.empleadoNombre}</span>
+                        {vac.sucursalId === OFICINA_FILTER_VALUE && vac.empleadoPuesto && (
+                          <span className="block text-xs text-muted-foreground font-normal">
+                            {vac.empleadoPuesto}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{vac.sucursalNombre}</TableCell>
                       <TableCell>
                         <div className="text-sm">
@@ -704,7 +739,7 @@ export default function VacacionesPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
-                  {(isAdmin || branchIds.length > 1) && (
+                  {puedeCambiarSucursal && (
                     <Select
                       value={resumenFilterSucursal}
                       onValueChange={setResumenFilterSucursal}
@@ -721,6 +756,9 @@ export default function VacacionesPage() {
                             {s.nombre}
                           </SelectItem>
                         ))}
+                        {verOficina && (
+                          <SelectItem value={OFICINA_FILTER_VALUE}>Oficina</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   )}
@@ -791,11 +829,19 @@ export default function VacacionesPage() {
                       key={row.empleadoId}
                       className="cursor-pointer"
                       onClick={() => {
+                        setFilterSucursal(resumenFilterSucursal)
                         setFilterEmpleada(row.nombre)
                         setActiveTab("solicitudes")
                       }}
                     >
-                      <TableCell className="py-2 font-medium">{row.nombre}</TableCell>
+                      <TableCell className="py-2 font-medium">
+                        <span>{row.nombre}</span>
+                        {row.puesto && (
+                          <span className="block text-xs text-muted-foreground font-normal">
+                            {row.puesto}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="py-2">{row.sucursal || "—"}</TableCell>
                       <TableCell className="py-2">{row.veces}</TableCell>
                       <TableCell className="py-2">{row.diasTomados}</TableCell>
@@ -827,7 +873,7 @@ export default function VacacionesPage() {
               <Select
                 value={formSucursal}
                 onValueChange={(v) => { setFormSucursal(v); setFormEmpleado("") }}
-                disabled={!isAdmin && branchIds.length <= 1}
+                disabled={!puedeCambiarSucursal}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar sucursal" />
@@ -838,6 +884,9 @@ export default function VacacionesPage() {
                       {s.nombre}
                     </SelectItem>
                   ))}
+                  {verOficina && (
+                    <SelectItem value={OFICINA_FILTER_VALUE}>Oficina</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -854,7 +903,9 @@ export default function VacacionesPage() {
                 <SelectContent>
                   {empleadosFiltradosPorSucursal.map((emp) => (
                     <SelectItem key={emp.id} value={emp.id}>
-                      {emp.nombre} {emp.apellido}
+                      {isEmpleadoOficina(emp) && emp.puesto
+                        ? `${emp.nombre} ${emp.apellido} — ${emp.puesto}`
+                        : `${emp.nombre} ${emp.apellido}`}
                     </SelectItem>
                   ))}
                 </SelectContent>

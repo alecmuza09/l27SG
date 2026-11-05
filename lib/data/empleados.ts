@@ -1,5 +1,34 @@
 // Mock data for employees
 
+/** Valor de `area` para personal de oficina (no es una sucursal). */
+export const AREA_OFICINA = "oficina"
+
+/** Valor del filtro UI de sucursal para Oficina. */
+export const OFICINA_FILTER_VALUE = "oficina"
+
+export type EmpleadosOficinaOpciones = {
+  /** Incluye personal con area = 'oficina' junto al resto. */
+  incluirOficina?: boolean
+  /** Solo personal con area = 'oficina'. */
+  soloOficina?: boolean
+}
+
+export function isEmpleadoOficina(empleado: { area?: string | null }): boolean {
+  return (empleado.area ?? "").trim().toLowerCase() === AREA_OFICINA
+}
+
+/** Filtra empleados según selector de sucursal (incluye valor sintético "oficina"). */
+export function empleadoMatchesSucursalFilter(
+  empleado: { sucursalId: string; area?: string | null },
+  filterSucursal: string,
+  verOficina = false,
+): boolean {
+  const esOficina = isEmpleadoOficina(empleado)
+  if (filterSucursal === "todos") return verOficina ? true : !esOficina
+  if (filterSucursal === OFICINA_FILTER_VALUE) return esOficina
+  return !esOficina && empleado.sucursalId === filterSucursal
+}
+
 export interface Empleado {
   id: string
   nombre: string
@@ -25,6 +54,10 @@ export interface Empleado {
   fechaIngreso?: string | null
   /** Fin de vigencia del contrato (YYYY-MM-DD), opcional */
   fechaContratoHasta?: string | null
+  /** Área organizacional (p. ej. 'oficina'); opcional */
+  area?: string | null
+  /** Puesto / cargo; opcional */
+  puesto?: string | null
 }
 
 export const MOCK_EMPLEADOS: Empleado[] = [
@@ -141,6 +174,7 @@ function normalizarFechaDb(v: string | null | undefined): string | null {
 }
 
 export function transformEmpleado(empleado: EmpleadoRow): Empleado {
+  const row = empleado as EmpleadoRow & { area?: string | null; puesto?: string | null }
   return {
     id: empleado.id,
     nombre: empleado.nombre,
@@ -161,11 +195,31 @@ export function transformEmpleado(empleado: EmpleadoRow): Empleado {
     foto: empleado.foto || undefined,
     fechaIngreso: normalizarFechaDb(empleado.fecha_ingreso),
     fechaContratoHasta: normalizarFechaDb(empleado.fecha_contrato_hasta),
+    area: row.area ?? null,
+    puesto: row.puesto ?? null,
   }
 }
 
+/** Por defecto excluye area = 'oficina' (conserva NULL). */
+function applyOficinaQueryFilter<T extends { or: Function; eq: Function }>(
+  query: T,
+  opciones?: EmpleadosOficinaOpciones,
+): T {
+  if (opciones?.soloOficina) {
+    return query.eq('area', AREA_OFICINA) as T
+  }
+  if (opciones?.incluirOficina) {
+    return query
+  }
+  // neq solo excluiría filas con valor; hay que conservar NULL
+  return query.or('area.is.null,area.neq.oficina') as T
+}
+
 // Obtener todos los empleados desde Supabase (solo activos por defecto)
-export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[]> {
+export async function getEmpleadosFromDB(
+  sucursalId?: string,
+  opciones?: EmpleadosOficinaOpciones,
+): Promise<Empleado[]> {
   try {
     let query = supabase
       .from('empleados')
@@ -174,8 +228,10 @@ export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[
       .eq('eliminado', false)
       .order('nombre')
 
-    // Filtrar por sucursal si se especifica
-    if (sucursalId) {
+    query = applyOficinaQueryFilter(query, opciones)
+
+    // Filtrar por sucursal si se especifica (no aplica a soloOficina: viven bajo una sede técnica)
+    if (sucursalId && !opciones?.soloOficina) {
       query = query.eq('sucursal_id', sucursalId)
     }
 
@@ -198,7 +254,10 @@ export async function getEmpleadosFromDB(sucursalId?: string): Promise<Empleado[
 }
 
 // Obtener solo empleados eliminados (eliminado = true)
-export async function getEmpleadosEliminadosFromDB(sucursalId?: string): Promise<Empleado[]> {
+export async function getEmpleadosEliminadosFromDB(
+  sucursalId?: string,
+  opciones?: EmpleadosOficinaOpciones,
+): Promise<Empleado[]> {
   try {
     let query = supabase
       .from('empleados')
@@ -206,8 +265,9 @@ export async function getEmpleadosEliminadosFromDB(sucursalId?: string): Promise
       .eq('eliminado', true)
       .order('nombre')
 
-    // Filtrar por sucursal si se especifica
-    if (sucursalId) {
+    query = applyOficinaQueryFilter(query, opciones)
+
+    if (sucursalId && !opciones?.soloOficina) {
       query = query.eq('sucursal_id', sucursalId)
     }
 
@@ -226,7 +286,10 @@ export async function getEmpleadosEliminadosFromDB(sucursalId?: string): Promise
 }
 
 // Obtener empleadas inactivas (activo = false, no eliminadas)
-export async function getEmpleadasInactivasFromDB(sucursalId?: string): Promise<Empleado[]> {
+export async function getEmpleadasInactivasFromDB(
+  sucursalId?: string,
+  opciones?: EmpleadosOficinaOpciones,
+): Promise<Empleado[]> {
   try {
     let query = supabase
       .from('empleados')
@@ -235,7 +298,9 @@ export async function getEmpleadasInactivasFromDB(sucursalId?: string): Promise<
       .eq('eliminado', false)
       .order('nombre', { ascending: true })
 
-    if (sucursalId) {
+    query = applyOficinaQueryFilter(query, opciones)
+
+    if (sucursalId && !opciones?.soloOficina) {
       query = query.eq('sucursal_id', sucursalId)
     }
 
@@ -254,14 +319,21 @@ export async function getEmpleadasInactivasFromDB(sucursalId?: string): Promise<
 }
 
 // Obtener empleados activos por sucursal desde Supabase
-export async function getEmpleadosBySucursalFromDB(sucursalId: string): Promise<Empleado[]> {
+export async function getEmpleadosBySucursalFromDB(
+  sucursalId: string,
+  opciones?: EmpleadosOficinaOpciones,
+): Promise<Empleado[]> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('empleados')
       .select('*')
       .eq('sucursal_id', sucursalId)
       .eq('activo', true)
       .order('nombre')
+
+    query = applyOficinaQueryFilter(query, opciones)
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error obteniendo empleados:', error)

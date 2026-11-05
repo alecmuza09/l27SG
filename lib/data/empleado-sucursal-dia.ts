@@ -177,7 +177,12 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
     }
 
     const [{ data: baseAqui }, { data: overridesRows }] = await Promise.all([
-      supabase.from("empleados").select("*").eq("activo", true).eq("sucursal_id", sucursalId),
+      supabase
+        .from("empleados")
+        .select("*")
+        .eq("activo", true)
+        .eq("sucursal_id", sucursalId)
+        .or("area.is.null,area.neq.oficina"),
       supabase.from("empleado_sucursal_dia").select("empleado_id").eq("fecha", fecha).eq("sucursal_id", sucursalId),
     ])
 
@@ -200,6 +205,7 @@ export async function getEmpleadosParaAgendaPorSucursalYDia(
         .from("empleados")
         .select("*")
         .eq("activo", true)
+        .or("area.is.null,area.neq.oficina")
         .in("id", incomingIds)
 
       for (const row of incomingRows ?? []) {

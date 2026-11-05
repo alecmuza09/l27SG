@@ -1,6 +1,39 @@
 import type { Vacacion, SaldoVacaciones, PeriodoBloqueado } from "@/lib/types/vacaciones"
 import { supabase } from '@/lib/supabase/client'
-import { getEmpleadosFromDB } from './empleados'
+import { AREA_OFICINA, OFICINA_FILTER_VALUE, getEmpleadosFromDB, isEmpleadoOficina } from './empleados'
+
+export type VacacionesOficinaOpciones = {
+  /** Incluye registros del personal de oficina. Por defecto se excluyen. */
+  incluirOficina?: boolean
+}
+
+function mapVacacionRow(row: any): Vacacion {
+  const area = row.empleado?.area ?? null
+  const esOficina = isEmpleadoOficina({ area })
+  return {
+    id: row.id,
+    empleadoId: row.empleado_id,
+    empleadoNombre: row.empleado ? `${row.empleado.nombre} ${row.empleado.apellido}` : '',
+    empleadoPuesto: row.empleado?.puesto ?? null,
+    empleadoArea: area,
+    sucursalId: esOficina ? OFICINA_FILTER_VALUE : (row.empleado?.sucursal?.id || row.empleado?.sucursal_id || ''),
+    sucursalNombre: esOficina ? 'Oficina' : (row.empleado?.sucursal?.nombre || ''),
+    fechaInicio: row.fecha_inicio,
+    fechaFin: row.fecha_fin,
+    diasSolicitados: row.dias_solicitados || 0,
+    estado: row.estado,
+    motivoRechazo: row.motivo_rechazo ?? null,
+    aprobadoPorId: row.aprobado_por_id ?? null,
+    aprobadoPorNombre: row.aprobado_por_nombre ?? row.aprobador?.nombre ?? null,
+    registradoPorId: row.registrado_por_id ?? null,
+    registradoPorNombre: row.registrado_por_nombre ?? null,
+    resueltoEn: row.resuelto_en ?? null,
+    creadoEn: row.created_at ?? null,
+    fechaSolicitud: row.fecha_solicitud || row.created_at,
+    fechaResolucion: row.fecha_resolucion ?? null,
+    notas: row.notas || null,
+  }
+}
 
 // Datos mock de vacaciones
 export const vacacionesData: Vacacion[] = [
@@ -271,7 +304,7 @@ export async function createVacacionInDB(data: {
       })
       .select(`
         *,
-        empleado:empleados(nombre, apellido, sucursal:sucursales(id, nombre))
+        empleado:empleados(nombre, apellido, area, puesto, sucursal:sucursales(id, nombre))
       `)
       .single()
 
@@ -280,28 +313,7 @@ export async function createVacacionInDB(data: {
       return null
     }
 
-    const row = rawRow as any
-    return {
-      id: row.id,
-      empleadoId: row.empleado_id,
-      empleadoNombre: row.empleado ? `${row.empleado.nombre} ${row.empleado.apellido}` : '',
-      sucursalId: row.empleado?.sucursal?.id || '',
-      sucursalNombre: row.empleado?.sucursal?.nombre || '',
-      fechaInicio: row.fecha_inicio,
-      fechaFin: row.fecha_fin,
-      diasSolicitados: row.dias_solicitados || 0,
-      estado: row.estado,
-      motivoRechazo: null,
-      aprobadoPorId: row.aprobado_por_id ?? null,
-      aprobadoPorNombre: row.aprobado_por_nombre ?? null,
-      registradoPorId: row.registrado_por_id ?? null,
-      registradoPorNombre: row.registrado_por_nombre ?? null,
-      resueltoEn: row.resuelto_en ?? null,
-      creadoEn: row.created_at ?? null,
-      fechaSolicitud: row.fecha_solicitud || row.created_at,
-      fechaResolucion: row.fecha_resolucion ?? null,
-      notas: row.notas || null,
-    }
+    return mapVacacionRow(rawRow)
   } catch (error) {
     console.error('Error inesperado creando vacación:', error)
     return null
@@ -414,7 +426,10 @@ export async function deleteVacacionInDB(id: string): Promise<boolean> {
 }
 
 // Obtener vacaciones desde Supabase
-export async function getVacacionesFromDB(sucursalScope?: string | string[]): Promise<Vacacion[]> {
+export async function getVacacionesFromDB(
+  sucursalScope?: string | string[],
+  opciones?: VacacionesOficinaOpciones,
+): Promise<Vacacion[]> {
   try {
     // PostgREST devuelve máximo ~1000 filas por request: se pagina para no truncar el historial.
     const PAGE = 1000
@@ -424,7 +439,7 @@ export async function getVacacionesFromDB(sucursalScope?: string | string[]): Pr
         .from('vacaciones')
         .select(`
           *,
-          empleado:empleados(nombre, apellido, sucursal:sucursales(id, nombre)),
+          empleado:empleados(nombre, apellido, area, puesto, sucursal:sucursales(id, nombre)),
           aprobador:usuarios!vacaciones_aprobado_por_id_fkey(nombre)
         `)
         .order('fecha_solicitud', { ascending: false })
@@ -442,38 +457,27 @@ export async function getVacacionesFromDB(sucursalScope?: string | string[]): Pr
     if (data.length === 0) return []
 
     let vacacionesFiltradas = data
+    if (!opciones?.incluirOficina) {
+      vacacionesFiltradas = vacacionesFiltradas.filter(
+        (v: any) => (v.empleado?.area ?? '').toLowerCase() !== AREA_OFICINA,
+      )
+    }
     if (sucursalScope !== undefined) {
       const allow = Array.isArray(sucursalScope)
         ? new Set(sucursalScope)
         : null
-      vacacionesFiltradas = data.filter((v: any) => {
+      vacacionesFiltradas = vacacionesFiltradas.filter((v: any) => {
+        // Personal de oficina no cuenta como personal de la sucursal técnica
+        if ((v.empleado?.area ?? '').toLowerCase() === AREA_OFICINA) {
+          return opciones?.incluirOficina === true
+        }
         const sid = v.empleado?.sucursal?.id
         if (allow) return sid != null && allow.has(sid)
         return sid === sucursalScope
       })
     }
     
-    return vacacionesFiltradas.map((v: any) => ({
-      id: v.id,
-      empleadoId: v.empleado_id,
-      empleadoNombre: v.empleado ? `${v.empleado.nombre} ${v.empleado.apellido}` : '',
-      sucursalId: v.empleado?.sucursal?.id || '',
-      sucursalNombre: v.empleado?.sucursal?.nombre || '',
-      fechaInicio: v.fecha_inicio,
-      fechaFin: v.fecha_fin,
-      diasSolicitados: v.dias_solicitados || 0,
-      estado: v.estado,
-      motivoRechazo: v.motivo_rechazo || null,
-      aprobadoPorId: v.aprobado_por_id || null,
-      aprobadoPorNombre: v.aprobado_por_nombre || v.aprobador?.nombre || null,
-      registradoPorId: v.registrado_por_id || null,
-      registradoPorNombre: v.registrado_por_nombre || null,
-      resueltoEn: v.resuelto_en || null,
-      creadoEn: v.created_at || null,
-      fechaSolicitud: v.fecha_solicitud || v.created_at,
-      fechaResolucion: v.fecha_resolucion || null,
-      notas: v.notas || null,
-    }))
+    return vacacionesFiltradas.map(mapVacacionRow)
   } catch (error) {
     console.error('Error inesperado obteniendo vacaciones:', error)
     return []
@@ -487,7 +491,7 @@ export async function getSaldosVacacionesFromDB(sucursalScope?: string | string[
       .from('saldo_vacaciones')
       .select(`
         *,
-        empleado:empleados(nombre, apellido, sucursal_id)
+        empleado:empleados(nombre, apellido, sucursal_id, area)
       `)
       .eq('anio', new Date().getFullYear())
       .order('empleado_id')
@@ -500,6 +504,10 @@ export async function getSaldosVacacionesFromDB(sucursalScope?: string | string[
     if (!data) return []
 
     let rows = data as any[]
+    // Excluir personal de oficina de saldos (no es personal de sucursal)
+    rows = rows.filter(
+      (s) => (s.empleado?.area ?? "").toLowerCase() !== AREA_OFICINA,
+    )
     if (sucursalScope !== undefined) {
       const allow = Array.isArray(sucursalScope) ? new Set(sucursalScope) : null
       rows = rows.filter((s) => {

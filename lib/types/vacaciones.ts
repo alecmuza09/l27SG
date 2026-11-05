@@ -2,6 +2,10 @@ export interface Vacacion {
   id: string
   empleadoId: string
   empleadoNombre: string
+  /** Puesto (personal de oficina); opcional */
+  empleadoPuesto?: string | null
+  /** Área organizacional (p. ej. 'oficina'); opcional */
+  empleadoArea?: string | null
   sucursalId: string
   sucursalNombre: string
   fechaInicio: string

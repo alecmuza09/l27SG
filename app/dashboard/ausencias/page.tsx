@@ -60,9 +60,23 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
+import {
+  getEmpleadosFromDB,
+  empleadoMatchesSucursalFilter,
+  isEmpleadoOficina,
+  OFICINA_FILTER_VALUE,
+  type Empleado,
+} from "@/lib/data/empleados"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
-import { getCurrentUser, type User, isGlobalAdministrator, collectEffectiveSucursalIds, effectivePrimarySucursalId, userHasMultiBranchScope } from "@/lib/auth"
+import {
+  getCurrentUser,
+  type User,
+  isGlobalAdministrator,
+  collectEffectiveSucursalIds,
+  effectivePrimarySucursalId,
+  userHasMultiBranchScope,
+  canVerOficina,
+} from "@/lib/auth"
 import {
   getAusenciasFromDB,
   createAusencia,
@@ -107,6 +121,7 @@ export default function AusenciasPage() {
   const [resumenFilterEmpleada, setResumenFilterEmpleada] = useState("todos")
 
   // Filtros
+  const [filterSucursal, setFilterSucursal] = useState("todos")
   const [filterEmpleado, setFilterEmpleado] = useState("todos")
   const [filterEstatus, setFilterEstatus] = useState<EstatusAusencia | "todos">("pendiente")
   const [filterTipo, setFilterTipo] = useState<TipoAusencia | "todos">("todos")
@@ -151,7 +166,10 @@ export default function AusenciasPage() {
   const [detalleAusencia, setDetalleAusencia] = useState<Ausencia | null>(null)
 
   const isAdmin: boolean = isGlobalAdministrator(currentUser)
+  const verOficina = canVerOficina(currentUser)
   const branchIds = collectEffectiveSucursalIds(currentUser)
+  const puedeCambiarSucursal = isAdmin || branchIds.length > 1 || verOficina
+  const empleadosById = useMemo(() => new Map(empleados.map((e) => [e.id, e])), [empleados])
 
   // ─── Carga inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -191,10 +209,11 @@ export default function AusenciasPage() {
           ? undefined
           : effectivePrimarySucursalId(u)
       const ids = collectEffectiveSucursalIds(u)
+      const incluirOficina = canVerOficina(u)
 
       const [ausenciasRaw, empleadosData, sucursalesLista] = await Promise.all([
-        getAusenciasFromDB(),
-        getEmpleadosFromDB(scope),
+        getAusenciasFromDB({ incluirOficina }),
+        getEmpleadosFromDB(scope, { incluirOficina }),
         isGlobalAdministrator(u)
           ? getSucursalesActivasFromDB()
           : ids.length > 0
@@ -212,11 +231,15 @@ export default function AusenciasPage() {
       setSucursales(sucursalesLista)
 
       if (isGlobalAdministrator(u)) {
+        setFilterSucursal("todos")
         setResumenFilterSucursal("todos")
       } else if (ids.length > 1) {
-        setResumenFilterSucursal(effectivePrimarySucursalId(u) ?? ids[0] ?? "todos")
+        const primary = effectivePrimarySucursalId(u) ?? ids[0] ?? "todos"
+        setFilterSucursal(primary)
+        setResumenFilterSucursal(primary)
       } else {
         const primary = effectivePrimarySucursalId(u)
+        setFilterSucursal(primary ?? "todos")
         setResumenFilterSucursal(primary ?? "todos")
       }
     } catch (err) {
@@ -234,10 +257,15 @@ export default function AusenciasPage() {
 
   const resumenEmpleadasOptions = useMemo(() => {
     return empleados
-      .filter((e) => resumenFilterSucursal === "todos" || e.sucursalId === resumenFilterSucursal)
-      .map((e) => ({ id: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim() }))
+      .filter((e) => empleadoMatchesSucursalFilter(e, resumenFilterSucursal, verOficina))
+      .map((e) => ({
+        id: e.id,
+        nombre: isEmpleadoOficina(e) && e.puesto
+          ? `${e.nombre} ${e.apellido ?? ""}`.trim() + ` — ${e.puesto}`
+          : `${e.nombre} ${e.apellido ?? ""}`.trim(),
+      }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-  }, [empleados, resumenFilterSucursal])
+  }, [empleados, resumenFilterSucursal, verOficina])
 
   useEffect(() => {
     if (resumenFilterEmpleada === "todos") return
@@ -251,7 +279,7 @@ export default function AusenciasPage() {
     const fechaDesde = resumenRango?.fechaDesde
     const fechaHasta = resumenRango?.fechaHasta
     const empleadosScope = empleados.filter((e) => {
-      if (resumenFilterSucursal !== "todos" && e.sucursalId !== resumenFilterSucursal) return false
+      if (!empleadoMatchesSucursalFilter(e, resumenFilterSucursal, verOficina)) return false
       if (resumenFilterEmpleada !== "todos" && e.id !== resumenFilterEmpleada) return false
       return true
     })
@@ -265,14 +293,28 @@ export default function AusenciasPage() {
           if (a.estatus === "pendiente" || a.estatus === "aprobada") conteos[a.tipo] += 1
         }
       }
-      return { empleadoId: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim(), conteos }
+      return {
+        empleadoId: e.id,
+        nombre: `${e.nombre} ${e.apellido ?? ""}`.trim(),
+        puesto: isEmpleadoOficina(e) ? (e.puesto ?? null) : null,
+        sucursal: isEmpleadoOficina(e) ? "Oficina" : null,
+        conteos,
+      }
     })
     return rows.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-  }, [empleados, ausencias, resumenRango, resumenFilterSucursal, resumenFilterEmpleada])
+  }, [empleados, ausencias, resumenRango, resumenFilterSucursal, resumenFilterEmpleada, verOficina])
+
+  const empleadosParaFiltroRegistros = useMemo(() => {
+    return empleados.filter((e) => empleadoMatchesSucursalFilter(e, filterSucursal, verOficina))
+  }, [empleados, filterSucursal, verOficina])
 
   // ─── Filtros derivados ──────────────────────────────────────────────────────
   const ausenciasFiltradas = useMemo(() => {
     return ausencias.filter((a) => {
+      const emp = empleadosById.get(a.empleadoId)
+      const area = a.empleadoArea ?? emp?.area ?? null
+      const sucursalId = emp?.sucursalId ?? ""
+      if (!empleadoMatchesSucursalFilter({ sucursalId, area }, filterSucursal, verOficina)) return false
       if (filterEmpleado !== "todos" && a.empleadoId !== filterEmpleado) return false
       if (filterEstatus !== "todos" && a.estatus !== filterEstatus) return false
       if (filterTipo !== "todos" && a.tipo !== filterTipo) return false
@@ -284,7 +326,12 @@ export default function AusenciasPage() {
       }
       return true
     })
-  }, [ausencias, filterEmpleado, filterEstatus, filterTipo, searchText])
+  }, [ausencias, empleadosById, filterSucursal, filterEmpleado, filterEstatus, filterTipo, searchText, verOficina])
+
+  const labelEmpleadoSelect = (e: Empleado) =>
+    isEmpleadoOficina(e) && e.puesto
+      ? `${e.nombre} ${e.apellido ?? ""} — ${e.puesto}`.trim()
+      : `${e.nombre} ${e.apellido ?? ""}`.trim()
 
   // Contadores para el summary
   const pendientesCount = ausencias.filter((a) => a.estatus === "pendiente").length
@@ -533,6 +580,34 @@ export default function AusenciasPage() {
               />
             </div>
 
+            {/* Sucursal / Oficina */}
+            {puedeCambiarSucursal && (
+              <Select
+                value={filterSucursal}
+                onValueChange={(v) => {
+                  setFilterSucursal(v)
+                  setFilterEmpleado("todos")
+                }}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Sucursal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(isAdmin || branchIds.length > 1) && (
+                    <SelectItem value="todos">Todas las sucursales</SelectItem>
+                  )}
+                  {sucursales.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.nombre}
+                    </SelectItem>
+                  ))}
+                  {verOficina && (
+                    <SelectItem value={OFICINA_FILTER_VALUE}>Oficina</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+
             {/* Empleado */}
             <Select value={filterEmpleado} onValueChange={setFilterEmpleado}>
               <SelectTrigger className="w-48">
@@ -540,9 +615,9 @@ export default function AusenciasPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos los empleados</SelectItem>
-                {empleados.map((e) => (
+                {empleadosParaFiltroRegistros.map((e) => (
                   <SelectItem key={e.id} value={e.id}>
-                    {e.nombre} {e.apellido}
+                    {labelEmpleadoSelect(e)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -603,12 +678,21 @@ export default function AusenciasPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ausenciasFiltradas.map((a) => (
+                  {ausenciasFiltradas.map((a) => {
+                    const emp = empleadosById.get(a.empleadoId)
+                    const puesto =
+                      (a.empleadoArea ?? emp?.area ?? "").toLowerCase() === "oficina"
+                        ? (a.empleadoPuesto ?? emp?.puesto ?? null)
+                        : null
+                    return (
                     <TableRow key={a.id} className="cursor-pointer hover:bg-muted/30" onClick={() => { setDetalleAusencia(a); setIsDetalleOpen(true) }}>
                       <TableCell className="px-2 py-2">
                         <p className="font-medium text-sm truncate" title={a.empleadoNombre ?? a.empleadoId}>
                           {a.empleadoNombre ?? a.empleadoId}
                         </p>
+                        {puesto && (
+                          <p className="text-[11px] text-muted-foreground truncate">{puesto}</p>
+                        )}
                       </TableCell>
                       <TableCell className="px-2 py-2">
                         <span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium", TIPO_AUSENCIA_COLORS[a.tipo])}>
@@ -726,7 +810,8 @@ export default function AusenciasPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
           )}
@@ -753,7 +838,7 @@ export default function AusenciasPage() {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap justify-end">
-                {(isAdmin || branchIds.length > 1) && (
+                {puedeCambiarSucursal && (
                   <Select
                     value={resumenFilterSucursal}
                     onValueChange={setResumenFilterSucursal}
@@ -770,6 +855,9 @@ export default function AusenciasPage() {
                           {s.nombre}
                         </SelectItem>
                       ))}
+                      {verOficina && (
+                        <SelectItem value={OFICINA_FILTER_VALUE}>Oficina</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 )}
@@ -844,12 +932,20 @@ export default function AusenciasPage() {
                       key={r.empleadoId}
                       className="cursor-pointer hover:bg-muted/30"
                       onClick={() => {
+                        setFilterSucursal(resumenFilterSucursal)
                         setFilterEmpleado(r.empleadoId)
                         setFilterEstatus("todos")
                         setTab("registros")
                       }}
                     >
-                      <TableCell className="font-medium text-sm">{r.nombre}</TableCell>
+                      <TableCell className="font-medium text-sm">
+                        <span>{r.nombre}</span>
+                        {r.puesto && (
+                          <span className="block text-[11px] text-muted-foreground font-normal">
+                            {r.puesto}
+                          </span>
+                        )}
+                      </TableCell>
                       {(Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]).map((t) => (
                         <TableCell key={t} className="text-center text-sm">
                           {r.conteos[t] > 0 ? r.conteos[t] : <span className="text-muted-foreground">—</span>}
@@ -884,9 +980,11 @@ export default function AusenciasPage() {
                     <SelectValue placeholder="Seleccionar empleado" />
                   </SelectTrigger>
                   <SelectContent>
-                    {empleados.map((e) => (
+                    {empleados
+                      .filter((e) => verOficina || !isEmpleadoOficina(e))
+                      .map((e) => (
                       <SelectItem key={e.id} value={e.id}>
-                        {e.nombre} {e.apellido}
+                        {labelEmpleadoSelect(e)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1055,9 +1153,11 @@ export default function AusenciasPage() {
                     <SelectValue placeholder="Seleccionar..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {empleados.map((e) => (
+                    {empleados
+                      .filter((e) => verOficina || !isEmpleadoOficina(e))
+                      .map((e) => (
                       <SelectItem key={e.id} value={e.id}>
-                        {e.nombre} {e.apellido}
+                        {labelEmpleadoSelect(e)}
                       </SelectItem>
                     ))}
                   </SelectContent>

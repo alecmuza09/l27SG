@@ -206,6 +206,17 @@ export function canExportClientesListado(user: User | null): boolean {
   return normalizeAuthEmail(user.email) === normalizeAuthEmail(CLIENTES_EXPORT_ALLOWED_EMAIL)
 }
 
+/** Ver personal de oficina (no es sucursal) en Vacaciones y Ausencias. */
+export const OFICINA_ALLOWED_EMAILS = ["aurora@luna27.mx"]
+
+export function canVerOficina(user: User | null): boolean {
+  if (!user) return false
+  if (isGlobalAdministrator(user)) return true
+  if (!user.email) return false
+  const email = normalizeAuthEmail(user.email)
+  return OFICINA_ALLOWED_EMAILS.some((e) => normalizeAuthEmail(e) === email)
+}
+
 /** Usuario con más de una sucursal asignada (columna + usuario_sucursales), sin ser admin global. */
 export function userHasMultiBranchScope(user: User | null): boolean {
   if (!user || isGlobalAdministrator(user)) return false

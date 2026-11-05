@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client"
+import { AREA_OFICINA } from "@/lib/data/empleados"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -16,10 +17,17 @@ export type EstatusAusencia =
   | "rechazada"
   | "cancelada"
 
+export type AusenciasOficinaOpciones = {
+  /** Incluye registros del personal de oficina. Por defecto se excluyen. */
+  incluirOficina?: boolean
+}
+
 export interface Ausencia {
   id: string
   empleadoId: string
   empleadoNombre?: string   // join con empleados
+  empleadoPuesto?: string | null
+  empleadoArea?: string | null
   tipo: TipoAusencia
   motivo: string | null
   fechaInicio: string       // "YYYY-MM-DD"
@@ -89,10 +97,13 @@ export const TIPO_AUSENCIA_COLORS: Record<TipoAusencia, string> = {
 // ─── Row mapper ───────────────────────────────────────────────────────────────
 
 function mapRow(row: any, empleadoNombre?: string): Ausencia {
+  const emp = row.empleados ?? row.empleado ?? null
   return {
     id:              row.id,
     empleadoId:      row.empleado_id,
     empleadoNombre:  empleadoNombre ?? row.empleado_nombre ?? undefined,
+    empleadoPuesto:  emp?.puesto ?? null,
+    empleadoArea:    emp?.area ?? null,
     tipo:            row.tipo as TipoAusencia,
     motivo:          row.motivo ?? null,
     fechaInicio:     row.fecha_inicio,
@@ -120,10 +131,12 @@ export async function getAusenciasFromDB(filters?: {
   tipo?: TipoAusencia
   fechaDesde?: string
   fechaHasta?: string
+  incluirOficina?: boolean
 }): Promise<Ausencia[]> {
   // PostgREST devuelve máximo ~1000 filas por request: se pagina para no truncar el historial.
   const PAGE = 1000
   const rows: any[] = []
+  const incluirOficina = filters?.incluirOficina === true
 
   for (let offset = 0; ; offset += PAGE) {
     let query = supabase
@@ -132,7 +145,9 @@ export async function getAusenciasFromDB(filters?: {
         *,
         empleados (
           nombre,
-          apellido
+          apellido,
+          area,
+          puesto
         )
       `)
       .order("fecha_inicio", { ascending: false })
@@ -156,12 +171,17 @@ export async function getAusenciasFromDB(filters?: {
     if (!data || data.length < PAGE) break
   }
 
-  return rows.map((row) => {
+  const mapped = rows.map((row) => {
     const nombre = row.empleados
       ? `${row.empleados.nombre} ${row.empleados.apellido}`
       : undefined
     return mapRow(row, nombre)
   })
+
+  if (incluirOficina) return mapped
+  return mapped.filter(
+    (a) => (a.empleadoArea ?? "").toLowerCase() !== AREA_OFICINA,
+  )
 }
 
 export async function createAusencia(
