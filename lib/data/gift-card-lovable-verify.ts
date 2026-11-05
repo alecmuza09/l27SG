@@ -17,12 +17,79 @@ export type LovableGiftcardPayload = {
   redeemed: boolean
   redeemed_at: string | null
   redeemed_by: string | null
+  /** ISO o null si la promo no tiene vencimiento */
+  expires_at?: string | null
+  is_expired?: boolean
 }
 
 export type VerificarFolioLovableResult =
   | { outcome: "found"; giftcard: LovableGiftcardPayload; codigoConsultado: string }
+  | { outcome: "expired"; giftcard: LovableGiftcardPayload; codigoConsultado: string }
   | { outcome: "not_found" }
   | { outcome: "fetch_failed"; kind: "server" | "network" }
+
+type LovableVerifyResponse = {
+  valid?: boolean
+  reason?: string
+  ok?: boolean
+  giftcard?: LovableGiftcardPayload
+}
+
+/** Fecha de vencimiento (YYYY-MM-DD) en zona America/Monterrey a partir de expires_at de Lovable. */
+export function fechaVencimientoDesdeExpiresAt(
+  expiresAt: string | null | undefined,
+): string | null {
+  if (!expiresAt) return null
+  const trimmed = expiresAt.trim()
+  if (!trimmed) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+
+  const d = new Date(trimmed)
+  if (Number.isNaN(d.getTime())) {
+    const m = trimmed.match(/^(\d{4}-\d{2}-\d{2})/)
+    return m ? m[1] : null
+  }
+
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Monterrey",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d)
+  } catch {
+    return trimmed.slice(0, 10)
+  }
+}
+
+export function formatearFechaVigenciaLovable(
+  expiresAt: string | null | undefined,
+): string | null {
+  const ymd = fechaVencimientoDesdeExpiresAt(expiresAt)
+  if (!ymd) return null
+  const [y, m, d] = ymd.split("-").map(Number)
+  if (!y || !m || !d) return null
+  return new Date(y, m - 1, d).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  })
+}
+
+export function mensajeGiftCardExpiradaLovable(
+  expiresAt?: string | null,
+): string {
+  const f = formatearFechaVigenciaLovable(expiresAt)
+  return f
+    ? `Este certificado expiró el ${f} y ya no es válido`
+    : "Este certificado expiró y ya no es válido"
+}
+
+function esRespuestaExpirada(data: LovableVerifyResponse): boolean {
+  if (data.reason === "expired") return true
+  if (data.giftcard?.is_expired === true) return true
+  return false
+}
 
 /** Variantes del folio para consultar Lovable o la BD (p. ej. con y sin guión). */
 export function variantesCodigoConsultaLovable(codigo: string): string[] {
@@ -53,12 +120,41 @@ export async function verificarFolioEnLovable(folio: string): Promise<VerificarF
         { headers: { "x-api-key": LOVABLE_PUBLIC_API_KEY } },
       )
       if (res.status === 404 || res.status === 400) continue
+
+      let data: LovableVerifyResponse | null = null
+      try {
+        data = (await res.json()) as LovableVerifyResponse
+      } catch {
+        if (!res.ok) {
+          sawServerError = true
+          continue
+        }
+      }
+
+      if (data && esRespuestaExpirada(data)) {
+        const giftcard: LovableGiftcardPayload = data.giftcard ?? {
+          folio: code,
+          type: "",
+          package_name: "",
+          package_option: 0,
+          amount: 0,
+          customer_name: "",
+          purchased_at: "",
+          redeemed: false,
+          redeemed_at: null,
+          redeemed_by: null,
+          expires_at: data.giftcard?.expires_at ?? null,
+          is_expired: true,
+        }
+        return { outcome: "expired", giftcard, codigoConsultado: code }
+      }
+
       if (!res.ok) {
         sawServerError = true
         continue
       }
-      const data = (await res.json()) as { valid?: boolean; giftcard?: LovableGiftcardPayload }
-      if (data.valid && data.giftcard) {
+
+      if (data?.valid && data.giftcard) {
         return { outcome: "found", giftcard: data.giftcard, codigoConsultado: code }
       }
     } catch {
@@ -76,5 +172,19 @@ export function notificarCanjeEnLovable(folio: string, redeemedBy: string): void
     method: "POST",
     headers: { "x-api-key": LOVABLE_PUBLIC_API_KEY, "Content-Type": "application/json" },
     body: JSON.stringify({ code: folio, redeemed_by: redeemedBy }),
-  }).catch((err) => console.error("[Lovable] Error al notificar canje:", err))
+  })
+    .then(async (res) => {
+      if (res.ok) return
+      try {
+        const data = (await res.json()) as LovableVerifyResponse
+        if (data.reason === "expired" || res.status === 409) {
+          console.warn("[Lovable] Canje rechazado: gift card expirada", folio)
+        } else {
+          console.error("[Lovable] Error al notificar canje:", res.status, data)
+        }
+      } catch {
+        console.error("[Lovable] Error al notificar canje:", res.status)
+      }
+    })
+    .catch((err) => console.error("[Lovable] Error al notificar canje:", err))
 }

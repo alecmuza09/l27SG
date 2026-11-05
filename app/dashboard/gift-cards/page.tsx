@@ -83,6 +83,9 @@ import {
   verificarFolioEnLovable,
   notificarCanjeEnLovable,
   variantesCodigoConsultaLovable,
+  fechaVencimientoDesdeExpiresAt,
+  formatearFechaVigenciaLovable,
+  mensajeGiftCardExpiradaLovable,
   type LovableGiftcardPayload,
 } from "@/lib/data/gift-card-lovable-verify"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
@@ -217,7 +220,7 @@ export default function GiftCardsPage() {
 
   // ── Validación de folio (modal Crear) ─────────────────────────────────
   const [createFolioStatus, setCreateFolioStatus] = useState<
-    null | "checking" | "en_agenda" | "lovable_valid" | "lovable_redeemed" | "lovable_error" | "not_found"
+    null | "checking" | "en_agenda" | "lovable_valid" | "lovable_redeemed" | "lovable_expired" | "lovable_error" | "not_found"
   >(null)
   const [createFolioData, setCreateFolioData] = useState<{
     clienteNombre?: string | null
@@ -226,6 +229,7 @@ export default function GiftCardsPage() {
     packageName?: string
     amount?: number
     redeemedAt?: string | null
+    expiresAt?: string | null
   } | null>(null)
 
   // ── Selector de cliente (modal Crear) ──────────────────────────────────
@@ -260,8 +264,19 @@ export default function GiftCardsPage() {
   const [lovableResult,  setLovableResult]  = useState<{
     valid: boolean
     giftcard?: LovableGiftcardPayload
-    errorKind?: "not_found" | "server_error" | "connection_error"
+    errorKind?: "not_found" | "server_error" | "connection_error" | "expired"
   } | null>(null)
+
+  const aplicarVigenciaDesdeLovable = (expiresAt: string | null | undefined) => {
+    const fecha = fechaVencimientoDesdeExpiresAt(expiresAt)
+    if (fecha) {
+      setNewVigencia("personalizada")
+      setNewExpiracion(fecha)
+    } else {
+      setNewVigencia("sin_vigencia")
+      setNewExpiracion("")
+    }
+  }
 
   // ── Cargar datos ───────────────────────────────────────────────────────
   const loadGiftCards = async (page: number, search: string, estado: string) => {
@@ -396,7 +411,12 @@ export default function GiftCardsPage() {
     setNewCodigo(gc.folio)
     setNewMonto(String(gc.amount))
     setCreateFolioStatus("lovable_valid")
-    setCreateFolioData({ packageName: gc.package_name, amount: gc.amount })
+    setCreateFolioData({
+      packageName: gc.package_name,
+      amount: gc.amount,
+      expiresAt: gc.expires_at ?? null,
+    })
+    aplicarVigenciaDesdeLovable(gc.expires_at)
     setIsCreateOpen(true)
   }
 
@@ -476,12 +496,32 @@ export default function GiftCardsPage() {
 
     // ── PASO 2: consultar API Lovable ─────────────────────────────────────
     const lovable = await verificarFolioEnLovable(folio)
+    if (lovable.outcome === "expired") {
+      const gc = lovable.giftcard
+      setNewCodigo(gc.folio || folio)
+      setCreateFolioStatus("lovable_expired")
+      setCreateFolioData({
+        packageName: gc.package_name,
+        amount: gc.amount,
+        expiresAt: gc.expires_at ?? null,
+      })
+      if (gc.amount) setNewMonto(String(gc.amount))
+      aplicarVigenciaDesdeLovable(gc.expires_at)
+      toast.error(mensajeGiftCardExpiradaLovable(gc.expires_at))
+      return
+    }
     if (lovable.outcome === "found") {
       const gc = lovable.giftcard
       setNewCodigo(gc.folio)
       setCreateFolioStatus(gc.redeemed ? "lovable_redeemed" : "lovable_valid")
-      setCreateFolioData({ packageName: gc.package_name, amount: gc.amount, redeemedAt: gc.redeemed_at ?? null })
+      setCreateFolioData({
+        packageName: gc.package_name,
+        amount: gc.amount,
+        redeemedAt: gc.redeemed_at ?? null,
+        expiresAt: gc.expires_at ?? null,
+      })
       setNewMonto(String(gc.amount))
+      aplicarVigenciaDesdeLovable(gc.expires_at)
       return
     }
     if (lovable.outcome === "fetch_failed") {
@@ -495,6 +535,11 @@ export default function GiftCardsPage() {
 
   const handleCreate = async () => {
     if (!newMonto || !newSucursalId) return
+
+    if (createFolioStatus === "lovable_expired") {
+      toast.error(mensajeGiftCardExpiradaLovable(createFolioData?.expiresAt))
+      return
+    }
 
     const codigoTrim = newCodigo.trim()
     if (intentandoFormatoTiendaEnLinea(codigoTrim)) {
@@ -742,6 +787,15 @@ export default function GiftCardsPage() {
 
     // ── PASO 2: consultar API de Lovable ──────────────────────────────────
     const lovable = await verificarFolioEnLovable(raw)
+    if (lovable.outcome === "expired") {
+      setLovableResult({
+        valid: false,
+        giftcard: lovable.giftcard,
+        errorKind: "expired",
+      })
+      setIsSearching(false)
+      return
+    }
     if (lovable.outcome === "found") {
       setLovableResult({ valid: true, giftcard: lovable.giftcard })
       setIsSearching(false)
@@ -867,6 +921,40 @@ export default function GiftCardsPage() {
                 </div>
               )
             }
+            if (lovableResult.errorKind === "expired") {
+              const gc = lovableResult.giftcard
+              const fechaTxt = formatearFechaVigenciaLovable(gc?.expires_at)
+              return (
+                <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-4 flex flex-col gap-2">
+                  <p className="text-sm font-semibold text-orange-800 flex items-center gap-1.5">
+                    <XCircle className="h-4 w-4" /> Certificado expirado
+                  </p>
+                  <p className="text-sm text-orange-700">
+                    {mensajeGiftCardExpiradaLovable(gc?.expires_at)}
+                  </p>
+                  {gc && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm border-t border-orange-100 pt-3">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase font-medium">Folio</p>
+                        <p className="font-mono font-medium">{gc.folio}</p>
+                      </div>
+                      {gc.package_name ? (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase font-medium">Promo</p>
+                          <p className="font-medium">{gc.package_name}</p>
+                        </div>
+                      ) : null}
+                      {fechaTxt ? (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase font-medium">Venció</p>
+                          <p className="font-medium">{fechaTxt}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )
+            }
             if (lovableResult.errorKind === "connection_error" || lovableResult.errorKind === "server_error") {
               return (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
@@ -883,6 +971,7 @@ export default function GiftCardsPage() {
             if (!lovableResult.giftcard) return null
             const gc = lovableResult.giftcard
             const nombreServicio = gc.type === "gift" ? "Dinero electrónico" : gc.package_name
+            const vigenciaTxt = formatearFechaVigenciaLovable(gc.expires_at)
 
             if (!gc.redeemed) {
               return (
@@ -902,6 +991,10 @@ export default function GiftCardsPage() {
                     <div>
                       <p className="text-[10px] text-muted-foreground uppercase font-medium">Cliente que compró</p>
                       <p className="font-medium">{gc.customer_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Vigencia</p>
+                      <p className="font-medium">{vigenciaTxt ?? "Sin vencimiento"}</p>
                     </div>
                   </div>
                   <Button
@@ -1358,6 +1451,20 @@ export default function GiftCardsPage() {
                     El cliente ya pagó en luna27.mx. No uses método de pago en mostrador: solo elige sucursal y guarda
                     para activar el folio (el registro en Pagos no suma al total del día).
                   </p>
+                  <p className="text-emerald-800/95">
+                    Vigencia:{" "}
+                    <strong>
+                      {formatearFechaVigenciaLovable(createFolioData?.expiresAt) ?? "Sin vencimiento"}
+                    </strong>
+                  </p>
+                </div>
+              )}
+              {createFolioStatus === "lovable_expired" && (
+                <div className="rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900 space-y-0.5">
+                  <p className="font-semibold flex items-center gap-1">
+                    <XCircle className="h-3.5 w-3.5" /> {mensajeGiftCardExpiradaLovable(createFolioData?.expiresAt)}
+                  </p>
+                  <p>No se puede activar este folio en la agenda.</p>
                 </div>
               )}
               {createFolioStatus === "lovable_redeemed" && (
@@ -1594,28 +1701,46 @@ export default function GiftCardsPage() {
                 <Calendar className="h-3.5 w-3.5" />
                 Vigencia
               </Label>
-              <Select value={newVigencia} onValueChange={setNewVigencia}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VIGENCIA_OPCIONES.map((op) => (
-                    <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {newVigencia === "personalizada" && (
-                <Input
-                  type="date"
-                  value={newExpiracion}
-                  onChange={(e) => setNewExpiracion(e.target.value)}
-                  min={new Date().toISOString().split("T")[0]}
-                />
-              )}
-              {newVigencia !== "sin_vigencia" && newVigencia !== "personalizada" && (
-                <p className="text-xs text-muted-foreground">
-                  Expira el: <strong>{fmtDate(calcularFechaExpiracion(newVigencia, ""))}</strong>
-                </p>
+              {createFolioStatus === "lovable_valid" || createFolioStatus === "lovable_expired" ? (
+                <>
+                  <Input
+                    readOnly
+                    value={
+                      formatearFechaVigenciaLovable(createFolioData?.expiresAt)
+                      ?? "Sin vencimiento (tienda en línea)"
+                    }
+                    className="bg-muted/60 cursor-not-allowed"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    La vigencia la define la promo en luna27.mx.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Select value={newVigencia} onValueChange={setNewVigencia}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VIGENCIA_OPCIONES.map((op) => (
+                        <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {newVigencia === "personalizada" && (
+                    <Input
+                      type="date"
+                      value={newExpiracion}
+                      onChange={(e) => setNewExpiracion(e.target.value)}
+                      min={new Date().toISOString().split("T")[0]}
+                    />
+                  )}
+                  {newVigencia !== "sin_vigencia" && newVigencia !== "personalizada" && (
+                    <p className="text-xs text-muted-foreground">
+                      Expira el: <strong>{fmtDate(calcularFechaExpiracion(newVigencia, ""))}</strong>
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1624,7 +1749,7 @@ export default function GiftCardsPage() {
             <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || (createFolioStatus !== "lovable_valid" && (!newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()))) || createFolioStatus === "checking" || createFolioStatus === "en_agenda"}>
+            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || (createFolioStatus !== "lovable_valid" && (!newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()))) || createFolioStatus === "checking" || createFolioStatus === "en_agenda" || createFolioStatus === "lovable_expired"}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
             </Button>
           </DialogFooter>

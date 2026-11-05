@@ -1,6 +1,11 @@
 // Payments data from Supabase and mock data
 
 import { supabase } from '@/lib/supabase/client'
+import {
+  fechaVencimientoDesdeExpiresAt,
+  mensajeGiftCardExpiradaLovable,
+  verificarFolioEnLovable,
+} from '@/lib/data/gift-card-lovable-verify'
 
 export interface Pago {
   id: string
@@ -1127,7 +1132,7 @@ export async function validarGiftCard(
     // .limit(1) en lugar de .single() para no lanzar error cuando no existe
     const { data, error } = await (supabase as any)
       .from('gift_cards')
-      .select('id, codigo, saldo_actual, estado, fecha_vencimiento')
+      .select('id, codigo, saldo_actual, estado, fecha_vencimiento, origen')
       .ilike('codigo', codigoLimpio)
       .limit(1)
 
@@ -1159,12 +1164,47 @@ export async function validarGiftCard(
     if (row.estado === 'expirada')  return { valida: false, error: 'Gift card expirada' }
     if (row.estado === 'agotada')   return { valida: false, error: 'Gift card sin saldo disponible' }
 
+    // GC de tienda en línea: reconsultar Lovable (fuente de vigencia de Promos Especiales).
+    // Si Lovable no responde, se usa la fecha_vencimiento local como fallback.
+    if (row.origen === 'en_linea') {
+      const lovable = await verificarFolioEnLovable(row.codigo)
+      if (lovable.outcome === 'expired') {
+        const fecha = fechaVencimientoDesdeExpiresAt(lovable.giftcard.expires_at)
+        const patch: Record<string, unknown> = { estado: 'expirada' }
+        if (fecha) patch.fecha_vencimiento = fecha
+        await (supabase as any).from('gift_cards').update(patch).eq('id', row.id)
+        return {
+          valida: false,
+          error: mensajeGiftCardExpiradaLovable(lovable.giftcard.expires_at),
+        }
+      }
+      if (lovable.outcome === 'found') {
+        const fecha = fechaVencimientoDesdeExpiresAt(lovable.giftcard.expires_at)
+        if (fecha && fecha !== row.fecha_vencimiento) {
+          await (supabase as any)
+            .from('gift_cards')
+            .update({ fecha_vencimiento: fecha })
+            .eq('id', row.id)
+          row.fecha_vencimiento = fecha
+        }
+      }
+    }
+
     // Verificar vencimiento por fecha aunque el estado no sea 'expirada' aún
     if (row.fecha_vencimiento) {
       const hoy = new Date()
       hoy.setHours(0, 0, 0, 0)
       const vence = new Date(row.fecha_vencimiento + 'T00:00:00')
-      if (vence < hoy) return { valida: false, error: 'Gift card vencida' }
+      if (vence < hoy) {
+        await (supabase as any)
+          .from('gift_cards')
+          .update({ estado: 'expirada' })
+          .eq('id', row.id)
+        return {
+          valida: false,
+          error: mensajeGiftCardExpiradaLovable(row.fecha_vencimiento),
+        }
+      }
     }
 
     if (Number(row.saldo_actual) <= 0) return { valida: false, error: 'Gift card sin saldo disponible' }
