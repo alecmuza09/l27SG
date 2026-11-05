@@ -33,7 +33,7 @@ const fmtFecha = (d: string) =>
 const cleanNombre = (n: string) =>
   n.replace("Luna 27 ", "").replace("Luna27 ", "").replace("Luna 27", "").trim()
 
-type Periodo = "hoy" | "semana" | "mes" | "trimestre" | "anio" | "personalizado"
+type Periodo = "hoy" | "semana" | "mes" | "mes_anterior" | "trimestre" | "anio" | "personalizado"
 
 function calcularRango(periodo: Periodo): { inicio: string; fin: string } {
   const now = new Date()
@@ -44,6 +44,11 @@ function calcularRango(periodo: Periodo): { inicio: string; fin: string } {
     return { inicio: dateStr(d), fin }
   }
   if (periodo === "mes") return { inicio: primerDiaMes(), fin }
+  if (periodo === "mes_anterior") {
+    const inicio = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const finMes = new Date(now.getFullYear(), now.getMonth(), 0)
+    return { inicio: dateStr(inicio), fin: dateStr(finMes) }
+  }
   if (periodo === "trimestre") {
     const d = new Date(now); d.setMonth(d.getMonth() - 2); d.setDate(1)
     return { inicio: dateStr(d), fin }
@@ -296,6 +301,7 @@ export default function NominasPage() {
     { key: "hoy",          label: "Hoy"         },
     { key: "semana",       label: "Esta semana"  },
     { key: "mes",          label: "Este mes"     },
+    { key: "mes_anterior", label: "Mes anterior" },
     { key: "trimestre",    label: "Trimestre"    },
     { key: "anio",         label: "Este año"     },
     { key: "personalizado",label: "Personalizado"},

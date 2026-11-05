@@ -26,7 +26,7 @@ import { format, eachDayOfInterval, isSameDay, isWithinInterval } from "date-fns
 import { es } from "date-fns/locale"
 import { Plus, CalendarIcon, CheckCircle, Users, AlertCircle, Edit, Trash2, Loader2 } from "lucide-react"
 import { getEmpleadosFromDB, type Empleado } from "@/lib/data/empleados"
-import { type Periodo, calcularPeriodo, formatearRangoPeriodo } from "@/lib/periodos"
+import { type Periodo, calcularPeriodo, formatearRangoPeriodo, OPCIONES_PERIODO } from "@/lib/periodos"
 import {
   refreshSession,
   effectivePrimarySucursalId,
@@ -749,11 +749,9 @@ export default function VacacionesPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="semana">Esta Semana</SelectItem>
-                      <SelectItem value="mes">Este Mes</SelectItem>
-                      <SelectItem value="trimestre">Trimestre</SelectItem>
-                      <SelectItem value="año">Este Año</SelectItem>
-                      <SelectItem value="personalizado">Personalizado…</SelectItem>
+                      {OPCIONES_PERIODO.map((op) => (
+                        <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   {resumenPeriodo === "personalizado" && (

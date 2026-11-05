@@ -48,7 +48,7 @@ import {
 import { getReporteEmbajadorasFromDB, type EmbajadoraReporteRow } from "@/lib/data/embajadoras"
 import { getGastosFromDB, normalizarNombre, CATEGORIAS_GASTO, type Gasto } from "@/lib/data/gastos"
 import { getEmpleadosFromDB } from "@/lib/data/empleados"
-import { type Periodo, calcularPeriodo, localFmt } from "@/lib/periodos"
+import { type Periodo, calcularPeriodo, localFmt, OPCIONES_PERIODO } from "@/lib/periodos"
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
@@ -178,6 +178,12 @@ function calcularPeriodoAnterior(periodo: Periodo, customDesde?: string, customH
       const finMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, Math.min(diasTranscurridos, ultimoDiaMesAnterior))
       return { fechaDesde: localFmt(inicioMesAnterior), fechaHasta: localFmt(finMesAnterior) }
     }
+    case "mes_anterior": {
+      // Periodo actual = mes calendario anterior completo; el previo es el mes completo anterior a ese.
+      const inicio = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1)
+      const fin = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 0)
+      return { fechaDesde: localFmt(inicio), fechaHasta: localFmt(fin) }
+    }
     case "trimestre": {
       // Los últimos 90 días vs. los 90 días inmediatamente anteriores.
       const { fechaDesde, fechaHasta } = calcularPeriodo(periodo)
@@ -233,7 +239,7 @@ function buildVentasPorPeriodo(
   const ventasPorFecha = (lista: Pago[], f: string) =>
     lista.filter(p => p.fecha === f).reduce((s, p) => s + p.monto, 0)
 
-  if (periodo === "semana" || periodo === "mes") {
+  if (periodo === "semana" || periodo === "mes" || periodo === "mes_anterior") {
     const cur = new Date(fechaDesde + "T12:00:00")
     const fin = new Date(fechaHasta + "T12:00:00")
     const dias: VentaDia[] = []
@@ -379,6 +385,7 @@ function periodoSlugFrom(periodo: Periodo): string {
   if (periodo === "personalizado") return "personalizado"
   return periodo === "semana" ? "esta-semana"
     : periodo === "mes" ? "este-mes"
+    : periodo === "mes_anterior" ? "mes-anterior"
     : periodo === "trimestre" ? "trimestre"
     : "este-anio"
 }
@@ -3198,11 +3205,9 @@ export default function ReportesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="semana">Esta Semana</SelectItem>
-                    <SelectItem value="mes">Este Mes</SelectItem>
-                    <SelectItem value="trimestre">Trimestre</SelectItem>
-                    <SelectItem value="año">Este Año</SelectItem>
-                    <SelectItem value="personalizado">Personalizado…</SelectItem>
+                    {OPCIONES_PERIODO.map((op) => (
+                      <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 
@@ -3942,11 +3947,9 @@ export default function ReportesPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="semana">Esta Semana</SelectItem>
-                      <SelectItem value="mes">Este Mes</SelectItem>
-                      <SelectItem value="trimestre">Trimestre</SelectItem>
-                      <SelectItem value="año">Este Año</SelectItem>
-                      <SelectItem value="personalizado">Personalizado…</SelectItem>
+                      {OPCIONES_PERIODO.map((op) => (
+                        <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
 
@@ -4200,11 +4203,9 @@ export default function ReportesPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="semana">Esta Semana</SelectItem>
-                      <SelectItem value="mes">Este Mes</SelectItem>
-                      <SelectItem value="trimestre">Trimestre</SelectItem>
-                      <SelectItem value="año">Este Año</SelectItem>
-                      <SelectItem value="personalizado">Personalizado…</SelectItem>
+                      {OPCIONES_PERIODO.map((op) => (
+                        <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
 

@@ -1,4 +1,13 @@
-export type Periodo = "semana" | "mes" | "trimestre" | "año" | "personalizado"
+export type Periodo = "semana" | "mes" | "mes_anterior" | "trimestre" | "año" | "personalizado"
+
+export const OPCIONES_PERIODO = [
+  { value: "semana", label: "Esta Semana" },
+  { value: "mes", label: "Este Mes" },
+  { value: "mes_anterior", label: "Mes Anterior" },
+  { value: "trimestre", label: "Trimestre" },
+  { value: "año", label: "Este Año" },
+  { value: "personalizado", label: "Personalizado…" },
+] as const
 
 export function localFmt(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -22,6 +31,12 @@ export function calcularPeriodo(
     case "mes": {
       const i = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
       return { fechaDesde: localFmt(i), fechaHasta: hoyStr, label: "Este Mes" }
+    }
+    case "mes_anterior": {
+      // Día 1 al último día del mes calendario anterior (enero → diciembre del año previo).
+      const inicio = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
+      const fin = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
+      return { fechaDesde: localFmt(inicio), fechaHasta: localFmt(fin), label: "Mes Anterior" }
     }
     case "trimestre": {
       const i = new Date(hoy)

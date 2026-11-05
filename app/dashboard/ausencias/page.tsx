@@ -79,7 +79,7 @@ import {
   type TipoAusencia,
   type EstatusAusencia,
 } from "@/lib/data/ausencias"
-import { type Periodo, calcularPeriodo, formatearRangoPeriodo } from "@/lib/periodos"
+import { type Periodo, calcularPeriodo, formatearRangoPeriodo, OPCIONES_PERIODO } from "@/lib/periodos"
 
 // ─── Iconos por tipo ──────────────────────────────────────────────────────────
 const TIPO_ICONS: Record<TipoAusencia, React.ReactNode> = {
@@ -799,11 +799,9 @@ export default function AusenciasPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="semana">Esta Semana</SelectItem>
-                    <SelectItem value="mes">Este Mes</SelectItem>
-                    <SelectItem value="trimestre">Trimestre</SelectItem>
-                    <SelectItem value="año">Este Año</SelectItem>
-                    <SelectItem value="personalizado">Personalizado…</SelectItem>
+                    {OPCIONES_PERIODO.map((op) => (
+                      <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {resumenPeriodo === "personalizado" && (
