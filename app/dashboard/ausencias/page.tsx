@@ -257,17 +257,15 @@ export default function AusenciasPage() {
     })
     const rows = empleadosScope.map((e) => {
       const conteos = Object.fromEntries(tipos.map((t) => [t, 0])) as Record<TipoAusencia, number>
-      let pendientes = 0
       if (fechaDesde && fechaHasta) {
         for (const a of ausencias) {
           if (a.empleadoId !== e.id) continue
           const fi = a.fechaInicio.slice(0, 10)
           if (fi < fechaDesde || fi > fechaHasta) continue
-          if (a.estatus === "aprobada") conteos[a.tipo] += 1
-          else if (a.estatus === "pendiente") pendientes += 1
+          if (a.estatus === "pendiente" || a.estatus === "aprobada") conteos[a.tipo] += 1
         }
       }
-      return { empleadoId: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim(), conteos, pendientes }
+      return { empleadoId: e.id, nombre: `${e.nombre} ${e.apellido ?? ""}`.trim(), conteos }
     })
     return rows.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
   }, [empleados, ausencias, resumenRango, resumenFilterSucursal, resumenFilterEmpleada])
@@ -744,8 +742,9 @@ export default function AusenciasPage() {
               <div>
                 <CardTitle className="text-base">Resumen por empleada</CardTitle>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Cuenta registros aprobados del periodo. Retardos y salidas se documentan aparte y no se suman a las faltas.
-                  Haz clic en una empleada para ver su historial.
+                  Cuenta ausencias registradas del periodo (no incluye rechazadas ni
+                  canceladas). Retardos y salidas se documentan aparte y no se suman a
+                  las faltas. Haz clic en una empleada para ver su historial.
                 </p>
                 {resumenRango && (
                   <p className="text-xs text-muted-foreground mt-1">
@@ -837,7 +836,6 @@ export default function AusenciasPage() {
                     {(Object.keys(TIPO_AUSENCIA_LABELS) as TipoAusencia[]).map((t) => (
                       <TableHead key={t} className="text-center">{TIPO_AUSENCIA_LABELS[t]}</TableHead>
                     ))}
-                    <TableHead className="text-center">Pendientes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -857,9 +855,6 @@ export default function AusenciasPage() {
                           {r.conteos[t] > 0 ? r.conteos[t] : <span className="text-muted-foreground">—</span>}
                         </TableCell>
                       ))}
-                      <TableCell className="text-center text-sm">
-                        {r.pendientes > 0 ? r.pendientes : <span className="text-muted-foreground">—</span>}
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
