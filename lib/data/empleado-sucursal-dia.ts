@@ -127,8 +127,9 @@ function sinAcentos(s: string): string {
  * FIX PUNTUAL: hoy ninguna pantalla de agenda respeta `dias_trabajo` (es un campo
  * puramente informativo), así que cualquier empleada activa aparece todos los días
  * sin importar qué días tenga marcados. Eso es invisible para quienes trabajan casi
- * toda la semana, pero rompe visiblemente el caso de Vanesa López, que solo debe
- * aparecer el/los día(s) que tiene marcados (p. ej. solo Sábado).
+ * toda la semana, pero rompe visiblemente el caso de Vanesa/Vanessa López, que solo
+ * debe aparecer el/los día(s) que tiene marcados (p. ej. solo Sábado). Acepta ambas
+ * grafías del nombre ("Vanesa" y "Vanessa").
  *
  * Esto NO generaliza el filtrado por `dias_trabajo` a todo el equipo (para no
  * cambiar el comportamiento actual de otras empleadas ni su forma de almacenarse);
@@ -143,7 +144,8 @@ function filtrarSoloDiasTrabajoVanesaLopez(
 ): Empleado[] {
   const diaSemana = new Date(fecha + "T12:00:00").getDay()
   return empleados.filter((e) => {
-    const esVanesaLopez = sinAcentos(e.nombre) === "vanesa" && sinAcentos(e.apellido) === "lopez"
+    const nombre = sinAcentos(e.nombre)
+    const esVanesaLopez = (nombre === "vanesa" || nombre === "vanessa") && sinAcentos(e.apellido) === "lopez"
     if (!esVanesaLopez) return true
     // empleado_sucursal_dia exists precisely to work a non-regular weekday.
     if (idsConAsignacionDelDia.has(e.id)) return true
