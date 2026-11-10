@@ -221,6 +221,36 @@ export function calcularDias(fechaInicio: string, fechaFin: string): number {
   return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1
 }
 
+/** Totales de días tomados (solo aprobadas) agrupados por empleada. */
+export function totalesDiasPorEmpleada(
+  vacaciones: Vacacion[],
+): { empleadoId: string; empleadoNombre: string; registros: number; dias: number }[] {
+  const porEmpleada = new Map<
+    string,
+    { empleadoId: string; empleadoNombre: string; registros: number; dias: number }
+  >()
+
+  for (const vac of vacaciones) {
+    if (vac.estado !== "aprobada") continue
+    const actual = porEmpleada.get(vac.empleadoId)
+    if (actual) {
+      actual.registros += 1
+      actual.dias += vac.diasSolicitados
+    } else {
+      porEmpleada.set(vac.empleadoId, {
+        empleadoId: vac.empleadoId,
+        empleadoNombre: vac.empleadoNombre,
+        registros: 1,
+        dias: vac.diasSolicitados,
+      })
+    }
+  }
+
+  return Array.from(porEmpleada.values()).sort((a, b) =>
+    a.empleadoNombre.localeCompare(b.empleadoNombre, "es"),
+  )
+}
+
 // Verificar si hay conflicto con vacaciones existentes
 export async function verificarConflictoVacaciones(
   empleadoId: string,

@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Calendar } from "@/components/ui/calendar"
@@ -44,6 +44,7 @@ import { getSucursalesByIdsFromDB, getSucursalesActivasFromDB, type Sucursal } f
 import {
   getVacacionesFromDB,
   calcularDias,
+  totalesDiasPorEmpleada,
   verificarConflictoVacaciones,
   createVacacionInDB,
   updateVacacionInDB,
@@ -193,17 +194,24 @@ export default function VacacionesPage() {
     }
   }, [router])
 
-  const filteredVacaciones = vacaciones.filter((vac) => {
-    const matchesSucursal =
-      filterSucursal === "todos"
-        ? verOficina || vac.sucursalId !== OFICINA_FILTER_VALUE
-        : vac.sucursalId === filterSucursal
-    const matchesEstado = filterEstado === "todos" || vac.estado === filterEstado
-    const nombre = vac.empleadoNombre.toLowerCase()
-    const matchesEmpleada =
-      !filterEmpleada.trim() || nombre.includes(filterEmpleada.trim().toLowerCase())
-    return matchesSucursal && matchesEstado && matchesEmpleada
-  })
+  const filteredVacaciones = useMemo(() => {
+    return vacaciones.filter((vac) => {
+      const matchesSucursal =
+        filterSucursal === "todos"
+          ? verOficina || vac.sucursalId !== OFICINA_FILTER_VALUE
+          : vac.sucursalId === filterSucursal
+      const matchesEstado = filterEstado === "todos" || vac.estado === filterEstado
+      const nombre = vac.empleadoNombre.toLowerCase()
+      const matchesEmpleada =
+        !filterEmpleada.trim() || nombre.includes(filterEmpleada.trim().toLowerCase())
+      return matchesSucursal && matchesEstado && matchesEmpleada
+    })
+  }, [vacaciones, filterSucursal, filterEstado, filterEmpleada, verOficina])
+
+  const totalesDiasSolicitudes = useMemo(
+    () => totalesDiasPorEmpleada(filteredVacaciones),
+    [filteredVacaciones],
+  )
 
   const resumenRango = useMemo(() => {
     if (resumenPeriodo === "personalizado" && (!resumenDesde || !resumenHasta)) return null
@@ -239,21 +247,25 @@ export default function VacacionesPage() {
     const fechaDesde = resumenRango?.fechaDesde
     const fechaHasta = resumenRango?.fechaHasta
 
+    const vacacionesEnPeriodo =
+      fechaDesde && fechaHasta
+        ? vacaciones.filter((v) => {
+            const fi = v.fechaInicio.split("T")[0]
+            return fi >= fechaDesde && fi <= fechaHasta
+          })
+        : []
+    const totalesPeriodo = totalesDiasPorEmpleada(vacacionesEnPeriodo)
+    const totalesByEmpleadoId = new Map(totalesPeriodo.map((t) => [t.empleadoId, t]))
+
     return empleadosScope
       .map((emp) => {
         const nombreCompleto = `${emp.nombre} ${emp.apellido}`.trim()
-        const delPeriodo =
-          fechaDesde && fechaHasta
-            ? vacaciones.filter((v) => {
-                if (v.empleadoId !== emp.id) return false
-                const fi = v.fechaInicio.split("T")[0]
-                return fi >= fechaDesde && fi <= fechaHasta
-              })
-            : []
+        const delPeriodo = vacacionesEnPeriodo.filter((v) => v.empleadoId === emp.id)
         const aprobadasPeriodo = delPeriodo.filter((v) => v.estado === "aprobada")
         const ultima = [...aprobadasPeriodo].sort((a, b) =>
           b.fechaInicio.localeCompare(a.fechaInicio),
         )[0]
+        const total = totalesByEmpleadoId.get(emp.id)
 
         return {
           empleadoId: emp.id,
@@ -262,8 +274,8 @@ export default function VacacionesPage() {
           sucursal: isEmpleadoOficina(emp)
             ? "Oficina"
             : (sucursalNombreById.get(emp.sucursalId) ?? "—"),
-          veces: aprobadasPeriodo.length,
-          diasTomados: aprobadasPeriodo.reduce((sum, v) => sum + v.diasSolicitados, 0),
+          veces: total?.registros ?? 0,
+          diasTomados: total?.dias ?? 0,
           ultimaVacacion: ultima
             ? { inicio: ultima.fechaInicio, fin: ultima.fechaFin }
             : null,
@@ -654,6 +666,39 @@ export default function VacacionesPage() {
                     </TableRow>
                   ))}
                 </TableBody>
+                {filteredVacaciones.length > 0 && totalesDiasSolicitudes.length > 0 && (
+                  <TableFooter>
+                    {totalesDiasSolicitudes.length === 1 ? (
+                      <TableRow>
+                        <TableCell colSpan={3} />
+                        <TableCell className="font-bold">
+                          Total días tomados: {totalesDiasSolicitudes[0].dias} (
+                          {totalesDiasSolicitudes[0].registros} registros)
+                        </TableCell>
+                        <TableCell colSpan={5} />
+                      </TableRow>
+                    ) : (
+                      <>
+                        {totalesDiasSolicitudes.map((t) => (
+                          <TableRow key={t.empleadoId}>
+                            <TableCell colSpan={9} className="font-bold">
+                              {t.empleadoNombre} — {t.dias} días
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow>
+                          <TableCell colSpan={3} className="font-bold text-right">
+                            Total general:
+                          </TableCell>
+                          <TableCell className="font-bold">
+                            {totalesDiasSolicitudes.reduce((sum, t) => sum + t.dias, 0)} días
+                          </TableCell>
+                          <TableCell colSpan={5} />
+                        </TableRow>
+                      </>
+                    )}
+                  </TableFooter>
+                )}
               </Table>
             </CardContent>
           </Card>
