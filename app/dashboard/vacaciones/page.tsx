@@ -49,9 +49,12 @@ import {
   createVacacionInDB,
   updateVacacionInDB,
   deleteVacacionInDB,
+  getNombresAprobadoresVacaciones,
+  resolverNombreAprobador,
 } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
+import { AprobadorInput } from "@/components/vacaciones/aprobador-input"
 
 function formatDateTimeMx(iso: string): string {
   return new Date(iso).toLocaleString("es-MX", {
@@ -68,6 +71,65 @@ const estadoColors: Record<Vacacion["estado"], string> = {
   aprobada: "bg-green-100 text-green-800",
   rechazada: "bg-red-100 text-red-800",
   cancelada: "bg-gray-100 text-gray-800",
+}
+
+function AprobadorCelda({
+  vacacion,
+  sugerencias,
+  onSaved,
+}: {
+  vacacion: Vacacion
+  sugerencias: string[]
+  onSaved: () => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [valor, setValor] = useState(vacacion.aprobadoPorNombre ?? "")
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open) setValor(vacacion.aprobadoPorNombre ?? "")
+  }, [open, vacacion.aprobadoPorNombre])
+
+  const handleSave = async () => {
+    setSaving(true)
+    const nombre = resolverNombreAprobador(valor, sugerencias)
+    const ok = await updateVacacionInDB(vacacion.id, { aprobadoPorNombre: nombre })
+    setSaving(false)
+    if (!ok) return
+    setOpen(false)
+    await onSaved()
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        {vacacion.aprobadoPorNombre ? (
+          <button type="button" className="text-left text-xs hover:underline">
+            {vacacion.aprobadoPorNombre}
+            {vacacion.resueltoEn && (
+              <span className="block text-muted-foreground">{formatDateTimeMx(vacacion.resueltoEn)}</span>
+            )}
+          </button>
+        ) : (
+          <button type="button" className="text-xs text-muted-foreground hover:underline">
+            + Agregar
+          </button>
+        )}
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-3 space-y-2" align="start">
+        <AprobadorInput value={valor} onChange={setValor} sugerencias={sugerencias} />
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            Guardar
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 export default function VacacionesPage() {
@@ -101,12 +163,15 @@ export default function VacacionesPage() {
   const [formFechaInicio, setFormFechaInicio] = useState<Date>()
   const [formFechaFin, setFormFechaFin] = useState<Date>()
   const [formNotas, setFormNotas] = useState("")
+  const [formAprobadoPor, setFormAprobadoPor] = useState("")
   const [error, setError] = useState("")
+  const [nombresAprobadores, setNombresAprobadores] = useState<string[]>([])
 
   // Edit vacation form states
   const [editFechaInicio, setEditFechaInicio] = useState<Date>()
   const [editFechaFin, setEditFechaFin] = useState<Date>()
   const [editNotas, setEditNotas] = useState("")
+  const [editAprobadoPor, setEditAprobadoPor] = useState("")
   const [editError, setEditError] = useState("")
   const [isSaving, setIsSaving] = useState(false)
 
@@ -121,6 +186,11 @@ export default function VacacionesPage() {
   const vacacionesScope = isAdmin ? undefined : branchIds.length > 1 ? undefined : primarySucursalScope
   const puedeCambiarSucursal = isAdmin || branchIds.length > 1 || verOficina
 
+  const cargarNombresAprobadores = useCallback(async () => {
+    const nombres = await getNombresAprobadoresVacaciones()
+    setNombresAprobadores(nombres)
+  }, [])
+
   const reloadVacacionesData = useCallback(async () => {
     const u = currentUser
     if (!u) return
@@ -130,6 +200,10 @@ export default function VacacionesPage() {
     const v = await getVacacionesFromDB(sc, { incluirOficina: canVerOficina(u) })
     setVacaciones(v)
   }, [currentUser])
+
+  const reloadTrasGuardarAprobador = useCallback(async () => {
+    await Promise.all([reloadVacacionesData(), cargarNombresAprobadores()])
+  }, [reloadVacacionesData, cargarNombresAprobadores])
 
   useEffect(() => {
     let cancelled = false
@@ -170,18 +244,20 @@ export default function VacacionesPage() {
 
       try {
         const incluirOficina = canVerOficina(user)
-        const [vacacionesData, empleadosData, sucursalesAll, sucursalesPorId] =
+        const [vacacionesData, empleadosData, sucursalesAll, sucursalesPorId, nombresAprob] =
           await Promise.all([
           getVacacionesFromDB(scope, { incluirOficina }),
           getEmpleadosFromDB(scope, { incluirOficina }),
           getSucursalesActivasFromDB(),
           !isAdm && ids.length > 0 ? getSucursalesByIdsFromDB(ids) : Promise.resolve([] as Sucursal[]),
+          getNombresAprobadoresVacaciones(),
         ])
         const sucursalesData = isAdm ? sucursalesAll : sucursalesPorId
         if (cancelled) return
         setVacaciones(vacacionesData)
         setEmpleados(empleadosData)
         setSucursales(sucursalesData)
+        setNombresAprobadores(nombresAprob)
       } catch (err) {
         console.error("Error cargando vacaciones:", err)
       } finally {
@@ -326,6 +402,7 @@ export default function VacacionesPage() {
     setFormFechaInicio(undefined)
     setFormFechaFin(undefined)
     setFormNotas("")
+    setFormAprobadoPor("")
     setError("")
   }
 
@@ -365,6 +442,7 @@ export default function VacacionesPage() {
       return
     }
 
+    const aprobadoPorNombre = resolverNombreAprobador(formAprobadoPor, nombresAprobadores)
     const nuevaVacacion = await createVacacionInDB({
       empleadoId: formEmpleado,
       fechaInicio: fechaInicioStr,
@@ -373,6 +451,7 @@ export default function VacacionesPage() {
       notas: formNotas || undefined,
       registradoPorId: currentUser?.id ?? null,
       registradoPorNombre: currentUser?.name || currentUser?.email || null,
+      aprobadoPorNombre,
     })
 
     if (!nuevaVacacion) {
@@ -380,7 +459,7 @@ export default function VacacionesPage() {
       return
     }
 
-    await reloadVacacionesData()
+    await reloadTrasGuardarAprobador()
 
     resetForm()
     setIsCreateDialogOpen(false)
@@ -391,6 +470,7 @@ export default function VacacionesPage() {
     setEditFechaInicio(parseLocalDate(vac.fechaInicio))
     setEditFechaFin(parseLocalDate(vac.fechaFin))
     setEditNotas(vac.notas || "")
+    setEditAprobadoPor(vac.aprobadoPorNombre ?? "")
     setEditError("")
     setIsEditVacacionDialogOpen(true)
   }
@@ -428,6 +508,7 @@ export default function VacacionesPage() {
       fechaFin: fechaFinStr,
       diasSolicitados: calcularDias(fechaInicioStr, fechaFinStr),
       notas: editNotas || undefined,
+      aprobadoPorNombre: resolverNombreAprobador(editAprobadoPor, nombresAprobadores),
     })
     setIsSaving(false)
 
@@ -436,7 +517,7 @@ export default function VacacionesPage() {
       return
     }
 
-    await reloadVacacionesData()
+    await reloadTrasGuardarAprobador()
     setIsEditVacacionDialogOpen(false)
     setSelectedVacacion(null)
   }
@@ -645,10 +726,11 @@ export default function VacacionesPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-xs">
-                        {vac.aprobadoPorNombre ?? "—"}
-                        {vac.resueltoEn && (
-                          <span className="block text-muted-foreground">{formatDateTimeMx(vac.resueltoEn)}</span>
-                        )}
+                        <AprobadorCelda
+                          vacacion={vac}
+                          sugerencias={nombresAprobadores}
+                          onSaved={reloadTrasGuardarAprobador}
+                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2 flex-wrap">
@@ -1001,6 +1083,14 @@ export default function VacacionesPage() {
               </p>
             )}
             <div className="grid gap-2">
+              <Label>Aprobó (opcional)</Label>
+              <AprobadorInput
+                value={formAprobadoPor}
+                onChange={setFormAprobadoPor}
+                sugerencias={nombresAprobadores}
+              />
+            </div>
+            <div className="grid gap-2">
               <Label>Notas</Label>
               <Textarea
                 value={formNotas}
@@ -1069,6 +1159,14 @@ export default function VacacionesPage() {
                 {calcularDias(format(editFechaInicio, "yyyy-MM-dd"), format(editFechaFin, "yyyy-MM-dd"))} día(s)
               </p>
             )}
+            <div className="grid gap-2">
+              <Label>Aprobó</Label>
+              <AprobadorInput
+                value={editAprobadoPor}
+                onChange={setEditAprobadoPor}
+                sugerencias={nombresAprobadores}
+              />
+            </div>
             <div className="grid gap-2">
               <Label>Notas</Label>
               <Textarea

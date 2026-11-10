@@ -1,6 +1,7 @@
 import type { Vacacion, SaldoVacaciones, PeriodoBloqueado } from "@/lib/types/vacaciones"
 import { supabase } from '@/lib/supabase/client'
 import { AREA_OFICINA, OFICINA_FILTER_VALUE, getEmpleadosFromDB, isEmpleadoOficina } from './empleados'
+import { normalizarNombre } from './gastos'
 
 export type VacacionesOficinaOpciones = {
   /** Incluye registros del personal de oficina. Por defecto se excluyen. */
@@ -309,12 +310,18 @@ export async function createVacacionInDB(data: {
   fechaFin: string
   diasSolicitados: number
   notas?: string
-  /** Usuario que captura el registro (queda como "Registró" y "Aprobó", ya que se crea aprobada) */
+  /** Usuario que captura el registro (columna "Registró") */
   registradoPorId?: string | null
   registradoPorNombre?: string | null
+  /** Nombre libre de quien aprobó (columna "Aprobó"); opcional */
+  aprobadoPorNombre?: string | null
 }): Promise<Vacacion | null> {
   try {
     const ahora = new Date().toISOString()
+    const aprobadoNombre =
+      data.aprobadoPorNombre && data.aprobadoPorNombre.trim() !== ""
+        ? data.aprobadoPorNombre
+        : null
     const { data: rawRow, error } = await (supabase as any)
       .from('vacaciones')
       .insert({
@@ -327,10 +334,10 @@ export async function createVacacionInDB(data: {
         fecha_solicitud: ahora,
         registrado_por_id: data.registradoPorId ?? null,
         registrado_por_nombre: data.registradoPorNombre ?? null,
-        aprobado_por_id: data.registradoPorId ?? null,
-        aprobado_por_nombre: data.registradoPorNombre ?? null,
+        aprobado_por_id: null,
+        aprobado_por_nombre: aprobadoNombre,
         fecha_resolucion: ahora.slice(0, 10),
-        resuelto_en: ahora,
+        resuelto_en: aprobadoNombre ? ahora : null,
       })
       .select(`
         *,
@@ -409,20 +416,37 @@ export async function rechazarVacacionInDB(
   }
 }
 
-// Actualizar fechas de una vacación en Supabase
+// Actualizar una vacación en Supabase (solo escribe los campos definidos)
 export async function updateVacacionInDB(
   id: string,
-  data: { fechaInicio: string; fechaFin: string; diasSolicitados: number; notas?: string }
+  data: {
+    fechaInicio?: string
+    fechaFin?: string
+    diasSolicitados?: number
+    notas?: string | null
+    aprobadoPorNombre?: string | null
+  },
 ): Promise<boolean> {
   try {
+    const patch: Record<string, unknown> = {}
+    if (data.fechaInicio !== undefined) patch.fecha_inicio = data.fechaInicio
+    if (data.fechaFin !== undefined) patch.fecha_fin = data.fechaFin
+    if (data.diasSolicitados !== undefined) patch.dias_solicitados = data.diasSolicitados
+    if (data.notas !== undefined) patch.notas = data.notas ?? null
+    if (data.aprobadoPorNombre !== undefined) {
+      const aprobadoNombre =
+        data.aprobadoPorNombre && data.aprobadoPorNombre.trim() !== ""
+          ? data.aprobadoPorNombre
+          : null
+      patch.aprobado_por_nombre = aprobadoNombre
+      patch.aprobado_por_id = null
+      patch.resuelto_en = aprobadoNombre ? new Date().toISOString() : null
+    }
+    if (Object.keys(patch).length === 0) return true
+
     const { error } = await (supabase as any)
       .from('vacaciones')
-      .update({
-        fecha_inicio: data.fechaInicio,
-        fecha_fin: data.fechaFin,
-        dias_solicitados: data.diasSolicitados,
-        notas: data.notas ?? null,
-      })
+      .update(patch)
       .eq('id', id)
 
     if (error) {
@@ -434,6 +458,76 @@ export async function updateVacacionInDB(
     console.error('Error inesperado actualizando vacación:', error)
     return false
   }
+}
+
+/**
+ * Escrituras canónicas de `aprobado_por_nombre` usadas en vacaciones.
+ * Agrupa por clave normalizada y elige la más frecuente (empate → la más larga).
+ */
+export async function getNombresAprobadoresVacaciones(): Promise<string[]> {
+  const PAGE = 1000
+  const groups = new Map<string, Map<string, number>>()
+
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await (supabase as any)
+      .from("vacaciones")
+      .select("aprobado_por_nombre")
+      .not("aprobado_por_nombre", "is", null)
+      .neq("aprobado_por_nombre", "")
+      .range(offset, offset + PAGE - 1)
+
+    if (error) {
+      console.error("[getNombresAprobadoresVacaciones]", error.message)
+      return []
+    }
+
+    for (const row of data ?? []) {
+      const raw = typeof row.aprobado_por_nombre === "string"
+        ? row.aprobado_por_nombre.trim()
+        : ""
+      if (!raw) continue
+      const key = normalizarNombre(raw)
+      if (!key) continue
+      let spellings = groups.get(key)
+      if (!spellings) {
+        spellings = new Map()
+        groups.set(key, spellings)
+      }
+      spellings.set(raw, (spellings.get(raw) ?? 0) + 1)
+    }
+
+    if (!data || data.length < PAGE) break
+  }
+
+  const nombres: string[] = []
+  for (const spellings of groups.values()) {
+    let best = ""
+    let bestCount = -1
+    for (const [spelling, count] of spellings) {
+      if (count > bestCount || (count === bestCount && spelling.length > best.length)) {
+        best = spelling
+        bestCount = count
+      }
+    }
+    if (best) nombres.push(best)
+  }
+
+  return nombres.sort((a, b) => a.localeCompare(b, "es"))
+}
+
+/**
+ * Colapsa espacios; si ya existe una escritura equivalente (normalizarNombre),
+ * reutiliza esa grafía canónica. Vacío → null.
+ */
+export function resolverNombreAprobador(
+  escrito: string,
+  nombresExistentes: string[],
+): string | null {
+  const colapsado = escrito.trim().replace(/\s+/g, " ")
+  if (!colapsado) return null
+  const key = normalizarNombre(colapsado)
+  const existente = nombresExistentes.find((n) => normalizarNombre(n) === key)
+  return existente ?? colapsado
 }
 
 // Eliminar una vacación en Supabase
