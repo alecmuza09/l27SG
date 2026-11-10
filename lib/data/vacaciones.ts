@@ -222,6 +222,31 @@ export function calcularDias(fechaInicio: string, fechaFin: string): number {
   return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1
 }
 
+/** Estado mostrado en UI (derivado; no altera la columna `estado` en BD). */
+export type EstadoVacacionVisible =
+  | "registrada"
+  | "aprobada"
+  | "pendiente"
+  | "rechazada"
+  | "cancelada"
+
+/** Si está vigente (`aprobada`) pero sin nombre en Aprobó → "registrada". */
+export function estadoVisibleVacacion(
+  vac: Pick<Vacacion, "estado" | "aprobadoPorNombre">,
+): EstadoVacacionVisible {
+  if (vac.estado === "aprobada") {
+    return vac.aprobadoPorNombre?.trim() ? "aprobada" : "registrada"
+  }
+  return vac.estado
+}
+
+/** Opciones de filtro / etiquetas de la tabla (UI). */
+export const ESTADOS_VISIBLES_VACACION: { value: EstadoVacacionVisible; label: string }[] = [
+  { value: "registrada", label: "Registrada" },
+  { value: "aprobada", label: "Aprobada" },
+  { value: "cancelada", label: "Cancelada" },
+]
+
 /** Totales de días tomados (solo aprobadas) agrupados por empleada. */
 export function totalesDiasPorEmpleada(
   vacaciones: Vacacion[],

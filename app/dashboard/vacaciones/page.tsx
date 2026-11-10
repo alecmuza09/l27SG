@@ -51,6 +51,9 @@ import {
   deleteVacacionInDB,
   getNombresAprobadoresVacaciones,
   resolverNombreAprobador,
+  estadoVisibleVacacion,
+  ESTADOS_VISIBLES_VACACION,
+  type EstadoVacacionVisible,
 } from "@/lib/data/vacaciones"
 import type { Vacacion } from "@/lib/types/vacaciones"
 import { canAccessVacacionesModule } from "@/lib/auth-vacaciones"
@@ -66,11 +69,19 @@ function formatDateTimeMx(iso: string): string {
   })
 }
 
-const estadoColors: Record<Vacacion["estado"], string> = {
+const estadoColors: Record<EstadoVacacionVisible, string> = {
+  registrada: "bg-blue-100 text-blue-800",
   pendiente: "bg-yellow-100 text-yellow-800",
   aprobada: "bg-green-100 text-green-800",
   rechazada: "bg-red-100 text-red-800",
   cancelada: "bg-gray-100 text-gray-800",
+}
+
+function etiquetaEstadoVisible(estado: EstadoVacacionVisible): string {
+  return (
+    ESTADOS_VISIBLES_VACACION.find((e) => e.value === estado)?.label ??
+    estado.charAt(0).toUpperCase() + estado.slice(1)
+  )
 }
 
 function AprobadorCelda({
@@ -276,7 +287,8 @@ export default function VacacionesPage() {
         filterSucursal === "todos"
           ? verOficina || vac.sucursalId !== OFICINA_FILTER_VALUE
           : vac.sucursalId === filterSucursal
-      const matchesEstado = filterEstado === "todos" || vac.estado === filterEstado
+      const matchesEstado =
+        filterEstado === "todos" || estadoVisibleVacacion(vac) === filterEstado
       const nombre = vac.empleadoNombre.toLowerCase()
       const matchesEmpleada =
         !filterEmpleada.trim() || nombre.includes(filterEmpleada.trim().toLowerCase())
@@ -360,8 +372,9 @@ export default function VacacionesPage() {
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
   }, [empleados, vacaciones, sucursales, resumenFilterSucursal, resumenFilterEmpleada, resumenRango, verOficina])
 
-  // Estadísticas
-  const aprobadas = vacaciones.filter((v) => v.estado === "aprobada").length
+  // Estadísticas (vigentes = estado BD "aprobada"; "con aprobación" = visible aprobada)
+  const registradas = vacaciones.filter((v) => v.estado === "aprobada").length
+  const conAprobacion = vacaciones.filter((v) => estadoVisibleVacacion(v) === "aprobada").length
   const empleadosConVacaciones = new Set(vacaciones.filter((v) => v.estado === "aprobada").map((v) => v.empleadoId))
     .size
 
@@ -601,12 +614,12 @@ export default function VacacionesPage() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Aprobadas</CardTitle>
+            <CardTitle className="text-sm font-medium">Registradas</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{aprobadas}</div>
-            <p className="text-xs text-muted-foreground">este año</p>
+            <div className="text-2xl font-bold">{registradas}</div>
+            <p className="text-xs text-muted-foreground">{conAprobacion} con aprobación</p>
           </CardContent>
         </Card>
         <Card>
@@ -672,8 +685,11 @@ export default function VacacionesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="aprobada">Aprobada</SelectItem>
-                      <SelectItem value="cancelada">Cancelada</SelectItem>
+                      {ESTADOS_VISIBLES_VACACION.map((e) => (
+                        <SelectItem key={e.value} value={e.value}>
+                          {e.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -695,7 +711,9 @@ export default function VacacionesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredVacaciones.map((vac) => (
+                  {filteredVacaciones.map((vac) => {
+                    const estadoVisible = estadoVisibleVacacion(vac)
+                    return (
                     <TableRow key={vac.id}>
                       <TableCell className="font-medium">
                         <span>{vac.empleadoNombre}</span>
@@ -714,8 +732,8 @@ export default function VacacionesPage() {
                       </TableCell>
                       <TableCell>{vac.diasSolicitados}</TableCell>
                       <TableCell>
-                        <Badge className={estadoColors[vac.estado]}>
-                          {vac.estado.charAt(0).toUpperCase() + vac.estado.slice(1)}
+                        <Badge className={estadoColors[estadoVisible]}>
+                          {etiquetaEstadoVisible(estadoVisible)}
                         </Badge>
                       </TableCell>
                       <TableCell>{formatDate(vac.fechaSolicitud)}</TableCell>
@@ -746,7 +764,8 @@ export default function VacacionesPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
                 {filteredVacaciones.length > 0 && totalesDiasSolicitudes.length > 0 && (
                   <TableFooter>
