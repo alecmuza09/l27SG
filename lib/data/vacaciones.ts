@@ -247,6 +247,31 @@ export const ESTADOS_VISIBLES_VACACION: { value: EstadoVacacionVisible; label: s
   { value: "cancelada", label: "Cancelada" },
 ]
 
+/**
+ * Ordena vacaciones por cercanía a `hoy` ("yyyy-MM-dd", fecha local).
+ * Grupo 0 (vigentes/futuras, fechaFin >= hoy) primero, por fechaInicio asc;
+ * grupo 1 (pasadas) después, por fechaFin desc.
+ * Desempate: fechaInicio asc, luego empleadoNombre (es).
+ * Compara strings "yyyy-MM-dd" sin crear Date.
+ */
+export function compararVacacionesPorCercania(a: Vacacion, b: Vacacion, hoy: string): number {
+  const grupoA = a.fechaFin >= hoy ? 0 : 1
+  const grupoB = b.fechaFin >= hoy ? 0 : 1
+  if (grupoA !== grupoB) return grupoA - grupoB
+
+  if (grupoA === 0) {
+    const byInicio = a.fechaInicio.localeCompare(b.fechaInicio)
+    if (byInicio !== 0) return byInicio
+  } else {
+    const byFin = b.fechaFin.localeCompare(a.fechaFin)
+    if (byFin !== 0) return byFin
+  }
+
+  const byInicioTie = a.fechaInicio.localeCompare(b.fechaInicio)
+  if (byInicioTie !== 0) return byInicioTie
+  return a.empleadoNombre.localeCompare(b.empleadoNombre, "es")
+}
+
 /** Totales de días tomados (solo aprobadas) agrupados por empleada. */
 export function totalesDiasPorEmpleada(
   vacaciones: Vacacion[],

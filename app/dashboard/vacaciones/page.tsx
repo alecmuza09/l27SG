@@ -44,6 +44,7 @@ import { getSucursalesByIdsFromDB, getSucursalesActivasFromDB, type Sucursal } f
 import {
   getVacacionesFromDB,
   calcularDias,
+  compararVacacionesPorCercania,
   totalesDiasPorEmpleada,
   verificarConflictoVacaciones,
   createVacacionInDB,
@@ -282,18 +283,21 @@ export default function VacacionesPage() {
   }, [router])
 
   const filteredVacaciones = useMemo(() => {
-    return vacaciones.filter((vac) => {
-      const matchesSucursal =
-        filterSucursal === "todos"
-          ? verOficina || vac.sucursalId !== OFICINA_FILTER_VALUE
-          : vac.sucursalId === filterSucursal
-      const matchesEstado =
-        filterEstado === "todos" || estadoVisibleVacacion(vac) === filterEstado
-      const nombre = vac.empleadoNombre.toLowerCase()
-      const matchesEmpleada =
-        !filterEmpleada.trim() || nombre.includes(filterEmpleada.trim().toLowerCase())
-      return matchesSucursal && matchesEstado && matchesEmpleada
-    })
+    const hoy = format(new Date(), "yyyy-MM-dd")
+    return vacaciones
+      .filter((vac) => {
+        const matchesSucursal =
+          filterSucursal === "todos"
+            ? verOficina || vac.sucursalId !== OFICINA_FILTER_VALUE
+            : vac.sucursalId === filterSucursal
+        const matchesEstado =
+          filterEstado === "todos" || estadoVisibleVacacion(vac) === filterEstado
+        const nombre = vac.empleadoNombre.toLowerCase()
+        const matchesEmpleada =
+          !filterEmpleada.trim() || nombre.includes(filterEmpleada.trim().toLowerCase())
+        return matchesSucursal && matchesEstado && matchesEmpleada
+      })
+      .sort((a, b) => compararVacacionesPorCercania(a, b, hoy))
   }, [vacaciones, filterSucursal, filterEstado, filterEmpleada, verOficina])
 
   const totalesDiasSolicitudes = useMemo(
