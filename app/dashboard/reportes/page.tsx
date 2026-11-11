@@ -398,6 +398,15 @@ function normalizarFechaGc(raw?: string | null): string {
   return raw.slice(0, 10)
 }
 
+/** YYYY-MM-DD → dd/MM/yyyy (o "—" si falta). */
+function fmtFechaDdMmYyyy(raw?: string | null): string {
+  if (!raw) return "—"
+  const d = String(raw).slice(0, 10)
+  const [y, m, day] = d.split("-")
+  if (!y || !m || !day) return "—"
+  return `${day}/${m}/${y}`
+}
+
 function labelEstadoGc(estado: string): string {
   const map: Record<string, string> = {
     activa: "Activa",
@@ -2189,6 +2198,7 @@ export default function ReportesPage() {
   const [vipPassSearch, setVipPassSearch] = useState("")
   const [vipPassEstadoFilter, setVipPassEstadoFilter] = useState<"all" | "activa" | "agotada">("all")
   const [vipPassSucursalFilter, setVipPassSucursalFilter] = useState("all")
+  const [vipPassAnioFilter, setVipPassAnioFilter] = useState("all")
   const [vipPassExpandido, setVipPassExpandido] = useState<string | null>(null)
 
   // ── Carga inicial de sucursales ──────────────────────────────────────────
@@ -2987,32 +2997,53 @@ export default function ReportesPage() {
   }
 
   // ── VIP Pass derived ──────────────────────────────────────────────────────
-  const vipPassSinClienta = vipPassRows.filter(t => !t.clienteId)
-  const vipPassConClienta = vipPassRows.filter(t => !!t.clienteId)
-  const vipPassClientasIds = new Set(vipPassConClienta.map(t => t.clienteId!))
-  const vipPassClientasConActiva = new Set(
-    vipPassConClienta.filter(t => t.estado === "activa").map(t => t.clienteId!),
-  )
-  const vipPassKpis = {
-    total: vipPassRows.length,
-    activas: vipPassRows.filter(t => t.estado === "activa").length,
-    agotadas: vipPassRows.filter(t => t.estado === "agotada").length,
-    clientas: vipPassClientasIds.size,
-    clientasConActiva: vipPassClientasConActiva.size,
-    saldoActivo: vipPassRows
-      .filter(t => t.estado === "activa")
-      .reduce((s, t) => s + t.saldoActual, 0),
-    sinClienta: vipPassSinClienta.length,
-  }
+  const vipPassAniosVencimiento = (() => {
+    const years = new Set<string>()
+    let hasSinVencimiento = false
+    for (const t of vipPassRows) {
+      if (!t.fechaVencimiento) {
+        hasSinVencimiento = true
+        continue
+      }
+      years.add(t.fechaVencimiento.slice(0, 4))
+    }
+    return {
+      years: Array.from(years).sort((a, b) => a.localeCompare(b)),
+      hasSinVencimiento,
+    }
+  })()
 
   const vipPassSearchNorm = vipPassSearch.trim().toLowerCase()
   const vipPassTarjetasFiltradas = vipPassRows.filter(t => {
     if (vipPassEstadoFilter !== "all" && t.estado !== vipPassEstadoFilter) return false
     if (vipPassSucursalFilter !== "all" && t.sucursalId !== vipPassSucursalFilter) return false
+    if (vipPassAnioFilter === "sin") {
+      if (t.fechaVencimiento != null) return false
+    } else if (vipPassAnioFilter !== "all") {
+      if (!t.fechaVencimiento || t.fechaVencimiento.slice(0, 4) !== vipPassAnioFilter) return false
+    }
     if (!vipPassSearchNorm) return true
     const hay = `${t.clienta ?? ""} ${t.codigo}`.toLowerCase()
     return hay.includes(vipPassSearchNorm)
   })
+
+  const vipPassSinClienta = vipPassTarjetasFiltradas.filter(t => !t.clienteId)
+  const vipPassConClienta = vipPassTarjetasFiltradas.filter(t => !!t.clienteId)
+  const vipPassClientasIds = new Set(vipPassConClienta.map(t => t.clienteId!))
+  const vipPassClientasConActiva = new Set(
+    vipPassConClienta.filter(t => t.estado === "activa").map(t => t.clienteId!),
+  )
+  const vipPassKpis = {
+    total: vipPassTarjetasFiltradas.length,
+    activas: vipPassTarjetasFiltradas.filter(t => t.estado === "activa").length,
+    agotadas: vipPassTarjetasFiltradas.filter(t => t.estado === "agotada").length,
+    clientas: vipPassClientasIds.size,
+    clientasConActiva: vipPassClientasConActiva.size,
+    saldoActivo: vipPassTarjetasFiltradas
+      .filter(t => t.estado === "activa")
+      .reduce((s, t) => s + t.saldoActual, 0),
+    sinClienta: vipPassSinClienta.length,
+  }
 
   type VipPassGrupo = {
     key: string
@@ -3024,6 +3055,7 @@ export default function ReportesPage() {
     numActivas: number
     saldoTotal: number
     ultimoCanje: string | null
+    venceProximo: string | null
     sucursal: string
   }
 
@@ -3045,6 +3077,11 @@ export default function ReportesPage() {
             ultimoCanje = t.ultimoCanjeVipPass
           }
         }
+        const vencimientosActivas = tarjetas
+          .filter(t => t.estado === "activa" && t.fechaVencimiento)
+          .map(t => t.fechaVencimiento!)
+          .sort((a, b) => a.localeCompare(b))
+        const venceProximo = vencimientosActivas[0] ?? null
         const sucursalesDistintas = Array.from(sucCounts.entries()).sort((a, b) => b[1] - a[1])
         const sucursal =
           sucursalesDistintas.length === 0
@@ -3062,13 +3099,14 @@ export default function ReportesPage() {
           numActivas: tarjetas.filter(t => t.estado === "activa").length,
           saldoTotal: tarjetas.reduce((s, t) => s + t.saldoActual, 0),
           ultimoCanje,
+          venceProximo,
           sucursal,
         }
       })
       .sort((a, b) => a.clienta.localeCompare(b.clienta, "es"))
   })()
 
-  const vipPassSinClientaFiltradas = vipPassTarjetasFiltradas.filter(t => !t.clienteId)
+  const vipPassSinClientaFiltradas = vipPassSinClienta
 
   const handleExportVipPass = async (format: "xlsx" | "csv") => {
     const XLSX = await import("xlsx")
@@ -3081,6 +3119,7 @@ export default function ReportesPage() {
       "Saldo actual": t.saldoActual,
       Estado: t.estado,
       Emisión: t.fechaEmision || "",
+      Vence: t.fechaVencimiento || "",
       "Último canje VIP": t.ultimoCanjeVipPass || "",
     }))
     const ws = XLSX.utils.json_to_sheet(filas)
@@ -4179,6 +4218,20 @@ export default function ReportesPage() {
                       </SelectContent>
                     </Select>
                   )}
+                  <Select value={vipPassAnioFilter} onValueChange={setVipPassAnioFilter}>
+                    <SelectTrigger className="w-48 h-9">
+                      <SelectValue placeholder="Año de vencimiento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {vipPassAniosVencimiento.years.map(y => (
+                        <SelectItem key={y} value={y}>{y}</SelectItem>
+                      ))}
+                      {vipPassAniosVencimiento.hasSinVencimiento && (
+                        <SelectItem value="sin">Sin vencimiento</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardHeader>
               <CardContent>
@@ -4202,6 +4255,7 @@ export default function ReportesPage() {
                           <TableHead className="text-right"># Activas</TableHead>
                           <TableHead className="text-right">Saldo total</TableHead>
                           <TableHead>Último canje</TableHead>
+                          <TableHead>Vence</TableHead>
                           <TableHead>Sucursal</TableHead>
                           <TableHead className="text-center w-12" />
                         </TableRow>
@@ -4224,6 +4278,7 @@ export default function ReportesPage() {
                                 <TableCell className="text-right tabular-nums">{g.numActivas}</TableCell>
                                 <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(g.saldoTotal)}</TableCell>
                                 <TableCell className="text-sm text-muted-foreground">{g.ultimoCanje || "—"}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{fmtFechaDdMmYyyy(g.venceProximo)}</TableCell>
                                 <TableCell className="text-sm text-muted-foreground">{g.sucursal}</TableCell>
                                 <TableCell className="text-center">
                                   <Button
@@ -4237,7 +4292,7 @@ export default function ReportesPage() {
                               </TableRow>
                               {expandido && (
                                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                                  <TableCell colSpan={7} className="p-0">
+                                  <TableCell colSpan={8} className="p-0">
                                     <div className="p-4">
                                       <Table>
                                         <TableHeader>
@@ -4247,6 +4302,7 @@ export default function ReportesPage() {
                                             <TableHead className="text-right">Saldo</TableHead>
                                             <TableHead>Estado</TableHead>
                                             <TableHead>Emisión</TableHead>
+                                            <TableHead>Vence</TableHead>
                                             <TableHead>Último canje</TableHead>
                                             <TableHead>Sucursal</TableHead>
                                           </TableRow>
@@ -4263,6 +4319,7 @@ export default function ReportesPage() {
                                                 </Badge>
                                               </TableCell>
                                               <TableCell className="text-sm text-muted-foreground">{t.fechaEmision || "—"}</TableCell>
+                                              <TableCell className="text-sm text-muted-foreground">{fmtFechaDdMmYyyy(t.fechaVencimiento)}</TableCell>
                                               <TableCell className="text-sm text-muted-foreground">{t.ultimoCanjeVipPass || "—"}</TableCell>
                                               <TableCell className="text-sm text-muted-foreground">{t.sucursal || "—"}</TableCell>
                                             </TableRow>
@@ -4308,6 +4365,7 @@ export default function ReportesPage() {
                             <TableHead className="text-right">Saldo</TableHead>
                             <TableHead>Estado</TableHead>
                             <TableHead>Emisión</TableHead>
+                            <TableHead>Vence</TableHead>
                             <TableHead>Último canje</TableHead>
                             <TableHead>Sucursal</TableHead>
                           </TableRow>
@@ -4324,6 +4382,7 @@ export default function ReportesPage() {
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-sm text-muted-foreground">{t.fechaEmision || "—"}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{fmtFechaDdMmYyyy(t.fechaVencimiento)}</TableCell>
                               <TableCell className="text-sm text-muted-foreground">{t.ultimoCanjeVipPass || "—"}</TableCell>
                               <TableCell className="text-sm text-muted-foreground">{t.sucursal || "—"}</TableCell>
                             </TableRow>

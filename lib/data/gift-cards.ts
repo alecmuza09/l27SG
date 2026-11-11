@@ -39,11 +39,12 @@ export interface VipPassResumenRow {
   saldoActual: number
   estado: string
   fechaEmision: string
+  fechaVencimiento: string | null
   ultimoCanjeVipPass: string | null
 }
 
 const VIP_PASS_SELECT = `
-  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, created_at, cliente_id, sucursal_id,
+  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, fecha_vencimiento, created_at, cliente_id, sucursal_id,
   cliente:clientes(nombre, apellido, telefono),
   sucursal:sucursales(nombre)
 `
@@ -136,6 +137,7 @@ export async function getResumenVipPass(opts?: {
         saldoActual: Number(gc.saldo_actual) || 0,
         estado: String(gc.estado ?? ""),
         fechaEmision: String(gc.fecha_emision || gc.created_at || "").slice(0, 10),
+        fechaVencimiento: gc.fecha_vencimiento ? String(gc.fecha_vencimiento).slice(0, 10) : null,
         ultimoCanjeVipPass: ultimoCanjePorGc.get(gc.id) ?? null,
       }
     })
