@@ -12,6 +12,7 @@ import {
   Users, Calendar, Loader2, RefreshCw, Building2,
   CheckCircle2, XCircle, Clock, AlertCircle, DollarSign,
   BarChart3, Star, Gift, Receipt, UserPlus, ChevronDown, ChevronUp,
+  Crown, Search,
 } from "lucide-react"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -52,6 +53,8 @@ import { type Periodo, calcularPeriodo, localFmt, OPCIONES_PERIODO } from "@/lib
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
+import { esCodigoVipPass, getResumenVipPass, type VipPassResumenRow } from "@/lib/data/gift-cards"
+import { Input } from "@/components/ui/input"
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
 interface VentaDia        { etiqueta: string; fecha: string; ventas: number; ventasAnt: number }
@@ -443,9 +446,8 @@ async function fetchGiftCardsParaPdf(
       .order("fecha_emision", { ascending: true })
       .range(offset, offset + PAGE - 1)
 
-    // Excluir GC de tienda en línea y VIP Pass de la sección de emitidas
+    // Excluir GC de tienda en línea; VIP Pass se filtra con esCodigoVipPass al mapear
     query = query.neq("origen", "en_linea")
-    query = query.not("codigo", "ilike", "%PASS")
 
     // Si hay filtro por sucursal, mostrar solo las que ESA sucursal vendió
     if (sucursalId) {
@@ -460,23 +462,25 @@ async function fetchGiftCardsParaPdf(
     offset += PAGE
   }
 
-  return rows.map((gc: any) => {
-    const montoInicial = Number(gc.monto_inicial) || 0
-    const saldoActual = Number(gc.saldo_actual) || 0
-    return {
-      id: gc.id as string,
-      codigo: gc.codigo,
-      cliente: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : "Sin cliente",
-      fechaEmision: normalizarFechaGc(gc.fecha_emision || gc.created_at),
-      montoInicial,
-      saldoActual,
-      metodoPago: labelMetodoPagoGc(gc.metodo_pago),
-      saldoUsado: Math.max(0, montoInicial - saldoActual),
-      saldoDisponible: saldoActual,
-      estado: labelEstadoGc(gc.estado),
-      sucursal: gc.sucursal?.nombre || gc.sucursal_id || "—",
-    }
-  })
+  return rows
+    .filter((gc: any) => !esCodigoVipPass(String(gc.codigo ?? "")))
+    .map((gc: any) => {
+      const montoInicial = Number(gc.monto_inicial) || 0
+      const saldoActual = Number(gc.saldo_actual) || 0
+      return {
+        id: gc.id as string,
+        codigo: gc.codigo,
+        cliente: gc.cliente ? `${gc.cliente.nombre} ${gc.cliente.apellido}` : "Sin cliente",
+        fechaEmision: normalizarFechaGc(gc.fecha_emision || gc.created_at),
+        montoInicial,
+        saldoActual,
+        metodoPago: labelMetodoPagoGc(gc.metodo_pago),
+        saldoUsado: Math.max(0, montoInicial - saldoActual),
+        saldoDisponible: saldoActual,
+        estado: labelEstadoGc(gc.estado),
+        sucursal: gc.sucursal?.nombre || gc.sucursal_id || "—",
+      }
+    })
 }
 
 async function fetchCanjesParaPdf(
@@ -1093,12 +1097,8 @@ async function renderSeccionGcPdf(
   })
 
   // Separar canjes normales de VIP Pass
-  const canjesNormales = opts.canjes.filter(c =>
-    !c.codigo.toUpperCase().endsWith("PASS")
-  )
-  const canjesVipPass = opts.canjes.filter(c =>
-    c.codigo.toUpperCase().endsWith("PASS")
-  )
+  const canjesNormales = opts.canjes.filter(c => !esCodigoVipPass(c.codigo))
+  const canjesVipPass = opts.canjes.filter(c => esCodigoVipPass(c.codigo))
 
   // Título canjes GC normales
   const y2 = (doc as any).lastAutoTable?.finalY ?? y1 + 40
@@ -2183,6 +2183,14 @@ export default function ReportesPage() {
   const [isExportingGcPdf,     setIsExportingGcPdf]     = useState(false)
   const [isExportingNomina, setIsExportingNomina] = useState(false)
 
+  // ── Tab VIP Pass (estado actual, no depende de período) ──
+  const [vipPassRows, setVipPassRows] = useState<VipPassResumenRow[]>([])
+  const [isLoadingVipPass, setIsLoadingVipPass] = useState(false)
+  const [vipPassSearch, setVipPassSearch] = useState("")
+  const [vipPassEstadoFilter, setVipPassEstadoFilter] = useState<"all" | "activa" | "agotada">("all")
+  const [vipPassSucursalFilter, setVipPassSucursalFilter] = useState("all")
+  const [vipPassExpandido, setVipPassExpandido] = useState<string | null>(null)
+
   // ── Carga inicial de sucursales ──────────────────────────────────────────
   useEffect(() => {
     if (isAdmin) {
@@ -2644,6 +2652,32 @@ export default function ReportesPage() {
     void cargarGastos()
   }, [activeTab, cargarGastos, gastosPeriodo, gastosFechaCustomDesde, gastosFechaCustomHasta])
 
+  const cargarVipPass = useCallback(async () => {
+    setIsLoadingVipPass(true)
+    try {
+      const { sucId, esMultiBranchAll } = resolverContextoReporte()
+      let rows: VipPassResumenRow[]
+      if (esMultiBranchAll) {
+        rows = await getResumenVipPass({ sucursalIds: branchIds })
+      } else if (sucId) {
+        rows = await getResumenVipPass({ sucursalId: sucId })
+      } else {
+        rows = await getResumenVipPass()
+      }
+      setVipPassRows(rows)
+    } catch (err) {
+      console.error("Error cargando VIP Pass:", err)
+      setVipPassRows([])
+    } finally {
+      setIsLoadingVipPass(false)
+    }
+  }, [resolverContextoReporte, branchIds.join(",")])
+
+  useEffect(() => {
+    if (activeTab !== "vip-pass") return
+    void cargarVipPass()
+  }, [activeTab, cargarVipPass, reporteFiltrosKey])
+
   // Si el usuario multi-sucursal aún no tenía branchIds al montar, fijar main como default
   useEffect(() => {
     if (isAdmin || !multiBranch || branchIds.length === 0) return
@@ -2950,6 +2984,114 @@ export default function ReportesPage() {
     ticketPromedio: embajadorasActivas.length > 0
       ? Math.round(embajadorasActivas.reduce((s, e) => s + e.totalGastado, 0) / embajadorasActivas.length)
       : 0,
+  }
+
+  // ── VIP Pass derived ──────────────────────────────────────────────────────
+  const vipPassSinClienta = vipPassRows.filter(t => !t.clienteId)
+  const vipPassConClienta = vipPassRows.filter(t => !!t.clienteId)
+  const vipPassClientasIds = new Set(vipPassConClienta.map(t => t.clienteId!))
+  const vipPassClientasConActiva = new Set(
+    vipPassConClienta.filter(t => t.estado === "activa").map(t => t.clienteId!),
+  )
+  const vipPassKpis = {
+    total: vipPassRows.length,
+    activas: vipPassRows.filter(t => t.estado === "activa").length,
+    agotadas: vipPassRows.filter(t => t.estado === "agotada").length,
+    clientas: vipPassClientasIds.size,
+    clientasConActiva: vipPassClientasConActiva.size,
+    saldoActivo: vipPassRows
+      .filter(t => t.estado === "activa")
+      .reduce((s, t) => s + t.saldoActual, 0),
+    sinClienta: vipPassSinClienta.length,
+  }
+
+  const vipPassSearchNorm = vipPassSearch.trim().toLowerCase()
+  const vipPassTarjetasFiltradas = vipPassRows.filter(t => {
+    if (vipPassEstadoFilter !== "all" && t.estado !== vipPassEstadoFilter) return false
+    if (vipPassSucursalFilter !== "all" && t.sucursalId !== vipPassSucursalFilter) return false
+    if (!vipPassSearchNorm) return true
+    const hay = `${t.clienta ?? ""} ${t.codigo}`.toLowerCase()
+    return hay.includes(vipPassSearchNorm)
+  })
+
+  type VipPassGrupo = {
+    key: string
+    clienteId: string
+    clienta: string
+    telefono: string | null
+    tarjetas: VipPassResumenRow[]
+    numTarjetas: number
+    numActivas: number
+    saldoTotal: number
+    ultimoCanje: string | null
+    sucursal: string
+  }
+
+  const vipPassGrupos: VipPassGrupo[] = (() => {
+    const map = new Map<string, VipPassResumenRow[]>()
+    for (const t of vipPassTarjetasFiltradas) {
+      if (!t.clienteId) continue
+      const list = map.get(t.clienteId) ?? []
+      list.push(t)
+      map.set(t.clienteId, list)
+    }
+    return Array.from(map.entries())
+      .map(([clienteId, tarjetas]) => {
+        const sucCounts = new Map<string, number>()
+        let ultimoCanje: string | null = null
+        for (const t of tarjetas) {
+          if (t.sucursal) sucCounts.set(t.sucursal, (sucCounts.get(t.sucursal) ?? 0) + 1)
+          if (t.ultimoCanjeVipPass && (!ultimoCanje || t.ultimoCanjeVipPass > ultimoCanje)) {
+            ultimoCanje = t.ultimoCanjeVipPass
+          }
+        }
+        const sucursalesDistintas = Array.from(sucCounts.entries()).sort((a, b) => b[1] - a[1])
+        const sucursal =
+          sucursalesDistintas.length === 0
+            ? "—"
+            : sucursalesDistintas.length === 1
+              ? sucursalesDistintas[0][0]
+              : "Varias"
+        return {
+          key: clienteId,
+          clienteId,
+          clienta: tarjetas[0].clienta || "Sin nombre",
+          telefono: tarjetas[0].telefono,
+          tarjetas,
+          numTarjetas: tarjetas.length,
+          numActivas: tarjetas.filter(t => t.estado === "activa").length,
+          saldoTotal: tarjetas.reduce((s, t) => s + t.saldoActual, 0),
+          ultimoCanje,
+          sucursal,
+        }
+      })
+      .sort((a, b) => a.clienta.localeCompare(b.clienta, "es"))
+  })()
+
+  const vipPassSinClientaFiltradas = vipPassTarjetasFiltradas.filter(t => !t.clienteId)
+
+  const handleExportVipPass = async (format: "xlsx" | "csv") => {
+    const XLSX = await import("xlsx")
+    const filas = vipPassTarjetasFiltradas.map(t => ({
+      Clienta: t.clienta || "Sin clienta",
+      Teléfono: t.telefono || "",
+      Código: t.codigo,
+      Sucursal: t.sucursal || "",
+      "Monto inicial": t.montoInicial,
+      "Saldo actual": t.saldoActual,
+      Estado: t.estado,
+      Emisión: t.fechaEmision || "",
+      "Último canje VIP": t.ultimoCanjeVipPass || "",
+    }))
+    const ws = XLSX.utils.json_to_sheet(filas)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "VIP Pass")
+    const stamp = localFmt(new Date())
+    if (format === "csv") {
+      XLSX.writeFile(wb, `vip-pass-${stamp}.csv`, { bookType: "csv" })
+    } else {
+      XLSX.writeFile(wb, `vip-pass-${stamp}.xlsx`)
+    }
   }
 
   const toggleEmbajadoraDetalle = (id: string) => {
@@ -3446,6 +3588,7 @@ export default function ReportesPage() {
             {!isManager && <TabsTrigger value="nomina">Nómina</TabsTrigger>}
             <TabsTrigger value="clientes">Clientes</TabsTrigger>
             <TabsTrigger value="embajadoras">Embajadoras</TabsTrigger>
+            <TabsTrigger value="vip-pass">VIP Pass</TabsTrigger>
             <TabsTrigger value="gastos">Gastos</TabsTrigger>
             {isAdmin && <TabsTrigger value="sucursales">Sucursales</TabsTrigger>}
           </TabsList>
@@ -3914,6 +4057,284 @@ export default function ReportesPage() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* ══════════════ VIP PASS ══════════════ */}
+          <TabsContent value="vip-pass" className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+              <KpiCard
+                icon={Crown}
+                iconBg="bg-amber-50"
+                iconColor="text-amber-700"
+                title="Total VIP Pass"
+                value={isLoadingVipPass ? "…" : vipPassKpis.total}
+              />
+              <KpiCard
+                icon={CheckCircle2}
+                iconBg="bg-emerald-50"
+                iconColor="text-emerald-600"
+                title="Activas"
+                value={isLoadingVipPass ? "…" : vipPassKpis.activas}
+              />
+              <KpiCard
+                icon={XCircle}
+                iconBg="bg-slate-50"
+                iconColor="text-slate-500"
+                title="Agotadas"
+                value={isLoadingVipPass ? "…" : vipPassKpis.agotadas}
+              />
+              <KpiCard
+                icon={Users}
+                iconBg="bg-blue-50"
+                iconColor="text-blue-600"
+                title="Clientas con VIP"
+                value={isLoadingVipPass ? "…" : vipPassKpis.clientas}
+              />
+              <KpiCard
+                icon={Star}
+                iconBg="bg-violet-50"
+                iconColor="text-violet-600"
+                title="Clientas con activa"
+                value={isLoadingVipPass ? "…" : vipPassKpis.clientasConActiva}
+              />
+              <KpiCard
+                icon={DollarSign}
+                iconBg="bg-green-50"
+                iconColor="text-green-600"
+                title="Saldo activo total"
+                value={isLoadingVipPass ? "…" : fmtMXN(vipPassKpis.saldoActivo)}
+              />
+              <KpiCard
+                icon={AlertCircle}
+                iconBg="bg-orange-50"
+                iconColor="text-orange-600"
+                title="Sin clienta asignada"
+                value={isLoadingVipPass ? "…" : vipPassKpis.sinClienta}
+              />
+            </div>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Crown className="h-4 w-4" />Clientas con VIP Pass
+                    </CardTitle>
+                    <CardDescription>Estado actual · agrupado por clienta</CardDescription>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={vipPassTarjetasFiltradas.length === 0}>
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                        Exportar a Excel/CSV
+                        <ChevronDown className="ml-2 h-4 w-4 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => void handleExportVipPass("xlsx")}>
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                        Excel (XLSX)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => void handleExportVipPass("csv")}>
+                        <Download className="mr-2 h-4 w-4" />
+                        CSV
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="pl-8 h-9"
+                      placeholder="Buscar nombre o código…"
+                      value={vipPassSearch}
+                      onChange={e => setVipPassSearch(e.target.value)}
+                    />
+                  </div>
+                  <Select
+                    value={vipPassEstadoFilter}
+                    onValueChange={v => setVipPassEstadoFilter(v as "all" | "activa" | "agotada")}
+                  >
+                    <SelectTrigger className="w-40 h-9">
+                      <SelectValue placeholder="Estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los estados</SelectItem>
+                      <SelectItem value="activa">Activa</SelectItem>
+                      <SelectItem value="agotada">Agotada</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {(isAdmin || multiBranch) && sucursales.length > 0 && (
+                    <Select value={vipPassSucursalFilter} onValueChange={setVipPassSucursalFilter}>
+                      <SelectTrigger className="w-52 h-9">
+                        <Building2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                        <SelectValue placeholder="Sucursal" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        {sucursales.map(s => (
+                          <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {isLoadingVipPass ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                    ))}
+                  </div>
+                ) : vipPassGrupos.length === 0 ? (
+                  <p className="text-center py-8 text-sm text-muted-foreground">
+                    Sin clientas con VIP Pass para los filtros actuales
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Clienta</TableHead>
+                          <TableHead className="text-right"># Tarjetas</TableHead>
+                          <TableHead className="text-right"># Activas</TableHead>
+                          <TableHead className="text-right">Saldo total</TableHead>
+                          <TableHead>Último canje</TableHead>
+                          <TableHead>Sucursal</TableHead>
+                          <TableHead className="text-center w-12" />
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {vipPassGrupos.map(g => {
+                          const expandido = vipPassExpandido === g.key
+                          return (
+                            <Fragment key={g.key}>
+                              <TableRow>
+                                <TableCell>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-sm truncate">{g.clienta}</p>
+                                    {g.telefono && (
+                                      <p className="text-xs text-muted-foreground">{g.telefono}</p>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">{g.numTarjetas}</TableCell>
+                                <TableCell className="text-right tabular-nums">{g.numActivas}</TableCell>
+                                <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(g.saldoTotal)}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{g.ultimoCanje || "—"}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{g.sucursal}</TableCell>
+                                <TableCell className="text-center">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setVipPassExpandido(expandido ? null : g.key)}
+                                  >
+                                    {expandido ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                              {expandido && (
+                                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                  <TableCell colSpan={7} className="p-0">
+                                    <div className="p-4">
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow>
+                                            <TableHead>Código</TableHead>
+                                            <TableHead className="text-right">Monto inicial</TableHead>
+                                            <TableHead className="text-right">Saldo</TableHead>
+                                            <TableHead>Estado</TableHead>
+                                            <TableHead>Emisión</TableHead>
+                                            <TableHead>Último canje</TableHead>
+                                            <TableHead>Sucursal</TableHead>
+                                          </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {g.tarjetas.map(t => (
+                                            <TableRow key={t.id}>
+                                              <TableCell className="font-mono text-xs">{t.codigo}</TableCell>
+                                              <TableCell className="text-right tabular-nums">{fmtMXN(t.montoInicial)}</TableCell>
+                                              <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(t.saldoActual)}</TableCell>
+                                              <TableCell>
+                                                <Badge variant={t.estado === "activa" ? "default" : "secondary"}>
+                                                  {labelEstadoGc(t.estado)}
+                                                </Badge>
+                                              </TableCell>
+                                              <TableCell className="text-sm text-muted-foreground">{t.fechaEmision || "—"}</TableCell>
+                                              <TableCell className="text-sm text-muted-foreground">{t.ultimoCanjeVipPass || "—"}</TableCell>
+                                              <TableCell className="text-sm text-muted-foreground">{t.sucursal || "—"}</TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {!isLoadingVipPass && vipPassKpis.sinClienta > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />VIP Pass sin clienta asignada
+                  </CardTitle>
+                  <CardDescription>
+                    No se cuentan como clientas · {vipPassSinClientaFiltradas.length} de {vipPassKpis.sinClienta} visibles con filtros
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {vipPassSinClientaFiltradas.length === 0 ? (
+                    <p className="text-center py-4 text-sm text-muted-foreground">
+                      Ninguna coincide con los filtros actuales
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Código</TableHead>
+                            <TableHead className="text-right">Monto inicial</TableHead>
+                            <TableHead className="text-right">Saldo</TableHead>
+                            <TableHead>Estado</TableHead>
+                            <TableHead>Emisión</TableHead>
+                            <TableHead>Último canje</TableHead>
+                            <TableHead>Sucursal</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {vipPassSinClientaFiltradas.map(t => (
+                            <TableRow key={t.id}>
+                              <TableCell className="font-mono text-xs">{t.codigo}</TableCell>
+                              <TableCell className="text-right tabular-nums">{fmtMXN(t.montoInicial)}</TableCell>
+                              <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(t.saldoActual)}</TableCell>
+                              <TableCell>
+                                <Badge variant={t.estado === "activa" ? "default" : "secondary"}>
+                                  {labelEstadoGc(t.estado)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{t.fechaEmision || "—"}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{t.ultimoCanjeVipPass || "—"}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{t.sucursal || "—"}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* ══════════════ EMBAJADORAS ══════════════ */}

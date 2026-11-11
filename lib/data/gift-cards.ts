@@ -22,6 +22,129 @@ export function generarCodigoGiftCard(): string {
   return `GC-${part1}-${part2}`
 }
 
+/** VIP Pass = gift card cuyo código contiene PASS o VIP (única regla compartida). */
+export function esCodigoVipPass(codigo: string): boolean {
+  return /pass|vip/i.test(codigo ?? "")
+}
+
+export interface VipPassResumenRow {
+  id: string
+  codigo: string
+  clienteId: string | null
+  clienta: string | null
+  telefono: string | null
+  sucursalId: string
+  sucursal: string
+  montoInicial: number
+  saldoActual: number
+  estado: string
+  fechaEmision: string
+  ultimoCanjeVipPass: string | null
+}
+
+const VIP_PASS_SELECT = `
+  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, created_at, cliente_id, sucursal_id,
+  cliente:clientes(nombre, apellido, telefono),
+  sucursal:sucursales(nombre)
+`
+
+/** Resumen de solo lectura: gift cards VIP Pass + último canje tipo vip_pass. */
+export async function getResumenVipPass(opts?: {
+  sucursalId?: string
+  sucursalIds?: string[]
+}): Promise<VipPassResumenRow[]> {
+  const PAGE = 1000
+  const rows: any[] = []
+  let offset = 0
+
+  try {
+    for (;;) {
+      let query = (supabase as any)
+        .from("gift_cards")
+        .select(VIP_PASS_SELECT)
+        .or("codigo.ilike.%pass%,codigo.ilike.%vip%")
+        .order("fecha_emision", { ascending: false })
+        .range(offset, offset + PAGE - 1)
+
+      if (opts?.sucursalId) {
+        query = query.eq("sucursal_id", opts.sucursalId)
+      } else if (opts?.sucursalIds && opts.sucursalIds.length > 0) {
+        query = query.in("sucursal_id", opts.sucursalIds)
+      }
+
+      const { data, error } = await query
+      if (error) {
+        console.error("Error obteniendo VIP Pass:", error)
+        break
+      }
+      if (!data?.length) break
+      rows.push(...data)
+      if (data.length < PAGE) break
+      offset += PAGE
+    }
+
+    const vipCards = rows.filter((gc) => esCodigoVipPass(String(gc.codigo ?? "")))
+    if (vipCards.length === 0) return []
+
+    const ultimoCanjePorGc = new Map<string, string>()
+    const ids = vipCards.map((gc) => gc.id as string)
+    const ID_CHUNK = 200
+    for (let i = 0; i < ids.length; i += ID_CHUNK) {
+      const chunk = ids.slice(i, i + ID_CHUNK)
+      let txOffset = 0
+      for (;;) {
+        const { data: txs, error: txError } = await (supabase as any)
+          .from("gift_card_transacciones")
+          .select("gift_card_id, fecha, created_at")
+          .eq("tipo", "vip_pass")
+          .in("gift_card_id", chunk)
+          .order("fecha", { ascending: false })
+          .range(txOffset, txOffset + PAGE - 1)
+
+        if (txError) {
+          console.error("Error obteniendo canjes VIP Pass:", txError)
+          break
+        }
+        if (!txs?.length) break
+
+        for (const t of txs) {
+          const gcId = t.gift_card_id as string
+          const fecha = String(t.fecha || t.created_at || "").slice(0, 10)
+          if (!fecha) continue
+          const prev = ultimoCanjePorGc.get(gcId)
+          if (!prev || fecha > prev) ultimoCanjePorGc.set(gcId, fecha)
+        }
+
+        if (txs.length < PAGE) break
+        txOffset += PAGE
+      }
+    }
+
+    return vipCards.map((gc) => {
+      const nombre = gc.cliente
+        ? `${gc.cliente.nombre ?? ""} ${gc.cliente.apellido ?? ""}`.trim()
+        : ""
+      return {
+        id: gc.id as string,
+        codigo: String(gc.codigo ?? ""),
+        clienteId: (gc.cliente_id as string) || null,
+        clienta: nombre || null,
+        telefono: (gc.cliente?.telefono as string) || null,
+        sucursalId: String(gc.sucursal_id ?? ""),
+        sucursal: (gc.sucursal?.nombre as string) || "",
+        montoInicial: Number(gc.monto_inicial) || 0,
+        saldoActual: Number(gc.saldo_actual) || 0,
+        estado: String(gc.estado ?? ""),
+        fechaEmision: String(gc.fecha_emision || gc.created_at || "").slice(0, 10),
+        ultimoCanjeVipPass: ultimoCanjePorGc.get(gc.id) ?? null,
+      }
+    })
+  } catch (error) {
+    console.error("Error inesperado en getResumenVipPass:", error)
+    return []
+  }
+}
+
 // ─── Helper interno de mapeo ──────────────────────────────────────────────────
 function mapGiftCard(gc: any): GiftCard {
   return {
