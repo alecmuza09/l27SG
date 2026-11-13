@@ -52,6 +52,7 @@ import {
   BadgeCheck,
   AlertTriangle,
   Pencil,
+  Crown,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
@@ -71,6 +72,9 @@ import {
   recargarGiftCard,
   cancelarGiftCard,
   eliminarGiftCard,
+  esRegistroVipPass,
+  usosHechosVipPass,
+  usosRestantesVipPass,
 } from "@/lib/data/gift-cards"
 import {
   analizarFolioTiendaEnLinea,
@@ -86,11 +90,19 @@ import {
   fechaVencimientoDesdeExpiresAt,
   formatearFechaVigenciaLovable,
   mensajeGiftCardExpiradaLovable,
+  MSG_FOLIO_ANULADO_LOVABLE,
   type LovableGiftcardPayload,
 } from "@/lib/data/gift-card-lovable-verify"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
 import { METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA } from "@/lib/data/pagos"
+import { RegistrarVipPassDialog } from "@/components/gift-cards/registrar-vip-pass-dialog"
+import {
+  esFolioVipPassDetectado,
+  getVipPassCampanaActiva,
+  MSG_FOLIO_ES_VIP_PASS,
+} from "@/lib/data/vip-pass"
+import type { VipPassCampana } from "@/lib/types/vip-pass"
 
 // ─── Configuración de estados ─────────────────────────────────────────────
 
@@ -220,7 +232,7 @@ export default function GiftCardsPage() {
 
   // ── Validación de folio (modal Crear) ─────────────────────────────────
   const [createFolioStatus, setCreateFolioStatus] = useState<
-    null | "checking" | "en_agenda" | "lovable_valid" | "lovable_redeemed" | "lovable_expired" | "lovable_error" | "not_found"
+    null | "checking" | "en_agenda" | "lovable_valid" | "lovable_redeemed" | "lovable_expired" | "lovable_voided" | "lovable_error" | "not_found"
   >(null)
   const [createFolioData, setCreateFolioData] = useState<{
     clienteNombre?: string | null
@@ -230,6 +242,7 @@ export default function GiftCardsPage() {
     amount?: number
     redeemedAt?: string | null
     expiresAt?: string | null
+    lovableType?: string | null
   } | null>(null)
 
   // ── Selector de cliente (modal Crear) ──────────────────────────────────
@@ -264,7 +277,15 @@ export default function GiftCardsPage() {
   const [lovableResult,  setLovableResult]  = useState<{
     valid: boolean
     giftcard?: LovableGiftcardPayload
-    errorKind?: "not_found" | "server_error" | "connection_error" | "expired"
+    errorKind?: "not_found" | "server_error" | "connection_error" | "expired" | "voided"
+  } | null>(null)
+
+  const [isVipRegisterOpen, setIsVipRegisterOpen] = useState(false)
+  const [puedeRegistrarVip, setPuedeRegistrarVip] = useState(false)
+  const [vipCampanaActiva, setVipCampanaActiva] = useState<VipPassCampana | null>(null)
+  const [vipDialogInitial, setVipDialogInitial] = useState<{
+    folio: string
+    lovable?: LovableGiftcardPayload | null
   } | null>(null)
 
   const aplicarVigenciaDesdeLovable = (expiresAt: string | null | undefined) => {
@@ -321,9 +342,17 @@ export default function GiftCardsPage() {
       setIsLoading(true)
       try {
         const user = await refreshSession()
-        setCurrentUser(user ?? getCurrentUser())
-        const sid = narrowGiftCardScopeSucursalId(user ?? getCurrentUser())
+        const u = user ?? getCurrentUser()
+        setCurrentUser(u)
+        const sid = narrowGiftCardScopeSucursalId(u)
         setGiftCardsSucursalScope(sid)
+        const campanaActiva = await getVipPassCampanaActiva()
+        setVipCampanaActiva(campanaActiva)
+        const branchIds = collectEffectiveSucursalIds(u)
+        const puede =
+          isGlobalAdministrator(u) ||
+          (!!campanaActiva?.sucursalVentaId && branchIds.includes(campanaActiva.sucursalVentaId))
+        setPuedeRegistrarVip(puede)
         const [result, kpiData, sucData] = await Promise.all([
           getGiftCardsFromDB({ page: 0, pageSize: PAGE_SIZE, sucursalId: sid }),
           getGiftCardsKPIsFromDB(sid),
@@ -496,6 +525,12 @@ export default function GiftCardsPage() {
 
     // ── PASO 2: consultar API Lovable ─────────────────────────────────────
     const lovable = await verificarFolioEnLovable(folio)
+    if (lovable.outcome === "voided") {
+      setCreateFolioStatus("lovable_voided")
+      setCreateFolioData(null)
+      toast.error(MSG_FOLIO_ANULADO_LOVABLE)
+      return
+    }
     if (lovable.outcome === "expired") {
       const gc = lovable.giftcard
       setNewCodigo(gc.folio || folio)
@@ -519,6 +554,7 @@ export default function GiftCardsPage() {
         amount: gc.amount,
         redeemedAt: gc.redeemed_at ?? null,
         expiresAt: gc.expires_at ?? null,
+        lovableType: gc.type ?? null,
       })
       setNewMonto(String(gc.amount))
       aplicarVigenciaDesdeLovable(gc.expires_at)
@@ -536,12 +572,28 @@ export default function GiftCardsPage() {
   const handleCreate = async () => {
     if (!newMonto || !newSucursalId) return
 
+    if (createFolioStatus === "lovable_voided") {
+      toast.error(MSG_FOLIO_ANULADO_LOVABLE)
+      return
+    }
+
     if (createFolioStatus === "lovable_expired") {
       toast.error(mensajeGiftCardExpiradaLovable(createFolioData?.expiresAt))
       return
     }
 
     const codigoTrim = newCodigo.trim()
+    if (
+      esFolioVipPassDetectado({
+        codigo: codigoTrim,
+        lovableType: createFolioData?.lovableType,
+        campana: vipCampanaActiva,
+      })
+    ) {
+      toast.error(MSG_FOLIO_ES_VIP_PASS)
+      return
+    }
+
     if (intentandoFormatoTiendaEnLinea(codigoTrim)) {
       const a = analizarFolioTiendaEnLinea(codigoTrim)
       if (a.tipo === "error") {
@@ -787,6 +839,15 @@ export default function GiftCardsPage() {
 
     // ── PASO 2: consultar API de Lovable ──────────────────────────────────
     const lovable = await verificarFolioEnLovable(raw)
+    if (lovable.outcome === "voided") {
+      setLovableResult({
+        valid: false,
+        giftcard: lovable.giftcard,
+        errorKind: "voided",
+      })
+      setIsSearching(false)
+      return
+    }
     if (lovable.outcome === "expired") {
       setLovableResult({
         valid: false,
@@ -855,10 +916,24 @@ export default function GiftCardsPage() {
           <h1 className="text-3xl font-bold text-foreground">Gift Cards</h1>
           <p className="text-muted-foreground">Gestiona tarjetas de regalo para tus clientes</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva Gift Card
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {puedeRegistrarVip && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setVipDialogInitial(null)
+                setIsVipRegisterOpen(true)
+              }}
+            >
+              <Crown className="mr-2 h-4 w-4 text-amber-600" />
+              Registrar VIP Pass
+            </Button>
+          )}
+          <Button onClick={() => setIsCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva Gift Card
+          </Button>
+        </div>
       </div>
 
       {/* ── Panel consulta rápida por código ── */}
@@ -898,6 +973,18 @@ export default function GiftCardsPage() {
 
           {/* Resultado de API Lovable (códigos tienda en línea / GIFT) */}
           {lovableResult && (() => {
+            if (lovableResult.errorKind === "voided") {
+              return (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4">
+                  <p className="text-sm font-semibold text-red-800 flex items-center gap-1.5">
+                    <XCircle className="h-4 w-4" /> {MSG_FOLIO_ANULADO_LOVABLE}
+                  </p>
+                  <p className="text-xs text-red-700 mt-1">
+                    No se puede registrar ni cobrar este folio.
+                  </p>
+                </div>
+              )
+            }
             if (lovableResult.errorKind === "not_found") {
               return (
                 <div className="mt-3 rounded-lg border border-border bg-muted/30 p-4 flex flex-col gap-3">
@@ -972,6 +1059,61 @@ export default function GiftCardsPage() {
             const gc = lovableResult.giftcard
             const nombreServicio = gc.type === "gift" ? "Dinero electrónico" : gc.package_name
             const vigenciaTxt = formatearFechaVigenciaLovable(gc.expires_at)
+            const esVipPass = esFolioVipPassDetectado({
+              codigo: gc.folio || consultaCodigo,
+              lovableType: gc.type,
+              campana: vipCampanaActiva,
+            })
+
+            if (esVipPass) {
+              return (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-4 flex flex-col gap-3">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+                    <Crown className="h-4 w-4" /> Folio VIP Pass — no uses el flujo de gift card
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm border-t border-amber-100 pt-3">
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Servicio</p>
+                      <p className="font-medium">{gc.package_name || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Monto</p>
+                      <p className="font-bold text-lg leading-tight text-amber-800">{fmtMXN(gc.amount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Compradora</p>
+                      <p className="font-medium">{gc.customer_name || "—"}</p>
+                    </div>
+                    {gc.recipient_name ? (
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase font-medium">Destinataria sugerida</p>
+                        <p className="font-medium">{gc.recipient_name}</p>
+                      </div>
+                    ) : null}
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Vigencia</p>
+                      <p className="font-medium">{vigenciaTxt ?? "Sin vencimiento"}</p>
+                    </div>
+                  </div>
+                  {puedeRegistrarVip ? (
+                    <Button
+                      type="button"
+                      className="w-full sm:w-auto"
+                      onClick={() => {
+                        setVipDialogInitial({ folio: gc.folio || consultaCodigo.trim(), lovable: gc })
+                        setIsVipRegisterOpen(true)
+                      }}
+                    >
+                      <Crown className="h-4 w-4 mr-2" /> Registrar VIP Pass
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-amber-900">
+                      Este folio es una VIP Pass. Pide a un admin o a recepción de La Aurora que la registre.
+                    </p>
+                  )}
+                </div>
+              )
+            }
 
             if (!gc.redeemed) {
               return (
@@ -1051,21 +1193,35 @@ export default function GiftCardsPage() {
 
           {consultaCard && (() => {
             const esValida = consultaCard.estado === 'activa' && consultaCard.saldoActual > 0
+            const esVip = esRegistroVipPass({ tipo: consultaCard.tipo, codigo: consultaCard.codigo })
+            const usosRest = usosRestantesVipPass(
+              consultaCard.saldoInicial,
+              consultaCard.saldoActual,
+              consultaCard.vipUsosTotal,
+            )
+            const usosHechos = usosHechosVipPass(
+              consultaCard.saldoInicial,
+              consultaCard.saldoActual,
+              consultaCard.vipUsosTotal,
+            )
             return (
               <div className={cn(
                 "mt-3 rounded-lg border p-4 flex flex-col gap-3",
                 esValida ? "bg-emerald-50 border-emerald-200" : "bg-white"
               )}>
                 {/* Badge de estado de validez */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {esValida ? (
                     <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
-                      <CheckCircle className="h-4 w-4" /> Gift card válida — lista para usar
+                      <CheckCircle className="h-4 w-4" /> {esVip ? "VIP Pass válido" : "Gift card válida"} — lista para usar
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-700">
-                      <XCircle className="h-4 w-4" /> Gift card {estadoConfig[consultaCard.estado]?.label ?? consultaCard.estado} — no disponible para cobro
+                      <XCircle className="h-4 w-4" /> {esVip ? "VIP Pass" : "Gift card"} {estadoConfig[consultaCard.estado]?.label ?? consultaCard.estado} — no disponible para cobro
                     </span>
+                  )}
+                  {esVip && (
+                    <Badge className="bg-amber-100 text-amber-800 border-amber-200">VIP Pass</Badge>
                   )}
                 </div>
 
@@ -1076,14 +1232,27 @@ export default function GiftCardsPage() {
                       <p className="text-[10px] text-muted-foreground uppercase font-medium">Código</p>
                       <p className="font-mono font-bold text-sm">{consultaCard.codigo}</p>
                     </div>
+                    {esVip && (
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase font-medium">Servicio</p>
+                        <p className="font-semibold text-sm">{consultaCard.vipServicio || "—"}</p>
+                      </div>
+                    )}
                     <div>
-                      <p className="text-[10px] text-muted-foreground uppercase font-medium">Saldo disponible</p>
+                      <p className="text-[10px] text-muted-foreground uppercase font-medium">
+                        {esVip ? "Saldo / usos" : "Saldo disponible"}
+                      </p>
                       <p className={cn(
                         "font-bold text-lg leading-tight",
                         consultaCard.saldoActual > 0 ? "text-emerald-600" : "text-red-500"
                       )}>
                         {fmtMXN(consultaCard.saldoActual)}
                       </p>
+                      {esVip && usosRest != null && (
+                        <p className="text-xs text-muted-foreground">
+                          {usosHechos ?? "—"}/{consultaCard.vipUsosTotal} usos · {usosRest} restantes
+                        </p>
+                      )}
                     </div>
                     <div>
                       <p className="text-[10px] text-muted-foreground uppercase font-medium">Carga original</p>
@@ -1459,6 +1628,14 @@ export default function GiftCardsPage() {
                   </p>
                 </div>
               )}
+              {createFolioStatus === "lovable_voided" && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900 space-y-0.5">
+                  <p className="font-semibold flex items-center gap-1">
+                    <XCircle className="h-3.5 w-3.5" /> {MSG_FOLIO_ANULADO_LOVABLE}
+                  </p>
+                  <p>No se puede registrar ni cobrar este folio.</p>
+                </div>
+              )}
               {createFolioStatus === "lovable_expired" && (
                 <div className="rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900 space-y-0.5">
                   <p className="font-semibold flex items-center gap-1">
@@ -1749,7 +1926,7 @@ export default function GiftCardsPage() {
             <Button variant="outline" onClick={() => { resetCreateForm(); setIsCreateOpen(false) }} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || (createFolioStatus !== "lovable_valid" && (!newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()))) || createFolioStatus === "checking" || createFolioStatus === "en_agenda" || createFolioStatus === "lovable_expired"}>
+            <Button onClick={handleCreate} disabled={isSubmitting || !newMonto || !newSucursalId || !newCodigo.trim() || (createFolioStatus !== "lovable_valid" && (!newMetodoPago || (newMetodoPago === "otro" && !newMetodoPagoOtro.trim()))) || createFolioStatus === "checking" || createFolioStatus === "en_agenda" || createFolioStatus === "lovable_expired" || createFolioStatus === "lovable_voided"}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creando...</> : "Crear Gift Card"}
             </Button>
           </DialogFooter>
@@ -2217,17 +2394,43 @@ export default function GiftCardsPage() {
                     ? (METODO_LABELS[metodoPagoDisplay.toLowerCase()] ?? metodoPagoDisplay)
                     : "—"
 
+                  const esVip = esRegistroVipPass({
+                    tipo: selectedCard.tipo,
+                    codigo: selectedCard.codigo,
+                  })
+                  const usosRest = usosRestantesVipPass(
+                    selectedCard.saldoInicial,
+                    selectedCard.saldoActual,
+                    selectedCard.vipUsosTotal,
+                  )
+                  const usosHechos = usosHechosVipPass(
+                    selectedCard.saldoInicial,
+                    selectedCard.saldoActual,
+                    selectedCard.vipUsosTotal,
+                  )
+
+                  const campos = [
+                    ...(esVip
+                      ? [{ label: "Servicio", value: selectedCard.vipServicio || "—" }]
+                      : []),
+                    { label: "Cliente",         value: selectedCard.clienteNombre || "Sin asignar" },
+                    { label: "Sucursal",         value: selectedCard.sucursalNombre },
+                    { label: "Método de Pago",   value: metodoPagoLabel },
+                    { label: "Emisor",           value: selectedCard.empleadoEmisorNombre || "—" },
+                    { label: "Fecha Emisión",    value: fmtDate(selectedCard.fechaEmision) },
+                    { label: "Activación",       value: fmtDate(selectedCard.fechaActivacion) },
+                    { label: "Expiración",       value: fmtDate(selectedCard.fechaExpiracion) },
+                    ...(esVip && selectedCard.vipUsosTotal
+                      ? [{
+                          label: "Usos",
+                          value: `${usosHechos ?? "—"} hechos · ${usosRest ?? "—"} restantes (de ${selectedCard.vipUsosTotal})`,
+                        }]
+                      : []),
+                  ]
+
                   return (
                     <div className="grid grid-cols-2 gap-3 text-sm">
-                      {[
-                        { label: "Cliente",         value: selectedCard.clienteNombre || "Sin asignar" },
-                        { label: "Sucursal",         value: selectedCard.sucursalNombre },
-                        { label: "Método de Pago",   value: metodoPagoLabel },
-                        { label: "Emisor",           value: selectedCard.empleadoEmisorNombre || "—" },
-                        { label: "Fecha Emisión",    value: fmtDate(selectedCard.fechaEmision) },
-                        { label: "Activación",       value: fmtDate(selectedCard.fechaActivacion) },
-                        { label: "Expiración",       value: fmtDate(selectedCard.fechaExpiracion) },
-                      ].map(({ label, value }) => (
+                      {campos.map(({ label, value }) => (
                         <div key={label} className="space-y-0.5">
                           <p className="text-xs text-muted-foreground">{label}</p>
                           <p className="font-medium">{value}</p>
@@ -2323,6 +2526,18 @@ export default function GiftCardsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RegistrarVipPassDialog
+        open={isVipRegisterOpen}
+        onOpenChange={(o) => {
+          setIsVipRegisterOpen(o)
+          if (!o) setVipDialogInitial(null)
+        }}
+        currentUser={currentUser}
+        onRegistered={reload}
+        initialFolio={vipDialogInitial?.folio ?? null}
+        initialLovable={vipDialogInitial?.lovable ?? null}
+      />
     </div>
   )
 }

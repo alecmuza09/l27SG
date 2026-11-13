@@ -15,6 +15,7 @@ import {
   Building2,
   LogOut,
   Gift,
+  Crown,
   Tag,
   Palmtree,
   ChevronLeft,
@@ -39,6 +40,7 @@ const GLOBAL_ADMIN_ONLY = new Set([
   "/dashboard/inventario",
   "/dashboard/sucursales",
   "/dashboard/promociones",
+  "/dashboard/vip-pass",
 ])
 
 const SAN_JERONIMO_NAV_HREFS = new Set([
@@ -69,6 +71,7 @@ const navigation = [
 
 const newModules = [
   { name: "Gift Cards",  href: "/dashboard/gift-cards",  icon: Gift    },
+  { name: "VIP Pass",    href: "/dashboard/vip-pass",    icon: Crown   },
   { name: "Promociones", href: "/dashboard/promociones", icon: Tag     },
   { name: "Vacaciones",  href: "/dashboard/vacaciones",  icon: Palmtree},
   { name: "Ausencias",   href: "/dashboard/ausencias",   icon: UserX   },

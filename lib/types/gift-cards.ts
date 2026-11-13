@@ -15,12 +15,18 @@ export interface GiftCard {
   empleadoEmisorNombre: string
   /** Método de pago usado al comprar la gift card */
   metodoPago?: string | null
+  /** gift_card | vip_pass */
+  tipo?: string | null
+  vipServicio?: string | null
+  vipUsosTotal?: number | null
+  vipCampanaId?: string | null
+  origen?: string | null
 }
 
 export interface GiftCardTransaccion {
   id: string
   giftCardId: string
-  tipo: "emision" | "activacion" | "canje" | "recarga" | "cancelacion"
+  tipo: "emision" | "activacion" | "canje" | "recarga" | "cancelacion" | "vip_pass" | "uso" | "compra" | "reembolso"
   monto: number
   saldoAnterior: number
   saldoNuevo: number

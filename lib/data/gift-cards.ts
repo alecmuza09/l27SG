@@ -22,9 +22,40 @@ export function generarCodigoGiftCard(): string {
   return `GC-${part1}-${part2}`
 }
 
-/** VIP Pass = gift card cuyo código contiene PASS o VIP (única regla compartida). */
+/** Fallback histórico: código contiene PASS o VIP (solo si `tipo` aún no está asignado). */
 export function esCodigoVipPass(codigo: string): boolean {
   return /pass|vip/i.test(codigo ?? "")
+}
+
+/** Preferir `tipo === 'vip_pass'`; si tipo es null/vacío, usar esCodigoVipPass. */
+export function esRegistroVipPass(gc: {
+  tipo?: string | null
+  codigo?: string | null
+}): boolean {
+  if (gc.tipo === "vip_pass") return true
+  if (gc.tipo == null || gc.tipo === "") return esCodigoVipPass(String(gc.codigo ?? ""))
+  return false
+}
+
+export function usosRestantesVipPass(
+  montoInicial: number,
+  saldoActual: number,
+  usosTotal: number | null | undefined,
+): number | null {
+  if (!usosTotal || usosTotal <= 0 || montoInicial <= 0) return null
+  const porUso = montoInicial / usosTotal
+  if (porUso <= 0) return null
+  return Math.round(saldoActual / porUso)
+}
+
+export function usosHechosVipPass(
+  montoInicial: number,
+  saldoActual: number,
+  usosTotal: number | null | undefined,
+): number | null {
+  const restantes = usosRestantesVipPass(montoInicial, saldoActual, usosTotal)
+  if (restantes == null || !usosTotal) return null
+  return Math.max(0, usosTotal - restantes)
 }
 
 export interface VipPassResumenRow {
@@ -41,10 +72,14 @@ export interface VipPassResumenRow {
   fechaEmision: string
   fechaVencimiento: string | null
   ultimoCanjeVipPass: string | null
+  vipServicio: string | null
+  vipUsosTotal: number | null
+  usosRestantes: number | null
 }
 
 const VIP_PASS_SELECT = `
-  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, fecha_vencimiento, created_at, cliente_id, sucursal_id,
+  id, codigo, tipo, monto_inicial, saldo_actual, estado, fecha_emision, fecha_vencimiento, created_at, cliente_id, sucursal_id,
+  vip_servicio, vip_usos_total,
   cliente:clientes(nombre, apellido, telefono),
   sucursal:sucursales(nombre)
 `
@@ -63,7 +98,7 @@ export async function getResumenVipPass(opts?: {
       let query = (supabase as any)
         .from("gift_cards")
         .select(VIP_PASS_SELECT)
-        .or("codigo.ilike.%pass%,codigo.ilike.%vip%")
+        .or("tipo.eq.vip_pass,tipo.is.null")
         .order("fecha_emision", { ascending: false })
         .range(offset, offset + PAGE - 1)
 
@@ -84,7 +119,9 @@ export async function getResumenVipPass(opts?: {
       offset += PAGE
     }
 
-    const vipCards = rows.filter((gc) => esCodigoVipPass(String(gc.codigo ?? "")))
+    const vipCards = rows.filter((gc) =>
+      esRegistroVipPass({ tipo: gc.tipo, codigo: String(gc.codigo ?? "") }),
+    )
     if (vipCards.length === 0) return []
 
     const ultimoCanjePorGc = new Map<string, string>()
@@ -125,6 +162,9 @@ export async function getResumenVipPass(opts?: {
       const nombre = gc.cliente
         ? `${gc.cliente.nombre ?? ""} ${gc.cliente.apellido ?? ""}`.trim()
         : ""
+      const montoInicial = Number(gc.monto_inicial) || 0
+      const saldoActual = Number(gc.saldo_actual) || 0
+      const vipUsosTotal = gc.vip_usos_total != null ? Number(gc.vip_usos_total) : null
       return {
         id: gc.id as string,
         codigo: String(gc.codigo ?? ""),
@@ -133,12 +173,15 @@ export async function getResumenVipPass(opts?: {
         telefono: (gc.cliente?.telefono as string) || null,
         sucursalId: String(gc.sucursal_id ?? ""),
         sucursal: (gc.sucursal?.nombre as string) || "",
-        montoInicial: Number(gc.monto_inicial) || 0,
-        saldoActual: Number(gc.saldo_actual) || 0,
+        montoInicial,
+        saldoActual,
         estado: String(gc.estado ?? ""),
         fechaEmision: String(gc.fecha_emision || gc.created_at || "").slice(0, 10),
         fechaVencimiento: gc.fecha_vencimiento ? String(gc.fecha_vencimiento).slice(0, 10) : null,
         ultimoCanjeVipPass: ultimoCanjePorGc.get(gc.id) ?? null,
+        vipServicio: gc.vip_servicio ? String(gc.vip_servicio) : null,
+        vipUsosTotal,
+        usosRestantes: usosRestantesVipPass(montoInicial, saldoActual, vipUsosTotal),
       }
     })
   } catch (error) {
@@ -165,6 +208,11 @@ function mapGiftCard(gc: any): GiftCard {
     empleadoEmisorId: gc.empleado_emisor_id || '',
     empleadoEmisorNombre: gc.empleado ? `${gc.empleado.nombre} ${gc.empleado.apellido}` : '',
     metodoPago: gc.metodo_pago || null,
+    tipo: gc.tipo ?? null,
+    vipServicio: gc.vip_servicio ?? null,
+    vipUsosTotal: gc.vip_usos_total != null ? Number(gc.vip_usos_total) : null,
+    vipCampanaId: gc.vip_campana_id ?? null,
+    origen: gc.origen ?? null,
   }
 }
 

@@ -65,7 +65,7 @@ function normalizarNombreClienteNuevo(valor: string): string {
   return valor.trim().toLocaleUpperCase('es')
 }
 
-function normalizarBusqueda(texto: string): string {
+export function normalizarBusqueda(texto: string): string {
   return texto
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -1475,6 +1475,89 @@ export async function getClientesNuevosDetallePeriodo(
 ): Promise<ClienteNuevoPeriodoRow[]> {
   const { detalle } = await getClientesNuevosEnPeriodo(fechaDesde, fechaHasta, scope)
   return detalle
+}
+
+/** Busca clienta existente por teléfono o correo (evita duplicados al alta). */
+export async function findClienteByTelefonoOrEmail(opts: {
+  telefono?: string | null
+  email?: string | null
+}): Promise<Cliente | null> {
+  const telefono = (opts.telefono ?? "").trim()
+  const email = (opts.email ?? "").trim()
+  const digits = telefono.replace(/\D/g, "")
+
+  try {
+    if (email) {
+      const { data } = await supabase
+        .from("clientes")
+        .select("*")
+        .ilike("email", email)
+        .limit(1)
+      const row = Array.isArray(data) ? data[0] : null
+      if (row) return transformCliente(row as ClienteRow)
+    }
+
+    if (telefono) {
+      const { data } = await supabase
+        .from("clientes")
+        .select("*")
+        .ilike("telefono", telefono)
+        .limit(1)
+      const row = Array.isArray(data) ? data[0] : null
+      if (row) return transformCliente(row as ClienteRow)
+    }
+
+    // Fallback: coincidencia por dígitos del teléfono (formatos distintos)
+    if (digits.length >= 8) {
+      const candidatos = await searchClientesDirecto(digits, 20)
+      const match = candidatos.find((c: any) => {
+        const d = String(c.telefono ?? "").replace(/\D/g, "")
+        return d === digits || d.endsWith(digits) || digits.endsWith(d)
+      })
+      if (match) return transformCliente(match as ClienteRow)
+    }
+  } catch (error) {
+    console.error("Error buscando clienta por teléfono/correo:", error)
+  }
+  return null
+}
+
+/** Nombre + apellido exactos sin distinguir mayúsculas/acentos. */
+export async function findClienteByNombreExacto(
+  nombre: string,
+  apellido: string,
+): Promise<Cliente | null> {
+  const target = normalizarBusqueda(`${nombre} ${apellido}`)
+  if (!target) return null
+  try {
+    const q = `${nombre} ${apellido}`.trim()
+    const candidatos = await searchClientes(q, 50)
+    return (
+      candidatos.find(
+        (c) => normalizarBusqueda(`${c.nombre} ${c.apellido}`) === target,
+      ) ?? null
+    )
+  } catch (error) {
+    console.error("Error buscando clienta por nombre exacto:", error)
+    return null
+  }
+}
+
+/** Duplicado por teléfono/correo o por nombre exacto (prioridad contacto). */
+export async function findPosibleDuplicadoCliente(opts: {
+  nombre: string
+  apellido: string
+  telefono?: string | null
+  email?: string | null
+}): Promise<{ cliente: Cliente; motivo: "telefono_correo" | "nombre" } | null> {
+  const porContacto = await findClienteByTelefonoOrEmail({
+    telefono: opts.telefono,
+    email: opts.email,
+  })
+  if (porContacto) return { cliente: porContacto, motivo: "telefono_correo" }
+  const porNombre = await findClienteByNombreExacto(opts.nombre, opts.apellido)
+  if (porNombre) return { cliente: porNombre, motivo: "nombre" }
+  return null
 }
 
 // Crear un nuevo cliente

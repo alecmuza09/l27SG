@@ -4,8 +4,10 @@ import { supabase } from '@/lib/supabase/client'
 import {
   fechaVencimientoDesdeExpiresAt,
   mensajeGiftCardExpiradaLovable,
+  MSG_FOLIO_ANULADO_LOVABLE,
   verificarFolioEnLovable,
 } from '@/lib/data/gift-card-lovable-verify'
+import { esRegistroVipPass } from '@/lib/data/gift-cards'
 
 export interface Pago {
   id: string
@@ -1132,7 +1134,7 @@ export async function validarGiftCard(
     // .limit(1) en lugar de .single() para no lanzar error cuando no existe
     const { data, error } = await (supabase as any)
       .from('gift_cards')
-      .select('id, codigo, saldo_actual, estado, fecha_vencimiento, origen')
+      .select('id, codigo, saldo_actual, estado, fecha_vencimiento, origen, tipo')
       .ilike('codigo', codigoLimpio)
       .limit(1)
 
@@ -1143,6 +1145,8 @@ export async function validarGiftCard(
 
     const row = Array.isArray(data) ? data[0] : null
     if (!row) return { valida: false, error: 'Gift card no encontrada' }
+
+    const esVip = esRegistroVipPass({ tipo: row.tipo, codigo: row.codigo })
 
     if (row.estado === 'pendiente') {
       if (Number(row.saldo_actual) > 0) {
@@ -1166,8 +1170,12 @@ export async function validarGiftCard(
 
     // GC de tienda en línea: reconsultar Lovable (fuente de vigencia de Promos Especiales).
     // Si Lovable no responde, se usa la fecha_vencimiento local como fallback.
+    // VIP Pass: un error/reason inesperado nunca bloquea el cobro.
     if (row.origen === 'en_linea') {
       const lovable = await verificarFolioEnLovable(row.codigo)
+      if (lovable.outcome === 'voided') {
+        return { valida: false, error: MSG_FOLIO_ANULADO_LOVABLE }
+      }
       if (lovable.outcome === 'expired') {
         const fecha = fechaVencimientoDesdeExpiresAt(lovable.giftcard.expires_at)
         const patch: Record<string, unknown> = { estado: 'expirada' }
@@ -1187,6 +1195,11 @@ export async function validarGiftCard(
             .eq('id', row.id)
           row.fecha_vencimiento = fecha
         }
+      } else if (esVip && (lovable.outcome === 'fetch_failed' || lovable.outcome === 'not_found')) {
+        console.warn(
+          '[validarGiftCard] Lovable no disponible/inesperado para VIP Pass; se continúa con datos locales',
+          lovable,
+        )
       }
     }
 

@@ -13,6 +13,12 @@ export type LovableGiftcardPayload = {
   package_option: number
   amount: number
   customer_name: string
+  /** Teléfono de quien compró (opcional; Lovable puede no enviarlo) */
+  customer_phone?: string | null
+  /** Correo de quien compró (opcional) */
+  customer_email?: string | null
+  /** Nombre del destinatario / titular si es regalo (opcional) */
+  recipient_name?: string | null
   purchased_at: string
   redeemed: boolean
   redeemed_at: string | null
@@ -25,8 +31,11 @@ export type LovableGiftcardPayload = {
 export type VerificarFolioLovableResult =
   | { outcome: "found"; giftcard: LovableGiftcardPayload; codigoConsultado: string }
   | { outcome: "expired"; giftcard: LovableGiftcardPayload; codigoConsultado: string }
+  | { outcome: "voided"; giftcard?: LovableGiftcardPayload; codigoConsultado: string }
   | { outcome: "not_found" }
   | { outcome: "fetch_failed"; kind: "server" | "network" }
+
+export const MSG_FOLIO_ANULADO_LOVABLE = "Folio anulado, no es válido" as const
 
 type LovableVerifyResponse = {
   valid?: boolean
@@ -91,6 +100,10 @@ function esRespuestaExpirada(data: LovableVerifyResponse): boolean {
   return false
 }
 
+function esRespuestaAnulada(data: LovableVerifyResponse): boolean {
+  return data.reason === "voided"
+}
+
 /** Variantes del folio para consultar Lovable o la BD (p. ej. con y sin guión). */
 export function variantesCodigoConsultaLovable(codigo: string): string[] {
   const t = codigo.trim()
@@ -132,21 +145,31 @@ export async function verificarFolioEnLovable(folio: string): Promise<VerificarF
       }
 
       if (data && esRespuestaExpirada(data)) {
-        const giftcard: LovableGiftcardPayload = data.giftcard ?? {
-          folio: code,
-          type: "",
-          package_name: "",
-          package_option: 0,
-          amount: 0,
-          customer_name: "",
-          purchased_at: "",
-          redeemed: false,
-          redeemed_at: null,
-          redeemed_by: null,
-          expires_at: data.giftcard?.expires_at ?? null,
-          is_expired: true,
-        }
+        const giftcard: LovableGiftcardPayload = data.giftcard
+          ? { ...data.giftcard, is_expired: true }
+          : {
+              folio: code,
+              type: "",
+              package_name: "",
+              package_option: 0,
+              amount: 0,
+              customer_name: "",
+              purchased_at: "",
+              redeemed: false,
+              redeemed_at: null,
+              redeemed_by: null,
+              expires_at: null,
+              is_expired: true,
+            }
         return { outcome: "expired", giftcard, codigoConsultado: code }
+      }
+
+      if (data && esRespuestaAnulada(data)) {
+        return {
+          outcome: "voided",
+          giftcard: data.giftcard,
+          codigoConsultado: code,
+        }
       }
 
       if (!res.ok) {

@@ -53,7 +53,7 @@ import { type Periodo, calcularPeriodo, localFmt, OPCIONES_PERIODO } from "@/lib
 import { getSucursalesActivasFromDB, getSucursalesByIdsFromDB, type Sucursal } from "@/lib/data/sucursales"
 import { getCurrentUser, refreshSession, isGlobalAdministrator, effectivePrimarySucursalId, userHasMultiBranchScope, collectEffectiveSucursalIds, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
-import { esCodigoVipPass, getResumenVipPass, type VipPassResumenRow } from "@/lib/data/gift-cards"
+import { esRegistroVipPass, getResumenVipPass, type VipPassResumenRow } from "@/lib/data/gift-cards"
 import { Input } from "@/components/ui/input"
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -83,6 +83,7 @@ interface CanjeGcPdfRow {
   monto: number
   empleada: string
   sucursal: string
+  tipoGc?: string | null
 }
 interface ClienteTopRow   { clienteId: string; nombre: string; visitas: number; totalGastado: number; ultimaVisita: string }
 interface KpiStats        { ingresosTotales: number; totalServicios: number; ticketPromedio: number }
@@ -432,7 +433,7 @@ function labelMetodoPagoGc(raw?: string | null): string {
 }
 
 const GC_SELECT_PDF = `
-  id, codigo, monto_inicial, saldo_actual, estado, fecha_emision, created_at, metodo_pago, sucursal_id, origen,
+  id, codigo, tipo, monto_inicial, saldo_actual, estado, fecha_emision, created_at, metodo_pago, sucursal_id, origen,
   cliente:clientes(nombre, apellido),
   sucursal:sucursales(nombre)
 `
@@ -455,7 +456,7 @@ async function fetchGiftCardsParaPdf(
       .order("fecha_emision", { ascending: true })
       .range(offset, offset + PAGE - 1)
 
-    // Excluir GC de tienda en línea; VIP Pass se filtra con esCodigoVipPass al mapear
+    // Excluir GC de tienda en línea; VIP Pass se filtra por tipo (fallback código) al mapear
     query = query.neq("origen", "en_linea")
 
     // Si hay filtro por sucursal, mostrar solo las que ESA sucursal vendió
@@ -472,7 +473,7 @@ async function fetchGiftCardsParaPdf(
   }
 
   return rows
-    .filter((gc: any) => !esCodigoVipPass(String(gc.codigo ?? "")))
+    .filter((gc: any) => !esRegistroVipPass({ tipo: gc.tipo, codigo: String(gc.codigo ?? "") }))
     .map((gc: any) => {
       const montoInicial = Number(gc.monto_inicial) || 0
       const saldoActual = Number(gc.saldo_actual) || 0
@@ -509,7 +510,7 @@ async function fetchCanjesParaPdf(
         empleado:empleados(nombre, apellido),
         sucursal:sucursales(nombre),
         pago:pagos(sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre)),
-        gift_card:gift_cards(codigo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
+        gift_card:gift_cards(codigo, tipo, sucursal_id, cliente:clientes(nombre, apellido), sucursal:sucursales(nombre))
       `)
       .in("tipo", ["canje", "uso", "descuento", "cobro", "vip_pass"])
       .gte("fecha", fechaDesde)
@@ -584,6 +585,7 @@ async function fetchCanjesParaPdf(
           || gc.sucursal?.nombre
           || gc.sucursal_id
           || "—",
+        tipoGc: gc.tipo ?? null,
       }
     })
     .filter((r): r is CanjeGcPdfRow => r !== null)
@@ -1105,9 +1107,9 @@ async function renderSeccionGcPdf(
     },
   })
 
-  // Separar canjes normales de VIP Pass
-  const canjesNormales = opts.canjes.filter(c => !esCodigoVipPass(c.codigo))
-  const canjesVipPass = opts.canjes.filter(c => esCodigoVipPass(c.codigo))
+  // Separar canjes normales de VIP Pass (tipo preferente; fallback código)
+  const canjesNormales = opts.canjes.filter(c => !esRegistroVipPass({ tipo: c.tipoGc, codigo: c.codigo }))
+  const canjesVipPass = opts.canjes.filter(c => esRegistroVipPass({ tipo: c.tipoGc, codigo: c.codigo }))
 
   // Título canjes GC normales
   const y2 = (doc as any).lastAutoTable?.finalY ?? y1 + 40
@@ -3114,6 +3116,8 @@ export default function ReportesPage() {
       Clienta: t.clienta || "Sin clienta",
       Teléfono: t.telefono || "",
       Código: t.codigo,
+      Servicio: t.vipServicio || "",
+      "Usos restantes": t.usosRestantes ?? "",
       Sucursal: t.sucursal || "",
       "Monto inicial": t.montoInicial,
       "Saldo actual": t.saldoActual,
@@ -4298,8 +4302,10 @@ export default function ReportesPage() {
                                         <TableHeader>
                                           <TableRow>
                                             <TableHead>Código</TableHead>
+                                            <TableHead>Servicio</TableHead>
                                             <TableHead className="text-right">Monto inicial</TableHead>
                                             <TableHead className="text-right">Saldo</TableHead>
+                                            <TableHead className="text-right">Usos restantes</TableHead>
                                             <TableHead>Estado</TableHead>
                                             <TableHead>Emisión</TableHead>
                                             <TableHead>Vence</TableHead>
@@ -4311,8 +4317,10 @@ export default function ReportesPage() {
                                           {g.tarjetas.map(t => (
                                             <TableRow key={t.id}>
                                               <TableCell className="font-mono text-xs">{t.codigo}</TableCell>
+                                              <TableCell className="text-sm">{t.vipServicio || "—"}</TableCell>
                                               <TableCell className="text-right tabular-nums">{fmtMXN(t.montoInicial)}</TableCell>
                                               <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(t.saldoActual)}</TableCell>
+                                              <TableCell className="text-right tabular-nums">{t.usosRestantes ?? "—"}</TableCell>
                                               <TableCell>
                                                 <Badge variant={t.estado === "activa" ? "default" : "secondary"}>
                                                   {labelEstadoGc(t.estado)}
@@ -4361,8 +4369,10 @@ export default function ReportesPage() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Código</TableHead>
+                            <TableHead>Servicio</TableHead>
                             <TableHead className="text-right">Monto inicial</TableHead>
                             <TableHead className="text-right">Saldo</TableHead>
+                            <TableHead className="text-right">Usos restantes</TableHead>
                             <TableHead>Estado</TableHead>
                             <TableHead>Emisión</TableHead>
                             <TableHead>Vence</TableHead>
@@ -4374,8 +4384,10 @@ export default function ReportesPage() {
                           {vipPassSinClientaFiltradas.map(t => (
                             <TableRow key={t.id}>
                               <TableCell className="font-mono text-xs">{t.codigo}</TableCell>
+                              <TableCell className="text-sm">{t.vipServicio || "—"}</TableCell>
                               <TableCell className="text-right tabular-nums">{fmtMXN(t.montoInicial)}</TableCell>
                               <TableCell className="text-right tabular-nums font-semibold">{fmtMXN(t.saldoActual)}</TableCell>
+                              <TableCell className="text-right tabular-nums">{t.usosRestantes ?? "—"}</TableCell>
                               <TableCell>
                                 <Badge variant={t.estado === "activa" ? "default" : "secondary"}>
                                   {labelEstadoGc(t.estado)}

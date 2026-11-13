@@ -22,6 +22,7 @@ const GLOBAL_ADMIN_ONLY_ROUTES = [
   "/dashboard/inventario",
   "/dashboard/sucursales",
   "/dashboard/promociones",
+  "/dashboard/vip-pass",
 ]
 
 // Excepción: stock por sucursal, disponible para cualquier usuario con sucursal asignada (ver lib/auth.ts)
