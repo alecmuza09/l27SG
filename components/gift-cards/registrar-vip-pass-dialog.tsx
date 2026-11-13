@@ -60,7 +60,7 @@ import {
 } from "@/lib/data/vip-pass"
 import type { VipPassCampana, VipPassPrecio } from "@/lib/types/vip-pass"
 import type { User } from "@/lib/auth"
-import { isGlobalAdministrator } from "@/lib/auth"
+import { canRegistrarVipPass, isGlobalAdministrator } from "@/lib/auth"
 
 function textoSugeridoBusquedaLovable(gc: LovableGiftcardPayload): string {
   const recipient = (gc.recipient_name || "").trim()
@@ -444,6 +444,10 @@ export function RegistrarVipPassDialog({
 
   const ejecutarRegistro = async () => {
     if (!campana) return
+    if (!canRegistrarVipPass(currentUser, campana.sucursalVentaId)) {
+      toast.error("No tienes permiso para registrar VIP Pass. Solo admin o recepción de la sucursal de venta.")
+      return
+    }
     if (folioStatus === "voided") {
       toast.error(MSG_FOLIO_ANULADO_LOVABLE)
       return
@@ -570,6 +574,10 @@ export function RegistrarVipPassDialog({
           ) : !campana ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
               No hay campaña VIP Pass activa. Un admin debe activarla en VIP Pass.
+            </p>
+          ) : !canRegistrarVipPass(currentUser, campana.sucursalVentaId) ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No tienes permiso para registrar VIP Pass. Pide a un admin o a recepción de La Aurora que la registre.
             </p>
           ) : (
             <div className="space-y-4 py-1">

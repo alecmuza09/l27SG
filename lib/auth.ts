@@ -255,3 +255,18 @@ export function pathnameAllowedForSanJeronimoUser(pathname: string): boolean {
 export function usuarioPuedeVerStockSucursal(user: User | null): boolean {
   return !!effectivePrimarySucursalId(user)
 }
+
+/**
+ * Registrar VIP Pass: admin/superadmin, o sucursal PRINCIPAL del usuario
+ * (`user.sucursalId` / `usuarios.sucursal_id`) igual a la sucursal de venta de la campaña.
+ * No cuenta sucursales adicionales de `usuario_sucursales`.
+ */
+export function canRegistrarVipPass(
+  user: User | null,
+  sucursalVentaId: string | null | undefined,
+): boolean {
+  if (!user) return false
+  if (isGlobalAdministrator(user)) return true
+  if (!sucursalVentaId || !user.sucursalId) return false
+  return user.sucursalId === sucursalVentaId
+}

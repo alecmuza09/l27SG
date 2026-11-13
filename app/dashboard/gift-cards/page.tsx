@@ -93,7 +93,7 @@ import {
   MSG_FOLIO_ANULADO_LOVABLE,
   type LovableGiftcardPayload,
 } from "@/lib/data/gift-card-lovable-verify"
-import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, type User } from "@/lib/auth"
+import { getCurrentUser, refreshSession, isGlobalAdministrator, collectEffectiveSucursalIds, canRegistrarVipPass, type User } from "@/lib/auth"
 import { supabase } from "@/lib/supabase/client"
 import { METODO_PAGO_REGISTRO_GC_TIENDA_EN_LINEA } from "@/lib/data/pagos"
 import { RegistrarVipPassDialog } from "@/components/gift-cards/registrar-vip-pass-dialog"
@@ -348,11 +348,7 @@ export default function GiftCardsPage() {
         setGiftCardsSucursalScope(sid)
         const campanaActiva = await getVipPassCampanaActiva()
         setVipCampanaActiva(campanaActiva)
-        const branchIds = collectEffectiveSucursalIds(u)
-        const puede =
-          isGlobalAdministrator(u) ||
-          (!!campanaActiva?.sucursalVentaId && branchIds.includes(campanaActiva.sucursalVentaId))
-        setPuedeRegistrarVip(puede)
+        setPuedeRegistrarVip(canRegistrarVipPass(u, campanaActiva?.sucursalVentaId))
         const [result, kpiData, sucData] = await Promise.all([
           getGiftCardsFromDB({ page: 0, pageSize: PAGE_SIZE, sucursalId: sid }),
           getGiftCardsKPIsFromDB(sid),
