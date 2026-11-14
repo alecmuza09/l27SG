@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client"
 import { registrarPagoEmisionGiftCard } from "@/lib/data/pagos"
 import type {
+  LovableVipSaleItem,
   VipPassCampana,
   VipPassCanal,
   VipPassEtiquetaPrecio,
@@ -464,7 +465,8 @@ export async function getInventarioVipPassCampana(
         clienta = row.cliente
           ? `${row.cliente.nombre ?? ""} ${row.cliente.apellido ?? ""}`.trim() || null
           : null
-        estado = row.estado === "cancelada" ? "anulado" : "vendido"
+        // En agenda = entregado (incluye físicos). cancelada rara → sigue entregado si existe GC.
+        estado = "entregado"
       }
 
       const esHueco =
@@ -491,16 +493,159 @@ export async function getInventarioVipPassCampana(
   pushRango(campana.lineaDesde, campana.lineaHasta, "linea")
   pushRango(campana.fisicoDesde, campana.fisicoHasta, "fisico")
 
+  const totalEntregados = folios.filter((f) => f.estado === "entregado").length
   return {
     campana,
     siguienteLibreLinea,
     siguienteLibreFisico,
     folios,
     totalDisponibles: folios.filter((f) => f.estado === "disponible").length,
-    totalVendidos: folios.filter((f) => f.estado === "vendido").length,
+    totalVendidos: totalEntregados,
+    totalEntregados,
+    totalVendidosEnLinea: 0,
     totalAnulados: folios.filter((f) => f.estado === "anulado").length,
     totalHuecos: folios.filter((f) => f.esHueco).length,
+    lovableConsultaOk: true,
   }
+}
+
+function recalcularHuecosYTotales(
+  campana: VipPassCampana,
+  foliosIn: VipPassInventarioFolio[],
+  siguienteLibreLinea: number | null,
+  siguienteLibreFisico: number | null,
+  lovableConsultaOk: boolean,
+): VipPassInventarioResumen {
+  const marcarHuecos = (canal: VipPassCanal, desde: number, hasta: number) => {
+    const ocupados = foliosIn
+      .filter((f) => f.canal === canal && f.estado !== "disponible" && f.numero >= desde && f.numero <= hasta)
+      .map((f) => f.numero)
+      .sort((a, b) => a - b)
+
+    for (const f of foliosIn) {
+      if (f.canal !== canal) continue
+      if (f.estado !== "disponible") {
+        f.esHueco = false
+        continue
+      }
+      f.esHueco =
+        ocupados.length > 0 &&
+        f.numero > ocupados[0] &&
+        f.numero < ocupados[ocupados.length - 1] &&
+        ocupados.some((v) => v < f.numero) &&
+        ocupados.some((v) => v > f.numero)
+    }
+  }
+
+  marcarHuecos("linea", campana.lineaDesde, campana.lineaHasta)
+  marcarHuecos("fisico", campana.fisicoDesde, campana.fisicoHasta)
+
+  const totalEntregados = foliosIn.filter((f) => f.estado === "entregado").length
+  const totalVendidosEnLinea = foliosIn.filter((f) => f.estado === "vendido_en_linea").length
+  return {
+    campana,
+    siguienteLibreLinea,
+    siguienteLibreFisico,
+    folios: foliosIn,
+    totalDisponibles: foliosIn.filter((f) => f.estado === "disponible").length,
+    totalVendidos: totalEntregados,
+    totalEntregados,
+    totalVendidosEnLinea,
+    totalAnulados: foliosIn.filter((f) => f.estado === "anulado").length,
+    totalHuecos: foliosIn.filter((f) => f.esHueco).length,
+    lovableConsultaOk,
+  }
+}
+
+/**
+ * Combina inventario de agenda con ventas luna27.mx.
+ * Si ventas es null, conserva datos de agenda y marca lovableConsultaOk=false.
+ * Agenda (gift_cards) siempre gana → Entregado.
+ */
+export function enriquecerInventarioConVentasLovable(
+  base: VipPassInventarioResumen,
+  ventas: LovableVipSaleItem[] | null,
+): VipPassInventarioResumen {
+  const campana = base.campana
+  const byLovable = new Map<number, LovableVipSaleItem>()
+
+  if (ventas) {
+    for (const v of ventas) {
+      const num = parseNumeroFolioVip(v.folio, campana.folioPrefijo)
+      if (num == null) continue
+      if (num < campana.lineaDesde || num > campana.lineaHasta) continue
+      byLovable.set(num, v)
+    }
+  }
+
+  const ocupadosLinea = new Set<number>()
+  const ocupadosFisico = new Set<number>()
+
+  const folios: VipPassInventarioFolio[] = base.folios.map((f) => {
+    // Agenda manda: existe en gift_cards → Entregado
+    if (f.giftCardId) {
+      if (f.canal === "linea") ocupadosLinea.add(f.numero)
+      else ocupadosFisico.add(f.numero)
+      return {
+        ...f,
+        estado: "entregado" as const,
+        esHueco: false,
+      }
+    }
+
+    if (f.canal === "linea" && ventas) {
+      const lv = byLovable.get(f.numero)
+      if (lv) {
+        ocupadosLinea.add(f.numero)
+        if (lv.status === "voided") {
+          return {
+            ...f,
+            estado: "anulado" as const,
+            clienta: null,
+            servicio: null,
+            giftCardId: null,
+            esHueco: false,
+          }
+        }
+        return {
+          ...f,
+          estado: "vendido_en_linea" as const,
+          clienta: lv.customer_name?.trim() || null,
+          servicio: lv.package_name?.trim() || null,
+          giftCardId: null,
+          esHueco: false,
+        }
+      }
+    }
+
+    return {
+      ...f,
+      estado: "disponible" as const,
+      clienta: null,
+      servicio: null,
+      giftCardId: null,
+      esHueco: false,
+    }
+  })
+
+  const siguienteLibreLinea = siguienteFolioLibreEnRango(
+    campana.lineaDesde,
+    campana.lineaHasta,
+    ocupadosLinea,
+  )
+  const siguienteLibreFisico = siguienteFolioLibreEnRango(
+    campana.fisicoDesde,
+    campana.fisicoHasta,
+    ocupadosFisico,
+  )
+
+  return recalcularHuecosYTotales(
+    campana,
+    folios,
+    siguienteLibreLinea,
+    siguienteLibreFisico,
+    ventas != null,
+  )
 }
 
 export async function giftCardExisteCodigoInsensitive(codigo: string): Promise<boolean> {

@@ -27,8 +27,23 @@ export interface VipPassPrecio {
   activo: boolean
 }
 
-export type VipPassFolioEstado = "disponible" | "vendido" | "anulado"
+export type VipPassFolioEstado =
+  | "disponible"
+  | "vendido"
+  | "entregado"
+  | "vendido_en_linea"
+  | "anulado"
 export type VipPassCanal = "linea" | "fisico"
+
+/** Item de GET /api/public/vip-sales (sin voided_at). */
+export type LovableVipSaleItem = {
+  folio: string
+  status: "paid" | "voided"
+  customer_name: string
+  package_name: string
+  amount: number
+  purchased_at: string
+}
 
 export interface VipPassInventarioFolio {
   numero: number
@@ -47,7 +62,12 @@ export interface VipPassInventarioResumen {
   siguienteLibreFisico: number | null
   folios: VipPassInventarioFolio[]
   totalDisponibles: number
+  /** @deprecated Preferir totalEntregados; se mantiene por compatibilidad. */
   totalVendidos: number
+  totalEntregados: number
+  totalVendidosEnLinea: number
   totalAnulados: number
   totalHuecos: number
+  /** false si falló o expiró la consulta a luna27.mx */
+  lovableConsultaOk: boolean
 }

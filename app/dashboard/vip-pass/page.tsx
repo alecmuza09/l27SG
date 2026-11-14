@@ -42,11 +42,13 @@ import {
 } from "@/components/ui/table"
 import { getCurrentUser, isGlobalAdministrator, refreshSession } from "@/lib/auth"
 import { getSucursalesActivasFromDB, type Sucursal } from "@/lib/data/sucursales"
+import { consultarVentasVipLovable } from "@/app/actions/vip-pass-lovable-sales"
 import {
   actualizarVipPassCampana,
   actualizarVipPassPrecio,
   crearVipPassCampana,
   crearVipPassPrecio,
+  enriquecerInventarioConVentasLovable,
   formatearFolioVip,
   getInventarioVipPassCampana,
   getVipPassCampanaActiva,
@@ -56,9 +58,18 @@ import {
 import type {
   VipPassCampana,
   VipPassEtiquetaPrecio,
+  VipPassFolioEstado,
   VipPassInventarioResumen,
   VipPassPrecio,
 } from "@/lib/types/vip-pass"
+
+const ESTADO_LABEL: Record<VipPassFolioEstado, string> = {
+  disponible: "Disponible",
+  vendido: "Entregado",
+  entregado: "Entregado",
+  vendido_en_linea: "Vendido en línea",
+  anulado: "Anulado",
+}
 
 const emptyCampanaForm = () => ({
   nombre: "",
@@ -92,7 +103,9 @@ export default function VipPassAdminPage() {
   const [precios, setPrecios] = useState<VipPassPrecio[]>([])
   const [inventario, setInventario] = useState<VipPassInventarioResumen | null>(null)
   const [inventarioLoading, setInventarioLoading] = useState(false)
-  const [inventarioFiltro, setInventarioFiltro] = useState<"todos" | "disponible" | "vendido" | "anulado" | "huecos">("todos")
+  const [inventarioFiltro, setInventarioFiltro] = useState<
+    "todos" | "disponible" | "vendido_en_linea" | "entregado" | "anulado" | "huecos"
+  >("todos")
   const [inventarioCanal, setInventarioCanal] = useState<"todos" | "linea" | "fisico">("todos")
   const [inventarioSearch, setInventarioSearch] = useState("")
   const [preciosCampanaId, setPreciosCampanaId] = useState<string>("")
@@ -134,7 +147,21 @@ export default function VipPassAdminPage() {
     setInventarioLoading(true)
     try {
       const inv = await getInventarioVipPassCampana(campanaId)
-      setInventario(inv)
+      if (!inv) {
+        setInventario(null)
+        return
+      }
+
+      const fromFolio = formatearFolioVip(inv.campana.folioPrefijo, inv.campana.lineaDesde)
+      const toFolio = formatearFolioVip(inv.campana.folioPrefijo, inv.campana.lineaHasta)
+      const lovable = await consultarVentasVipLovable({ fromFolio, toFolio })
+
+      setInventario(
+        enriquecerInventarioConVentasLovable(
+          inv,
+          lovable.ok ? lovable.items : null,
+        ),
+      )
     } finally {
       setInventarioLoading(false)
     }
@@ -485,7 +512,7 @@ export default function VipPassAdminPage() {
             <p className="text-sm text-muted-foreground">Activa una campaña para ver inventario.</p>
           ) : (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <Card>
                   <CardHeader className="pb-1 pt-3 px-4">
                     <CardDescription>Disponibles</CardDescription>
@@ -494,8 +521,15 @@ export default function VipPassAdminPage() {
                 </Card>
                 <Card>
                   <CardHeader className="pb-1 pt-3 px-4">
-                    <CardDescription>Vendidos</CardDescription>
-                    <CardTitle className="text-xl">{inventario?.totalVendidos ?? "…"}</CardTitle>
+                    <CardDescription>Vendidos en línea</CardDescription>
+                    <CardTitle className="text-xl">{inventario?.totalVendidosEnLinea ?? "…"}</CardTitle>
+                    <p className="text-[11px] text-muted-foreground">Sin entregar</p>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-1 pt-3 px-4">
+                    <CardDescription>Entregados</CardDescription>
+                    <CardTitle className="text-xl">{inventario?.totalEntregados ?? "…"}</CardTitle>
                   </CardHeader>
                 </Card>
                 <Card>
@@ -528,12 +562,19 @@ export default function VipPassAdminPage() {
                 </Card>
               </div>
 
+              {inventario && !inventario.lovableConsultaOk && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <p>No se pudo consultar luna27.mx; los vendidos en línea pueden no verse.</p>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-2">
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     className="pl-8 h-9"
-                    placeholder="Buscar folio, clienta…"
+                    placeholder="Buscar folio, clienta, compradora…"
                     value={inventarioSearch}
                     onChange={(e) => setInventarioSearch(e.target.value)}
                   />
@@ -547,11 +588,12 @@ export default function VipPassAdminPage() {
                   </SelectContent>
                 </Select>
                 <Select value={inventarioFiltro} onValueChange={(v) => setInventarioFiltro(v as typeof inventarioFiltro)}>
-                  <SelectTrigger className="w-40 h-9"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-44 h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos estados</SelectItem>
                     <SelectItem value="disponible">Disponible</SelectItem>
-                    <SelectItem value="vendido">Vendido</SelectItem>
+                    <SelectItem value="vendido_en_linea">Vendido en línea</SelectItem>
+                    <SelectItem value="entregado">Entregado</SelectItem>
                     <SelectItem value="anulado">Anulado</SelectItem>
                     <SelectItem value="huecos">Solo huecos</SelectItem>
                   </SelectContent>
@@ -605,13 +647,21 @@ export default function VipPassAdminPage() {
                                         ? "outline"
                                         : f.estado === "anulado"
                                           ? "destructive"
-                                          : "default"
+                                          : f.estado === "vendido_en_linea"
+                                            ? "secondary"
+                                            : "default"
                                     }
                                   >
-                                    {f.estado}
+                                    {ESTADO_LABEL[f.estado] ?? f.estado}
                                   </Badge>
                                 </TableCell>
-                                <TableCell className="text-sm">{f.clienta || "—"}</TableCell>
+                                <TableCell className="text-sm">
+                                  {f.estado === "vendido_en_linea" && f.clienta ? (
+                                    <span className="text-muted-foreground">Compró: {f.clienta}</span>
+                                  ) : (
+                                    f.clienta || "—"
+                                  )}
+                                </TableCell>
                                 <TableCell className="text-sm">{f.servicio || "—"}</TableCell>
                                 <TableCell className="text-xs text-amber-700">
                                   {f.esHueco ? "Hueco entre vendidos" : ""}
